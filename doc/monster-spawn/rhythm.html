@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>节奏表 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：节奏表</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html" class="active">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>4. 节奏表（spawn_config.xlsx）</h2>
+        <p>
+          路径：<code class="path">config/luban/Datas/spawn_config.xlsx</code><br />
+          Bean：<code>__beans__.xlsx</code> 中的 <code>SpawnStartTrigger</code> / <code>SpawnOnCleared</code>（Luban 正式多态，<code>sep=,</code>）
+        </p>
+
+        <h3>4.1 列说明</h3>
+        <table>
+          <thead><tr><th>列</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>int</td><td>行主键，全表唯一</td></tr>
+            <tr><td><code>logic_scene_id</code></td><td>int</td><td>逻辑场景 ID</td></tr>
+            <tr><td><code>layer_id</code></td><td>int</td><td>层 ID = 种植卡 #ID</td></tr>
+            <tr><td><code>start_trigger</code></td><td>SpawnStartTrigger</td><td>何时开始刷本层</td></tr>
+            <tr><td><code>on_cleared</code></td><td>SpawnOnCleared</td><td>本层怪<strong>全部死光</strong>后做什么</td></tr>
+            <tr><td><code>gen_intervals</code></td><td>list&lt;float&gt;，<code>;</code> 分隔</td><td>分波间隔（秒），可空</td></tr>
+            <tr><td><code>gen_nums</code></td><td>list&lt;int&gt;，<code>;</code> 分隔</td><td>每波数量，可空</td></tr>
+            <tr><td><code>sort_order</code></td><td>int</td><td>同场景排序权重</td></tr>
+          </tbody>
+        </table>
+
+        <h3>4.2 多态单元格写法</h3>
+        <ul>
+          <li>无参：只写类型名，如 <code>ImmediateStart</code></li>
+          <li>有参：<code>类型名,字段1,字段2,...</code>（顺序与 bean 字段一致）</li>
+          <li>导出 JSON 形如：<code>{ "$type": "RespawnAction", "interval": 3, "max_rounds": 0 }</code></li>
+        </ul>
+
+        <h3>4.3 start_trigger</h3>
+        <table>
+          <thead><tr><th>单元格</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>ImmediateStart</code></td><td>进场 / 层激活后立刻刷</td></tr>
+            <tr><td><code>AfterLayerStart,&lt;layerId&gt;</code></td><td>指定层清完后再开本层</td></tr>
+            <tr><td><code>RangeStart,&lt;r&gt;,&lt;x&gt;,&lt;y&gt;,&lt;z&gt;</code></td><td>玩家靠近中心半径内再刷</td></tr>
+            <tr><td><code>ManualStart,&lt;key&gt;</code></td><td>手动唤醒（预留）</td></tr>
+            <tr><td><code>OnHpBelowStart,&lt;layerId&gt;,&lt;hp&gt;</code></td><td>目标层血量 ≤ 比例（0~1）后开</td></tr>
+          </tbody>
+        </table>
+
+        <h3>4.4 on_cleared</h3>
+        <table>
+          <thead><tr><th>单元格</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>EndAction</code></td><td>本层结束，不再由本层驱动后续</td></tr>
+            <tr><td><code>RespawnAction,&lt;秒&gt;,&lt;轮数&gt;</code></td><td>清完等待后<strong>本层再刷一轮</strong>；轮数 <code>0</code>=无限</td></tr>
+            <tr><td><code>TriggerLayerAction,&lt;layerId&gt;</code></td><td>清完去激活另一层</td></tr>
+            <tr><td><code>LoopBackAction,&lt;layerId&gt;,&lt;轮数&gt;</code></td><td>清完跳回某层；轮数 <code>0</code>=无限</td></tr>
+          </tbody>
+        </table>
+
+        <h3>4.5 gen_nums / gen_intervals（分波）</h3>
+        <p>两列都<strong>留空</strong> = 本层种植点<strong>一次全刷完</strong>。</p>
+        <table>
+          <thead><tr><th>gen_nums</th><th>gen_intervals</th><th>行为</th></tr></thead>
+          <tbody>
+            <tr><td><code>3;4;3</code></td><td><code>2;5</code></td><td>先 3 → 等 2 秒 → 再 4 → 等 5 秒 → 再 3</td></tr>
+            <tr><td>（空）</td><td>（空）</td><td>一次刷完</td></tr>
+          </tbody>
+        </table>
+        <div class="note">
+          <code>gen_intervals</code> 通常比 <code>gen_nums</code> <strong>少 1 个</strong>（最后一波后不用再等）。
+          分波是<strong>开刷时</strong>怎么出；与死光后的 <code>on_cleared</code> 无关。
+        </div>
+
+<div class="pager"><a href="plant.html">← 种植</a><a class="next" href="demos.html">Demo 目录 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

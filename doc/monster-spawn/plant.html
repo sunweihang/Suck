@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>种植 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：种植</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html" class="active">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>3. 种植（逻辑场景 index.json）</h2>
+        <p>路径示例：<code class="path">assets/resources/scenes/600/logic/600/index.json</code></p>
+<pre>{
+  "logicId": 600,
+  "assetsSceneId": 600,
+  "monsterSpawn": {
+    "formatVersion": 1,
+    "logicSceneId": 600,
+    "resourceSceneId": "600",
+    "layers": [
+      {
+        "layerId": 1,
+        "layerName": "default",
+        "items": [
+          {
+            "position": { "x": 16.99, "y": 0.5, "z": 12.43 },
+            "scale": { "x": 2.3, "y": 1, "z": 2.6 },
+            "enemyKeys": ["Enemy02"],
+            "enemyCount": 1,
+            "level": 1,
+            "spawnShape": "area"
+          }
+        ]
+      }
+    ]
+  }
+}</pre>
+        <table>
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>layerId</code></td><td>层号，必须与节奏表 <code>layer_id</code> 一致</td></tr>
+            <tr><td><code>position</code></td><td>点位坐标；区域则为中心</td></tr>
+            <tr><td><code>scale.x/z</code></td><td>区域大小（XZ）；点位可忽略</td></tr>
+            <tr><td><code>enemyKeys</code></td><td>怪物 key（如 <code>Enemy02</code>，对齐 <code>TbMonster.key</code>）</td></tr>
+            <tr><td><code>enemyCount</code></td><td>区域内展开只数；点位一般为 1</td></tr>
+            <tr><td><code>spawnShape</code></td><td><code>area</code> / <code>point</code></td></tr>
+          </tbody>
+        </table>
+        <div class="note" style="margin-top:18px">
+          编辑器提示「表已关联」= 节奏表已有对应 <code>(logic_scene_id, layer_id)</code> 行。
+        </div>
+
+<div class="pager"><a href="workflow.html">← 工作流</a><a class="next" href="rhythm.html">节奏表 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工作流 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：工作流</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html" class="active">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>2. 工作流（推荐顺序）</h2>
+        <ol>
+          <li><strong>创建 / 打开逻辑场景</strong>（绑定资源场景，如资源 600 → 逻辑 600）</li>
+          <li><strong>种植编辑器</strong>：加区域/点位，选单位（<code>TbMonster</code> / 模型 <code>TbAvatar</code>），拖位置后点 <strong>保存</strong></li>
+          <li><strong>Excel</strong>：在 <code>spawn_config.xlsx</code> 为该 <code>logic_scene_id</code> + <code>layer_id</code> 配节奏</li>
+          <li><strong>导出 Luban</strong>：<code>./tools/dataTools/export.sh</code></li>
+          <li><strong>正式进关验证</strong>（<code>LevelStart</code> 会启动刷怪；SkillDebug 会跳过，不会自动刷关卡怪）</li>
+        </ol>
+        <div class="note">
+          运行时入口：<code>LevelController.LevelStart</code> → <code>LogicSpawnLoader</code>（种植）× <code>SpawnConfigProvider</code>（节奏）→ <code>MonsterSpawnCoordinator</code>。<br />
+          无种植数据时回退 Prefab 上的 <code>EnemyBornInfo</code>。
+        </div>
+
+<div class="pager"><a href="data.html">← 两份数据</a><a class="next" href="plant.html">种植 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

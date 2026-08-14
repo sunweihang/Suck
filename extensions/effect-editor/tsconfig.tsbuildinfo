@@ -1,0 +1,1 @@
+{"root":["./src/assetio.ts","./src/browsecategories.ts","./src/browseeffects.ts","./src/createeffect.ts","./src/deleteeffect.ts","./src/editor.d.ts","./src/main.ts","./src/migrateeffects.ts","./src/paths.ts","./src/validateeffect.ts","./src/panels/create.ts"],"version":"5.9.3"}

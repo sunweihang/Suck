@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>最小闭环 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：最小闭环</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html" class="active">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>6. 完整最小闭环（以 600 为例）</h2>
+        <ol class="steps">
+          <li>
+            <strong>种植</strong><br />
+            Cocos 打开「逻辑场景种植」，选逻辑 <strong>600</strong> → 加区域：单位 <code>Enemy02</code>，数量 <code>5</code> →
+            确认卡上 <strong>#ID = 1</strong> → 点绿色 <strong>保存</strong>
+          </li>
+          <li>
+            <strong>节奏</strong>（死光 3 秒后再刷，无限）<br />
+            打开 <code>config/luban/Datas/spawn_config.xlsx</code>，保证有：
+<pre>id=600  logic_scene_id=600  layer_id=1
+start_trigger=ImmediateStart
+on_cleared=RespawnAction,3,0
+gen_intervals=（空）  gen_nums=（空）  sort_order=1</pre>
+          </li>
+          <li>
+            <strong>导出</strong><br />
+            <code>./tools/dataTools/export.sh</code><br />
+            确认 <code>tbspawnconfig.json</code> 出现：
+<pre>{
+  "id": 600,
+  "logic_scene_id": 600,
+  "layer_id": 1,
+  "start_trigger": { "$type": "ImmediateStart" },
+  "on_cleared": { "$type": "RespawnAction", "interval": 3, "max_rounds": 0 },
+  "gen_intervals": [],
+  "gen_nums": [],
+  "sort_order": 1
+}</pre>
+          </li>
+          <li>
+            <strong>进关</strong><br />
+            正式流程进房间 600：应立刻刷出种植怪；杀光后约 3 秒再刷一轮。
+          </li>
+        </ol>
+
+<div class="pager"><a href="demo-g.html">← Demo G</a><a class="next" href="faq.html">常见问题 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

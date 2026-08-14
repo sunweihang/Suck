@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo F · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：Demo F</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link active">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page demo-page">
+
+        <div class="demo-head">
+          <div class="demo-letter">F</div>
+          <div>
+            <h1 class="demo-title" style="font-size:22px;margin:0 0 10px">两层循环：1 → 2 → 再回 1</h1>
+            <div class="demo-tags"><span class="tag">整段循环</span></div>
+          </div>
+        </div>
+        <div class="demo-body">
+          <p class="demo-fit"><strong>适合：</strong>打完第二层后整段重来。</p>
+          <div class="keybox">
+<div class="key accent"><span class="k">层 2 start</span><span class="v">AfterLayerStart,1</span></div>
+<div class="key ok"><span class="k">层 2 on_cleared</span><span class="v">LoopBackAction,1,0</span></div>
+<div class="key"><span class="k">轮数</span><span class="v">0 = 无限</span></div>
+          </div>
+<table><thead><tr><th>id</th><th>logic_scene_id</th><th>layer_id</th><th>start_trigger</th><th>on_cleared</th><th>sort_order</th></tr></thead><tbody><tr><td>6001</td><td>600</td><td>1</td><td><code>ImmediateStart</code></td><td><code>EndAction</code></td><td>1</td></tr><tr><td>6002</td><td>600</td><td>2</td><td><code>AfterLayerStart,1</code></td><td><code class="hl">LoopBackAction,1,0</code></td><td>2</td></tr></tbody></table>
+          <p class="demo-note">层 2 清完回到层 1。有限次：<code>LoopBackAction,1,3</code>。</p>
+        </div>
+
+        <div style="padding:0 28px 28px"><div class="pager"><a href="demo-e.html">← Demo E</a><a class="next" href="demo-g.html">Demo G →</a></div></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

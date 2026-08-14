@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>两份数据 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：两份数据</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html" class="active">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>1. 两份数据各管什么</h2>
+        <table>
+          <thead><tr><th>数据</th><th>真源</th><th>负责</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>种植</strong></td>
+              <td><code>assets/resources/scenes/{id}/logic/{id}/index.json</code> → <code>monsterSpawn</code></td>
+              <td>种什么、种在哪、几只、几层（<code>layerId</code>）</td>
+            </tr>
+            <tr>
+              <td><strong>节奏</strong></td>
+              <td><code>config/luban/Datas/spawn_config.xlsx</code> → 导出 <code>tbspawnconfig.json</code></td>
+              <td>何时开刷、分几波、清完后做什么</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="margin-top:18px">关联键：</p>
+<pre>spawn_config.logic_scene_id  = 逻辑场景 ID（如 600）
+spawn_config.layer_id        = 种植卡上的 #ID（= monsterSpawn.layers[].layerId）</pre>
+        <div class="note warn">
+          一层种植对应节奏表一行。改完 Excel 必须执行 <code>./tools/dataTools/export.sh</code>。<br />
+          种植面板点 <strong>保存</strong> 只写 <code>index.json</code>，不写节奏表。
+        </div>
+
+<div class="pager"><a href="index.html">← 概述</a><a class="next" href="workflow.html">工作流 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

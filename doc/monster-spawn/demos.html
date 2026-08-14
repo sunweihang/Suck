@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo 目录 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：Demo 目录</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html" class="active">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>5. Demo 配置（每个 Demo 独立页）</h2>
+        <p class="lead">默认逻辑场景 <code>600</code>、种植层 <code>layerId=1</code>。改完节奏表后执行 <code>./tools/dataTools/export.sh</code>。点击下方卡片进入对应 Demo 页。</p>
+        <div class="hub-grid">
+          <a class="hub-card demo" href="demo-a.html"><div class="letter">A</div><h3>立刻刷</h3><p>进场刷，死光结束</p></a>
+          <a class="hub-card demo hot" href="demo-b.html"><div class="letter">B</div><h3>死光再刷</h3><p>无限循环（常用）</p></a>
+          <a class="hub-card demo" href="demo-c.html"><div class="letter">C</div><h3>分波</h3><p>3;4;3 + 间隔</p></a>
+          <a class="hub-card demo" href="demo-d.html"><div class="letter">D</div><h3>分波循环</h3><p>波次 + Respawn</p></a>
+          <a class="hub-card demo" href="demo-e.html"><div class="letter">E</div><h3>两层推进</h3><p>1 清完开 2</p></a>
+          <a class="hub-card demo" href="demo-f.html"><div class="letter">F</div><h3>两层循环</h3><p>1→2→回 1</p></a>
+          <a class="hub-card demo" href="demo-g.html"><div class="letter">G</div><h3>范围触发</h3><p>走近才刷</p></a>
+        </div>
+
+<div class="pager"><a href="rhythm.html">← 节奏表</a><a class="next" href="demo-a.html">Demo A →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>

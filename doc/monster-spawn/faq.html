@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>常见问题 · 关卡刷怪</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">关卡刷怪配置 <small>多种独立页</small></a>
+      <div class="top-hint">当前：常见问题</div>
+    </div>
+  </header>
+  <div class="body">
+    <aside class="sidebar">
+<div class="side-label">目录（独立页）</div>
+<nav class="nav">
+<a href="index.html">概述</a>
+<a href="data.html">1. 两份数据</a>
+<a href="workflow.html">2. 工作流</a>
+<a href="plant.html">3. 种植</a>
+<a href="rhythm.html">4. 节奏表</a>
+<a href="demos.html">5. Demo 目录</a>
+<div class="group">DEMO 独立页</div>
+<a href="demo-a.html" class="sub demo-link">A 立刻刷</a>
+<a href="demo-b.html" class="sub demo-link">B 死光再刷</a>
+<a href="demo-c.html" class="sub demo-link">C 分波</a>
+<a href="demo-d.html" class="sub demo-link">D 分波循环</a>
+<a href="demo-e.html" class="sub demo-link">E 两层推进</a>
+<a href="demo-f.html" class="sub demo-link">F 两层循环</a>
+<a href="demo-g.html" class="sub demo-link">G 范围触发</a>
+<a href="loop.html">6. 最小闭环</a>
+<a href="faq.html" class="active">7. 常见问题</a>
+<a href="files.html">8. 相关文件</a>
+</nav>
+    </aside>
+    <main class="main">
+      <article class="page">
+
+        <h2>7. 校验与常见问题</h2>
+        <table>
+          <thead><tr><th>现象</th><th>排查</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>进关不刷怪</td>
+              <td>是否正式 <code>LevelStart</code>（非 SkillDebug）；<code>index.json</code> 是否有 <code>monsterSpawn.layers</code>；是否已保存种植</td>
+            </tr>
+            <tr>
+              <td>面板显示「表未关联」</td>
+              <td><code>spawn_config</code> 缺 <code>(logic_scene_id, layer_id)</code>；补行后 <code>export.sh</code></td>
+            </tr>
+            <tr>
+              <td>改了 Excel 无效</td>
+              <td>忘记 <code>export.sh</code>，或 Creator 未刷新 <code>tbspawnconfig.json</code></td>
+            </tr>
+            <tr>
+              <td>只写了 <code>RespawnAction</code></td>
+              <td>等价 <code>RespawnAction,0,0</code>（几乎立刻、无限）；建议写全 <code>RespawnAction,3,0</code></td>
+            </tr>
+            <tr>
+              <td>分波数量不对</td>
+              <td><code>gen_nums</code> 总和与种植展开只数是否匹配；区域看 <code>enemyCount</code></td>
+            </tr>
+            <tr>
+              <td>想「死一只补一只」</td>
+              <td>当前模型是<strong>层清空</strong>后动作，不是单实体补刷</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note warn" style="margin-top:18px">
+          扩展场景校验会警告：「种植 #ID 在 tbspawnconfig 无行」。
+        </div>
+
+<div class="pager"><a href="loop.html">← 最小闭环</a><a class="next" href="files.html">相关文件 →</a></div>
+      </article>
+    </main>
+  </div>
+</div>
+</body>
+</html>
