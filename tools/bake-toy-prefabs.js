@@ -17,7 +17,7 @@ const LAYER_3D = 1073741824;
 const UUID = {
   BlockCell: '8c01a1b0-4e21-4f3a-9c11-010000000001',
   UnitActor: '8c01a1b0-4e21-4f3a-9c11-010000000002',
-  BakedMesh: '8c01a1b0-4e21-4f3a-9c11-01000000000a',
+  ToyLook: '8c01a1b0-4e21-4f3a-9c11-01000000000b',
   MatEye: '9d11aa10-0006-4a01-8001-000000000006',
   MatPupil: '9d11aa10-0007-4a01-8001-000000000007',
   MatHighlight: '9d11aa10-000a-4a01-8001-00000000000a',
@@ -31,23 +31,28 @@ const UUID = {
   dirMeshes: 'c0110001-0001-4001-8001-000000000011',
 };
 
-const MESH_BLOCK = `${UUID.GltfBlock}@a0001`;
-const MESH_OCTOPUS = `${UUID.GltfOctopus}@a0001`;
-const MESH_BALL = `${UUID.GltfBall}@a0001`;
+const MESH_BLOCK = `${UUID.GltfBlock}@e1d15`;
+const MESH_OCTOPUS = `${UUID.GltfOctopus}@9d64e`;
+const MESH_BALL = `${UUID.GltfBall}@642dc`;
+const MESH_ID = {
+  [UUID.GltfBlock]: { id: 'e1d15', name: 'ToyBlock', tris: 300 },
+  [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 3152 },
+  [UUID.GltfBall]: { id: '642dc', name: 'ToyBall', tris: 192 },
+};
 
 const COLORS = [
-  { token: 'o', name: 'Orange', rgb: [255, 140, 36], hot: false, block: '7e22bb20-0001-4b02-8002-000000000001', unit: '7e22bb20-0004-4b02-8002-000000000004', mat: '9d11aa10-0001-4a01-8001-000000000001' },
-  { token: 'y', name: 'Yellow', rgb: [255, 255, 32], hot: true, block: '7e22bb20-0011-4b02-8002-000000000011', unit: '7e22bb20-0021-4b02-8002-000000000021', mat: '9d11aa10-0011-4a01-8001-000000000011' },
-  { token: 'c', name: 'Cyan', rgb: [24, 228, 236], hot: false, block: '7e22bb20-0002-4b02-8002-000000000002', unit: '7e22bb20-0005-4b02-8002-000000000005', mat: '9d11aa10-0002-4a01-8001-000000000002' },
-  { token: 'g', name: 'Lime', rgb: [24, 226, 70], hot: false, block: '7e22bb20-0012-4b02-8002-000000000012', unit: '7e22bb20-0022-4b02-8002-000000000022', mat: '9d11aa10-0012-4a01-8001-000000000012' },
-  { token: 'p', name: 'Pink', rgb: [255, 88, 168], hot: false, block: '7e22bb20-0013-4b02-8002-000000000013', unit: '7e22bb20-0023-4b02-8002-000000000023', mat: '9d11aa10-0013-4a01-8001-000000000013' },
-  { token: 'v', name: 'Violet', rgb: [176, 104, 255], hot: false, block: '7e22bb20-0014-4b02-8002-000000000014', unit: '7e22bb20-0024-4b02-8002-000000000024', mat: '9d11aa10-0014-4a01-8001-000000000014' },
-  { token: 'r', name: 'Red', rgb: [255, 60, 76], hot: false, block: '7e22bb20-0015-4b02-8002-000000000015', unit: '7e22bb20-0025-4b02-8002-000000000025', mat: '9d11aa10-0015-4a01-8001-000000000015' },
-  { token: 's', name: 'Sky', rgb: [72, 176, 255], hot: false, block: '7e22bb20-0016-4b02-8002-000000000016', unit: '7e22bb20-0026-4b02-8002-000000000026', mat: '9d11aa10-0016-4a01-8001-000000000016' },
-  { token: 'k', name: 'Coral', rgb: [255, 124, 100], hot: false, block: '7e22bb20-0003-4b02-8002-000000000003', unit: '7e22bb20-0006-4b02-8002-000000000006', mat: '9d11aa10-0017-4a01-8001-000000000017' },
-  { token: 'm', name: 'Mint', rgb: [0, 212, 128], hot: false, block: '7e22bb20-0018-4b02-8002-000000000018', unit: '7e22bb20-0028-4b02-8002-000000000028', mat: '9d11aa10-0018-4a01-8001-000000000018' },
-  { token: 'a', name: 'Magenta', rgb: [240, 56, 216], hot: false, block: '7e22bb20-0019-4b02-8002-000000000019', unit: '7e22bb20-0029-4b02-8002-000000000029', mat: '9d11aa10-0019-4a01-8001-000000000019' },
-  { token: 'd', name: 'Gold', rgb: [255, 232, 40], hot: true, block: '7e22bb20-001a-4b02-8002-00000000001a', unit: '7e22bb20-002a-4b02-8002-00000000002a', mat: '9d11aa10-001a-4a01-8001-00000000001a' },
+  { token: 'o', name: 'Orange', rgb: [255, 132, 28], block: '7e22bb20-0001-4b02-8002-000000000001', unit: '7e22bb20-0004-4b02-8002-000000000004', mat: '9d11aa10-0001-4a01-8001-000000000001', skin: '9d12cc10-0100-4a01-8001-000000000001' },
+  { token: 'y', name: 'Yellow', rgb: [255, 220, 40], block: '7e22bb20-0011-4b02-8002-000000000011', unit: '7e22bb20-0021-4b02-8002-000000000021', mat: '9d11aa10-0011-4a01-8001-000000000011', skin: '9d12cc10-0100-4a01-8001-000000000002' },
+  { token: 'c', name: 'Cyan', rgb: [24, 228, 236], block: '7e22bb20-0002-4b02-8002-000000000002', unit: '7e22bb20-0005-4b02-8002-000000000005', mat: '9d11aa10-0002-4a01-8001-000000000002', skin: '9d12cc10-0100-4a01-8001-000000000003' },
+  { token: 'g', name: 'Lime', rgb: [96, 224, 48], block: '7e22bb20-0012-4b02-8002-000000000012', unit: '7e22bb20-0022-4b02-8002-000000000022', mat: '9d11aa10-0012-4a01-8001-000000000012', skin: '9d12cc10-0100-4a01-8001-000000000004' },
+  { token: 'p', name: 'Pink', rgb: [255, 84, 164], block: '7e22bb20-0013-4b02-8002-000000000013', unit: '7e22bb20-0023-4b02-8002-000000000023', mat: '9d11aa10-0013-4a01-8001-000000000013', skin: '9d12cc10-0100-4a01-8001-000000000005' },
+  { token: 'v', name: 'Violet', rgb: [164, 92, 255], block: '7e22bb20-0014-4b02-8002-000000000014', unit: '7e22bb20-0024-4b02-8002-000000000024', mat: '9d11aa10-0014-4a01-8001-000000000014', skin: '9d12cc10-0100-4a01-8001-000000000006' },
+  { token: 'r', name: 'Red', rgb: [255, 60, 76], block: '7e22bb20-0015-4b02-8002-000000000015', unit: '7e22bb20-0025-4b02-8002-000000000025', mat: '9d11aa10-0015-4a01-8001-000000000015', skin: '9d12cc10-0100-4a01-8001-000000000007' },
+  { token: 's', name: 'Sky', rgb: [72, 176, 255], block: '7e22bb20-0016-4b02-8002-000000000016', unit: '7e22bb20-0026-4b02-8002-000000000026', mat: '9d11aa10-0016-4a01-8001-000000000016', skin: '9d12cc10-0100-4a01-8001-000000000008' },
+  { token: 'k', name: 'Coral', rgb: [255, 124, 100], block: '7e22bb20-0003-4b02-8002-000000000003', unit: '7e22bb20-0006-4b02-8002-000000000006', mat: '9d11aa10-0017-4a01-8001-000000000017', skin: '9d12cc10-0100-4a01-8001-000000000009' },
+  { token: 'm', name: 'Mint', rgb: [0, 212, 128], block: '7e22bb20-0018-4b02-8002-000000000018', unit: '7e22bb20-0028-4b02-8002-000000000028', mat: '9d11aa10-0018-4a01-8001-000000000018', skin: '9d12cc10-0100-4a01-8001-00000000000a' },
+  { token: 'a', name: 'Magenta', rgb: [240, 56, 216], block: '7e22bb20-0019-4b02-8002-000000000019', unit: '7e22bb20-0029-4b02-8002-000000000029', mat: '9d11aa10-0019-4a01-8001-000000000019', skin: '9d12cc10-0100-4a01-8001-00000000000b' },
+  { token: 'd', name: 'Gold', rgb: [255, 196, 44], block: '7e22bb20-001a-4b02-8002-00000000001a', unit: '7e22bb20-002a-4b02-8002-00000000002a', mat: '9d11aa10-001a-4a01-8001-00000000001a', skin: '9d12cc10-0100-4a01-8001-00000000000c' },
 ];
 
 function compressUuid(uuid) {
@@ -85,33 +90,46 @@ function jsonMeta(uuid) {
   return { ver: '1.0.8', importer: 'json', imported: true, uuid, files: ['.json'], subMetas: {}, userData: {} };
 }
 
-function gltfMeta(uuid, meshName) {
+function gltfMeta(uuid) {
+  const mesh = MESH_ID[uuid];
+  const meshUuid = `${uuid}@${mesh.id}`;
   return {
-    ver: '1.2.57',
+    ver: '2.3.14',
     importer: 'gltf',
     imported: true,
     uuid,
-    files: ['.json', '.bin'],
+    files: ['.json'],
     subMetas: {
-      a0001: {
+      [mesh.id]: {
         importer: 'gltf-mesh',
-        uuid: `${uuid}@a0001`,
-        displayName: meshName,
-        id: 'a0001',
-        name: meshName,
-        userData: { gltfIndex: 0 },
-        ver: '1.1.9',
+        uuid: meshUuid,
+        displayName: mesh.name,
+        id: mesh.id,
+        name: `${mesh.name}.mesh`,
+        userData: { gltfIndex: 0, triangleCount: mesh.tris },
+        ver: '1.1.1',
         imported: true,
         files: ['.bin', '.json'],
         subMetas: {},
       },
     },
-    userData: { imageUuids: [], lods: [] },
+    userData: {
+      imageUuids: [],
+      imageMetas: [],
+      allowMeshDataAccess: true,
+      addVertexColor: false,
+      assetFinder: {
+        meshes: [meshUuid],
+        skeletons: [],
+        textures: [],
+        materials: [],
+        scenes: [],
+      },
+    },
   };
 }
 
-function candyMaterial(name, rgb, hot) {
-  const emit = hot ? 0.52 : 0.28;
+function clayMaterial(name, rgb, roughness, emit) {
   return {
     __type__: 'cc.Material',
     _name: name,
@@ -129,7 +147,7 @@ function candyMaterial(name, rgb, hot) {
     _props: [
       {
         mainColor: { __type__: 'cc.Color', r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
-        roughness: hot ? 0.22 : 0.42,
+        roughness,
         metallic: 0,
         emissive: { __type__: 'cc.Color', r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
         emissiveScale: { __type__: 'cc.Vec3', x: emit, y: emit, z: emit },
@@ -217,8 +235,8 @@ function addMeshRenderer(doc, nodeId, mesh, mat, asPrefab, cast) {
     uvParam: { __type__: 'cc.Vec4', x: 0, y: 0, z: 0, w: 0 },
     _bakeable: false,
     _castShadow: !!cast,
-    _receiveShadow: false,
-    _recieveShadow: false,
+    _receiveShadow: !!cast,
+    _recieveShadow: !!cast,
     _lightmapSize: 64,
     _useLightProbe: false,
     _bakeToLightProbe: true,
@@ -238,7 +256,7 @@ function addMeshRenderer(doc, nodeId, mesh, mat, asPrefab, cast) {
     bakeSettings: { __id__: bakeId },
     _mesh: mesh ? { __uuid__: mesh, __expectedType__: 'cc.Mesh' } : null,
     _shadowCastingMode: cast ? 1 : 0,
-    _shadowReceivingMode: 0,
+    _shadowReceivingMode: cast ? 1 : 0,
     _shadowBias: 0,
     _shadowNormalBias: 0,
     _reflectionProbeId: -1,
@@ -276,8 +294,8 @@ function addScript(doc, nodeId, uuid, asPrefab, extra) {
 
 function bakeBlock() {
   const HALF = 0.5;
-  const RADIUS = 0.148;
-  const SEG = 3;
+  const RADIUS = 0.2;
+  const SEG = 5;
   const pos = [];
   const nrm = [];
   const uvs = [];
@@ -331,7 +349,8 @@ function bakeBlock() {
         p[a1] = ((i / SEG) * 2 - 1) * HALF;
         p[a2] = ((j / SEG) * 2 - 1) * HALF;
         project(p[0], p[1], p[2]);
-        uvs.push(i / SEG, j / SEG);
+        const ni = nrm.length - 3;
+        uvs.push(nrm[ni] * 0.5 + 0.5, nrm[ni + 1] * 0.5 + 0.5);
       }
     }
     for (let j = 0; j < SEG; j++) {
@@ -370,7 +389,7 @@ function bakeBall() {
       const cz = r * Math.sin(th);
       pos.push(cx * 0.5, cy * 0.5, cz * 0.5);
       nrm.push(cx, cy, cz);
-      uvs.push(u / su, v / sv);
+      uvs.push(cx * 0.5 + 0.5, cy * 0.5 + 0.5);
     }
   }
   const stride = su + 1;
@@ -533,7 +552,7 @@ function bakeOctopus() {
         positions.push(ax, ay, az);
         gradOut(ax, ay, az);
         normals.push(nrmOut[0], nrmOut[1], nrmOut[2]);
-        uvs.push(i / NX, k / NZ);
+        uvs.push(nrmOut[0] * 0.5 + 0.5, nrmOut[1] * 0.5 + 0.5);
       }
     }
   }
@@ -598,6 +617,9 @@ function bakeOctopus() {
     normals[i] = nrmOut[0];
     normals[i + 1] = nrmOut[1];
     normals[i + 2] = nrmOut[2];
+    const ui = (i / 3) * 2;
+    uvs[ui] = nrmOut[0] * 0.5 + 0.5;
+    uvs[ui + 1] = nrmOut[1] * 0.5 + 0.5;
   }
 
   return {
@@ -693,7 +715,8 @@ function writeGltf(fileBase, name, mesh, uuid) {
     uv.writeFloatLE(mesh.u[i * 2 + 1], i * 8 + 4);
   }
   for (let i = 0; i < mesh.i.length; i++) idx.writeUInt16LE(mesh.i[i], i * 2);
-  const bin = Buffer.concat([pos, nrm, uv, idx]);
+  const pad = (4 - (idx.length % 4)) % 4;
+  const bin = Buffer.concat([pos, nrm, uv, idx, Buffer.alloc(pad)]);
   const gltf = {
     asset: { version: '2.0', generator: 'bake-toy-prefabs' },
     scene: 0,
@@ -718,11 +741,16 @@ function writeGltf(fileBase, name, mesh, uuid) {
       { buffer: 0, byteOffset: pos.length + nrm.length, byteLength: uv.length, target: 34962 },
       { buffer: 0, byteOffset: pos.length + nrm.length + uv.length, byteLength: idx.length, target: 34963 },
     ],
-    buffers: [{ byteLength: bin.length, uri: `${path.basename(fileBase)}.bin` }],
+    buffers: [{
+      byteLength: bin.length,
+      uri: `data:application/octet-stream;base64,${bin.toString('base64')}`,
+    }],
   };
   write(`${fileBase}.gltf`, `${JSON.stringify(gltf, null, 2)}\n`);
-  fs.writeFileSync(`${fileBase}.bin`, bin);
-  write(`${fileBase}.gltf.meta`, gltfMeta(uuid, name));
+  write(`${fileBase}.gltf.meta`, gltfMeta(uuid));
+  for (const extra of [`${fileBase}.bin`, `${fileBase}.bin.meta`]) {
+    if (fs.existsSync(extra)) fs.unlinkSync(extra);
+  }
 }
 
 function writeMeshJson(name, mesh, uuid) {
@@ -756,8 +784,7 @@ function buildBlockPrefab(color) {
   const root = addNode(doc, { name });
   const assetRef = { __id__: prefabId };
   addPrefabInfo(doc, root.id, assetRef, true);
-  addMeshRenderer(doc, root.id, MESH_BLOCK, color.mat, true, false);
-  addScript(doc, root.id, UUID.BakedMesh, true, { kind: 0 });
+  addMeshRenderer(doc, root.id, MESH_BLOCK, color.mat, true, true);
   addScript(doc, root.id, UUID.BlockCell, true);
   write(path.join(ASSETS, `prefabs/${name}.prefab`), doc.json());
   write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.block, name));
@@ -780,7 +807,6 @@ function buildUnitPrefab(color, lift) {
   const root = addNode(doc, { name });
   const assetRef = { __id__: prefabId };
   addPrefabInfo(doc, root.id, assetRef, true);
-  addScript(doc, root.id, UUID.BakedMesh, true, { kind: 1 });
   addScript(doc, root.id, UUID.UnitActor, true);
 
   const body = addNode(doc, { name: 'Body', parentId: root.id });
@@ -805,6 +831,16 @@ function buildUnitPrefab(color, lift) {
   write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.unit, name));
 }
 
+function writeToyLook(lift) {
+  const powerY = Number((0.062 + lift).toFixed(5));
+  write(path.join(ASSETS, 'scripts/battle/ToyLook.ts'), `import { Vec3 } from 'cc';
+
+export const OCTOPUS_STAND_Y = 0.012;
+export const OCTO_POWER_LOCAL = new Vec3(0, ${powerY}, 0.138);
+`);
+  write(path.join(ASSETS, 'scripts/battle/ToyLook.ts.meta'), tsMeta(UUID.ToyLook));
+}
+
 function writeCatalog() {
   const blockLines = COLORS.map((c) => `  ${c.token}: '${c.block}',`).join('\n');
   const unitLines = COLORS.map((c) => `  ${c.token}: '${c.unit}',`).join('\n');
@@ -818,9 +854,6 @@ export const PREFAB_UUID = {
   HintHandSprite: '7e22bb20-000e-4b02-8002-00000000000e@f9941',
   SlotCircle: '7e22bb20-000b-4b02-8002-00000000000b@6c48a',
   PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
-  MeshBlock: '${UUID.MeshBlockJson}',
-  MeshOctopus: '${UUID.MeshOctopusJson}',
-  MeshBall: '${UUID.MeshBallJson}',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {
@@ -862,12 +895,18 @@ function main() {
   writeMeshJson('toy-octopus', octopus, UUID.MeshOctopusJson);
   writeMeshJson('toy-ball', ball, UUID.MeshBallJson);
 
-  write(path.join(ASSETS, 'materials/MatHighlight.mtl'), candyMaterial('MatHighlight', [255, 255, 255], true));
+  write(path.join(ASSETS, 'materials/MatHighlight.mtl'), clayMaterial('MatHighlight', [255, 255, 255], 0.12, 0.42));
   write(path.join(ASSETS, 'materials/MatHighlight.mtl.meta'), mtlMeta(UUID.MatHighlight));
+  write(path.join(ASSETS, 'materials/MatEye.mtl'), clayMaterial('MatEye', [252, 252, 255], 0.16, 0.22));
+  write(path.join(ASSETS, 'materials/MatEye.mtl.meta'), mtlMeta(UUID.MatEye));
+  write(path.join(ASSETS, 'materials/MatPupil.mtl'), clayMaterial('MatPupil', [22, 24, 30], 0.28, 0.04));
+  write(path.join(ASSETS, 'materials/MatPupil.mtl.meta'), mtlMeta(UUID.MatPupil));
   for (const c of COLORS) {
-    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), candyMaterial(`Mat${c.name}`, c.rgb, c.hot));
+    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.5, 0.16));
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl.meta`), mtlMeta(c.mat));
   }
+
+  writeToyLook(lift);
 
   for (const stale of ['BlockBlack', 'UnitBlack']) {
     const pf = path.join(ASSETS, `prefabs/${stale}.prefab`);
@@ -882,11 +921,6 @@ function main() {
   }
 
   writeCatalog();
-  write(path.join(ASSETS, 'scripts/battle/ToyOctopusMesh.ts'), `import { Vec3 } from 'cc';
-
-export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, ${Number((0.062 + lift).toFixed(6))}, 0.138);
-`);
   console.log(`wrote ${COLORS.length} block + ${COLORS.length} unit prefabs`);
 }
 

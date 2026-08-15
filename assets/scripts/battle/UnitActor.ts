@@ -1,7 +1,7 @@
 import { _decorator, Color, Component, Label, Layers, Node, RenderRoot2D, UITransform, Vec3 } from 'cc';
 import { benchColOf, benchRankOf, ColorId, parseColorToken } from '../game/GameConfig';
 import { OctopusQAnim } from './OctopusQAnim';
-import { applyToyOctopus, OCTO_POWER_LOCAL } from './ToyOctopusMesh';
+import { OCTO_POWER_LOCAL } from './ToyLook';
 
 const { ccclass } = _decorator;
 
@@ -43,7 +43,6 @@ export class UnitActor extends Component {
   syncFromName(): void {
     this._parseName();
     this.node.getPosition(this.homePos);
-    applyToyOctopus(this.node, this.colorId);
     this._q.bind(this.node, this.index);
     this._ensurePowerLabel();
     this._prevState = this.state;

@@ -21,7 +21,7 @@ import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
 import { HintHand } from './HintHand';
 import { SlotPad } from './SlotPad';
-import { OCTOPUS_STAND_Y } from './ToyOctopusMesh';
+import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
 
 const { ccclass } = _decorator;

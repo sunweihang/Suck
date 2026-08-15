@@ -25,9 +25,6 @@
       },
       {
         "__id__": 6
-      },
-      {
-        "__id__": 8
       }
     ],
     "_prefab": {
@@ -86,9 +83,9 @@
       "w": 0
     },
     "_bakeable": false,
-    "_castShadow": false,
-    "_receiveShadow": false,
-    "_recieveShadow": false,
+    "_castShadow": true,
+    "_receiveShadow": true,
+    "_recieveShadow": true,
     "_lightmapSize": 64,
     "_useLightProbe": false,
     "_bakeToLightProbe": true,
@@ -118,11 +115,11 @@
       "__id__": 3
     },
     "_mesh": {
-      "__uuid__": "7e22bb20-0311-4b02-8002-000000000001@a0001",
+      "__uuid__": "7e22bb20-0311-4b02-8002-000000000001@e1d15",
       "__expectedType__": "cc.Mesh"
     },
-    "_shadowCastingMode": 0,
-    "_shadowReceivingMode": 0,
+    "_shadowCastingMode": 1,
+    "_shadowReceivingMode": 1,
     "_shadowBias": 0,
     "_shadowNormalBias": 0,
     "_reflectionProbeId": -1,
@@ -137,7 +134,7 @@
     "fileId": "c00000002xxxxxxxxxxxx"
   },
   {
-    "__type__": "8c01aGwTiFPOpwRAQAAAAAK",
+    "__type__": "8c01aGwTiFPOpwRAQAAAAAB",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -148,29 +145,10 @@
     "__prefab": {
       "__id__": 7
     },
-    "_id": "",
-    "kind": 0
-  },
-  {
-    "__type__": "cc.CompPrefabInfo",
-    "fileId": "c00000003xxxxxxxxxxxx"
-  },
-  {
-    "__type__": "8c01aGwTiFPOpwRAQAAAAAB",
-    "_name": "",
-    "_objFlags": 0,
-    "__editorExtras__": {},
-    "node": {
-      "__id__": 1
-    },
-    "_enabled": true,
-    "__prefab": {
-      "__id__": 9
-    },
     "_id": ""
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "c00000004xxxxxxxxxxxx"
+    "fileId": "c00000003xxxxxxxxxxxx"
   }
 ]

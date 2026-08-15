@@ -22,8 +22,7 @@ import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { SlotPad } from './SlotPad';
 import { spawnToyBackdrop } from './ToyBackdrop';
 import { applyShadowReceiver } from './ToyBlockMesh';
-import { preloadToyMeshes } from './ToyMeshBank';
-import { OCTOPUS_STAND_Y } from './ToyOctopusMesh';
+import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
@@ -60,7 +59,6 @@ export async function buildPlayWorld(
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
   ]);
-  await preloadToyMeshes();
   const blockPfs = new Map<ColorToken, Prefab>();
   const unitPfs = new Map<ColorToken, Prefab>();
   ALL_COLOR_TOKENS.forEach((token, i) => {

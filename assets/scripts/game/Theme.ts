@@ -28,7 +28,7 @@ export const Theme = {
   mint: new Color(0, 212, 128, 255),
   magenta: new Color(240, 56, 216, 255),
   gold: new Color(255, 232, 40, 255),
-  sky: new Color(158, 210, 230, 255),
+  sky: new Color(186, 214, 228, 255),
   power: new Color(255, 255, 255, 255),
   boardFill: new Color(255, 246, 226, 255),
   boardHi: new Color(255, 252, 242, 255),

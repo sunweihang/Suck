@@ -13,7 +13,7 @@
       "name": "ToyBlock.mesh",
       "userData": {
         "gltfIndex": 0,
-        "triangleCount": 108
+        "triangleCount": 300
       },
       "ver": "1.1.1",
       "imported": true,
@@ -42,6 +42,20 @@
   },
   "userData": {
     "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0311-4b02-8002-000000000001@e1d15"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0311-4b02-8002-000000000001@4cd46"
+      ]
+    },
     "lods": {
       "enable": false,
       "hasBuiltinLOD": false,
@@ -58,32 +72,6 @@
           "screenRatio": 0.01,
           "faceCount": 0.1
         }
-      ]
-    },
-    "imageMetas": [],
-    "legacyFbxImporter": false,
-    "allowMeshDataAccess": true,
-    "addVertexColor": false,
-    "generateLightmapUVNode": false,
-    "meshOptimizer": {
-      "enable": false,
-      "algorithm": "simplify",
-      "simplifyOptions": {
-        "targetRatio": 1,
-        "enableSmartLink": true,
-        "agressiveness": 7,
-        "maxIterationCount": 100
-      }
-    },
-    "assetFinder": {
-      "meshes": [
-        "7e22bb20-0311-4b02-8002-000000000001@e1d15"
-      ],
-      "skeletons": [],
-      "textures": [],
-      "materials": [],
-      "scenes": [
-        "7e22bb20-0311-4b02-8002-000000000001@4cd46"
       ]
     }
   }

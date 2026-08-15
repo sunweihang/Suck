@@ -2,24 +2,24 @@ import { Color, Graphics, Label, UITransform, Vec2 } from 'cc';
 import { Theme } from '../game/Theme';
 
 export function paintQBoard(g: Graphics, w: number, h: number): void {
-  const r = Math.min(h * 0.46, w * 0.24);
+  const r = Math.min(h * 0.30, w * 0.16);
   g.clear();
   g.fillColor = Theme.boardShadow;
-  g.roundRect(-w * 0.5 + 8, -h * 0.5 - 10, w, h, r);
+  g.roundRect(-w * 0.5 + 6, -h * 0.5 - 8, w, h, r);
   g.fill();
   g.fillColor = Theme.boardFill;
   g.roundRect(-w * 0.5, -h * 0.5, w, h, r);
   g.fill();
   g.fillColor = Theme.boardHi;
-  g.roundRect(-w * 0.5 + 16, h * 0.08, w - 32, h * 0.28, r * 0.45);
+  g.roundRect(-w * 0.5 + 18, h * 0.10, w - 36, h * 0.26, r * 0.55);
   g.fill();
   g.strokeColor = Theme.boardStroke;
-  g.lineWidth = Math.max(8, h * 0.07);
+  g.lineWidth = Math.max(7, h * 0.055);
   g.roundRect(-w * 0.5, -h * 0.5, w, h, r);
   g.stroke();
   g.strokeColor = Theme.playStroke;
   g.lineWidth = 3;
-  g.roundRect(-w * 0.5 + 12, -h * 0.5 + 12, w - 24, h - 24, Math.max(10, r - 12));
+  g.roundRect(-w * 0.5 + 14, -h * 0.5 + 14, w - 28, h - 28, Math.max(10, r - 14));
   g.stroke();
 }
 

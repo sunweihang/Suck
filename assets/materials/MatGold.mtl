@@ -32,24 +32,24 @@
       "mainColor": {
         "__type__": "cc.Color",
         "r": 255,
-        "g": 232,
-        "b": 40,
+        "g": 196,
+        "b": 44,
         "a": 255
       },
-      "roughness": 0.22,
+      "roughness": 0.5,
       "metallic": 0,
       "emissive": {
         "__type__": "cc.Color",
         "r": 255,
-        "g": 232,
-        "b": 40,
+        "g": 196,
+        "b": 44,
         "a": 255
       },
       "emissiveScale": {
         "__type__": "cc.Vec3",
-        "x": 0.52,
-        "y": 0.52,
-        "z": 0.52
+        "x": 0.16,
+        "y": 0.16,
+        "z": 0.16
       }
     },
     {},

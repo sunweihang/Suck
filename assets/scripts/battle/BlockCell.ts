@@ -1,6 +1,5 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
-import { applyToyBlock } from './ToyBlockMesh';
 
 const { ccclass } = _decorator;
 
@@ -46,7 +45,6 @@ export class BlockCell extends Component {
     this.node.setScale(PLAY.blockSize, PLAY.blockSize, PLAY.blockSize);
     this.node.setRotationFromEuler(0, 0, 0);
     this._baseScale.set(this.node.scale);
-    applyToyBlock(this.node, this.colorId);
     this.hp = this.maxHp = GAME.blockHp;
     this._sucking = false;
     this._target = null;

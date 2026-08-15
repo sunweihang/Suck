@@ -8,9 +8,6 @@ export const PREFAB_UUID = {
   HintHandSprite: '7e22bb20-000e-4b02-8002-00000000000e@f9941',
   SlotCircle: '7e22bb20-000b-4b02-8002-00000000000b@6c48a',
   PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
-  MeshBlock: '7e22bb20-0301-4b02-8002-000000000001',
-  MeshOctopus: '7e22bb20-0302-4b02-8002-000000000002',
-  MeshBall: '7e22bb20-0303-4b02-8002-000000000003',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {

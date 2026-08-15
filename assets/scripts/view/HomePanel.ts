@@ -46,6 +46,7 @@ export class HomePanel extends Component {
 
   applyArt(): void {
     this._ensureTree();
+    this._paintBg();
     const board = this.node.getChildByName('Content')?.getChildByName('LevelBoard');
     applyArtSprite(board?.getChildByName('Board') ?? null, 'board', 660, 308);
     applyArtSprite(board?.getChildByName('Chip') ?? null, 'chip', 176, 76);
@@ -85,9 +86,7 @@ export class HomePanel extends Component {
     this.node.getComponent(Widget)?.updateAlignment();
     const content = this.node.getChildByName('Content');
     content?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
-    const dim = content?.getChildByName('Dim');
-    dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
-    this._fill(dim, Theme.veil);
+    this._paintBg();
     const safe = uiSafeInsets();
     content?.getChildByName('Title')?.setPosition(0, vis.h * 0.24, 0);
     content?.getChildByName('LevelBoard')?.setPosition(0, vis.h * 0.06, 0);
@@ -119,7 +118,7 @@ export class HomePanel extends Component {
     const content = this._mk('Content', this.node, vis.w, vis.h);
     const dim = this._mk('Dim', content, vis.w, vis.h);
     dim.addComponent(Graphics);
-    this._fill(dim, Theme.veil);
+    this._paintBg();
     this._label(content, 'Title', 'SUCK', 108, Theme.boardNum, 720, 140, true);
     this._levelBoard(content);
     this._btn(content, 'PrevLevel', 112, 112, Theme.settingsFill, Theme.boardStroke, '<', 56, Theme.playText, () => this._onPrev?.());
@@ -191,6 +190,21 @@ export class HomePanel extends Component {
     if (!g || !ut) return;
     const fill = on ? Theme.settingsFill : Theme.dim;
     paintQBtn(g, ut.contentSize.width, ut.contentSize.height, fill, Theme.boardStroke);
+  }
+
+  private _paintBg(): void {
+    const vis = uiVisibleSize();
+    const dim = this.node.getChildByName('Content')?.getChildByName('Dim');
+    if (!dim) return;
+    const scale = Math.max(vis.w / 1024, vis.h / 1536);
+    const w = Math.ceil(1024 * scale);
+    const h = Math.ceil(1536 * scale);
+    dim.getComponent(UITransform)?.setContentSize(w, h);
+    if (applyArtSprite(dim, 'bg', w, h)) {
+      dim.getComponent(Graphics)?.clear();
+      return;
+    }
+    this._fill(dim, Theme.sky);
   }
 
   private _fill(node: Node | null, color: Color): void {
