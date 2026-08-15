@@ -4,7 +4,6 @@ import {
   BENCH,
   ColorToken,
   PLAY,
-  UNIT_SETUP,
   fitPlayLayout,
 } from './GameConfig';
 
@@ -56,8 +55,8 @@ export function getLevel(id: number): LevelDef {
   return LEVELS[n - 1];
 }
 
-export function isTutorialLevel(_id: number): boolean {
-  return false;
+export function isTutorialLevel(id: number): boolean {
+  return (id | 0) === 1;
 }
 
 export function levelTitle(id: number): string {
@@ -524,14 +523,108 @@ function sizeFor(id: number): { cols: number; rows: number; depth: number; color
   return { cols, rows, depth, colors };
 }
 
-function makeUnits(palette: readonly ColorToken[], rng: Rng): Array<readonly [ColorToken, number]> {
-  const powers = [8, 10, 12, 16, 20, 24];
-  const out: Array<readonly [ColorToken, number]> = [];
-  const total = BENCH.cols * BENCH.rows;
-  for (let i = 0; i < total; i++) {
-    out.push([palette[i % palette.length], powers[rng.int(powers.length)]]);
+const UNIT_SEATS = BENCH.cols * BENCH.rows;
+const UNIT_MAX = UNIT_SEATS * 2;
+const POWER_LO = 6;
+
+function countBricks(cells: Array<LevelCell | null>): Map<ColorToken, number> {
+  const counts = new Map<ColorToken, number>();
+  for (const cell of cells) {
+    if (!cell) continue;
+    for (const token of cell.tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
   }
-  return shuffleIn(out, rng);
+  return counts;
+}
+
+function targetUnitCount(brickTotal: number): number {
+  return Math.max(UNIT_SEATS, Math.min(UNIT_MAX, Math.round(brickTotal / 16)));
+}
+
+function splitExact(total: number, parts: number, rng: Rng): number[] {
+  const n = Math.max(1, Math.min(parts, total));
+  if (n <= 1) return [total];
+  const weights: number[] = [];
+  for (let i = 0; i < n; i++) weights.push(0.45 + rng.next());
+  const wsum = weights.reduce((a, b) => a + b, 0);
+  const out = weights.map((w) => Math.max(1, Math.round((total * w) / wsum)));
+  let diff = total - out.reduce((a, b) => a + b, 0);
+  let i = 0;
+  while (diff !== 0 && i < n * 16) {
+    const j = i % n;
+    if (diff > 0) {
+      out[j] += 1;
+      diff -= 1;
+    } else if (out[j] > 1) {
+      out[j] -= 1;
+      diff += 1;
+    }
+    i += 1;
+  }
+  if (diff !== 0) out[0] += diff;
+  return out;
+}
+
+function dealShuffled(
+  units: Array<[ColorToken, number]>,
+  seats: number,
+  rng: Rng,
+): Array<readonly [ColorToken, number]> {
+  const by = new Map<ColorToken, Array<[ColorToken, number]>>();
+  for (const unit of units) {
+    const list = by.get(unit[0]) ?? [];
+    list.push(unit);
+    by.set(unit[0], list);
+  }
+  for (const list of by.values()) shuffleIn(list, rng);
+  const shown: Array<[ColorToken, number]> = [];
+  const pool: Array<[ColorToken, number]> = [];
+  for (const list of by.values()) {
+    const head = list.pop();
+    if (head) shown.push(head);
+    pool.push(...list);
+  }
+  shuffleIn(pool, rng);
+  while (shown.length < seats && pool.length > 0) shown.push(pool.pop()!);
+  shuffleIn(shown, rng);
+  shuffleIn(pool, rng);
+  return shown.concat(pool);
+}
+
+/** One brick = one power. Split per color, then shuffle; front seats keep every color. */
+function allocateUnits(
+  cells: Array<LevelCell | null>,
+  rng: Rng,
+  want?: number,
+): Array<readonly [ColorToken, number]> {
+  const counts = countBricks(cells);
+  let brickTotal = 0;
+  for (const n of counts.values()) brickTotal += n;
+  if (brickTotal <= 0) return [];
+  const raw: Array<[ColorToken, number]> = [];
+  if (want != null) {
+    for (const [token, n] of counts) {
+      if (n > 0) raw.push([token, n]);
+    }
+    const target = Math.max(raw.length, want);
+    while (raw.length < target) {
+      let best = 0;
+      for (let i = 1; i < raw.length; i++) {
+        if (raw[i][1] > raw[best][1]) best = i;
+      }
+      if (raw[best][1] <= 1) break;
+      const [token, n] = raw[best];
+      const a = (n + 1) >> 1;
+      raw[best] = [token, a];
+      raw.push([token, n - a]);
+    }
+  } else {
+    const avg = brickTotal / targetUnitCount(brickTotal);
+    for (const [token, n] of counts) {
+      const parts = n <= POWER_LO ? 1 : Math.max(1, Math.round(n / avg));
+      for (const power of splitExact(n, parts, rng)) raw.push([token, power]);
+    }
+  }
+  return dealShuffled(raw, UNIT_SEATS, rng);
 }
 
 function makeCell(tokens: ColorToken[], locked?: boolean[]): LevelCell {
@@ -553,21 +646,17 @@ function makeClassicLevel(): LevelDef {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const token = palette[Math.min(palette.length - 1, Math.floor((x * palette.length) / cols))];
-      const tokens: ColorToken[] = [];
-      const locked: boolean[] = [];
-      for (let z = 0; z < depth; z++) {
-        tokens.push(token);
-        locked.push(z === 0 && (x + y) % 5 === 0);
-      }
-      cells.push(makeCell(tokens, locked.some(Boolean) ? locked : undefined));
+      cells.push(stack(token, depth));
     }
   }
+  const counts = countBricks(cells);
+  const units = palette.map((token) => [token, counts.get(token) ?? 0] as const);
   return {
     id: 1,
     cols,
     rows,
     cells,
-    units: UNIT_SETUP,
+    units,
     palette,
     brickMix: 0,
   };
@@ -635,7 +724,7 @@ function makeLevel(id: number): LevelDef {
     cols: size.cols,
     rows: size.rows,
     cells,
-    units: makeUnits(palette, rng),
+    units: allocateUnits(cells, rng),
     palette,
     brickMix,
   };

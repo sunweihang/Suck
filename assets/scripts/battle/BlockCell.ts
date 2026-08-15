@@ -60,7 +60,7 @@ export class BlockCell extends Component {
   }
 
   get suckable(): boolean {
-    return this.alive && !this.locked;
+    return this.alive;
   }
 
   get inFlight(): boolean {
@@ -72,7 +72,12 @@ export class BlockCell extends Component {
   }
 
   beginSuck(target: Node, duration: number, onLand?: () => void): void {
-    if (this.locked || this._sucking || !this.node.active) return;
+    if (this._sucking || !this.node.active) return;
+    if (this.locked) {
+      this.locked = false;
+      const nails = this.node.getChildByName('LockNails');
+      if (nails) nails.active = false;
+    }
     this._sucking = true;
     this.hp = 0;
     this._target = target;

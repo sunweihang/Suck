@@ -21,9 +21,11 @@ const KEYS = [
   'board',
   'chip',
   'badge',
+  'homeBadge',
   'prefix',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
+  ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
 ] as const;
 type ArtKey = (typeof KEYS)[number];
 
@@ -34,7 +36,9 @@ function pathOf(key: ArtKey): string {
   if (key === 'board') return 'ui/board-score-q/spriteFrame';
   if (key === 'chip') return 'ui/chip-q/spriteFrame';
   if (key === 'badge') return 'ui/level-badge/spriteFrame';
+  if (key === 'homeBadge') return 'ui/level-home/spriteFrame';
   if (key === 'prefix') return 'ui/lv-prefix/spriteFrame';
+  if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
 }
@@ -154,6 +158,67 @@ function glyphNode(root: Node, i: number, w: number, h: number): Node {
   n.active = true;
   n.getComponent(UITransform)?.setContentSize(w, h);
   return n;
+}
+
+export function layoutHomeLevel(board: Node | null, level: number, size: number, glyphH: number): void {
+  if (!board) return;
+  board.getComponent(UITransform)?.setContentSize(size, size);
+  const face = board.getChildByName('Board');
+  const word = frames.get('homeBadge');
+  if (face && word) {
+    const oh = Math.max(1, word.originalSize.height);
+    const ow = Math.max(1, word.originalSize.width);
+    const wh = Math.round(size * 0.22);
+    const ww = Math.round(wh * (ow / oh));
+    applyArtSprite(face, 'homeBadge', ww, wh);
+    face.setPosition(0, -Math.round(size * 0.24), 0);
+    face.active = true;
+  } else if (face) {
+    const sp = face.getComponent(Sprite);
+    if (sp) {
+      sp.spriteFrame = null;
+      sp.enabled = false;
+    }
+    face.active = false;
+  }
+  const title = board.getChildByName('Title');
+  if (!title) return;
+  title.active = true;
+  title.setPosition(0, Math.round(size * 0.10), 0);
+  title.getComponent(UITransform)?.setContentSize(Math.round(size * 0.78), Math.round(size * 0.52));
+  paintHomeLevelDigits(title, level, glyphH);
+}
+
+export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: number): void {
+  if (!root) return;
+  const digits = [...String(Math.max(0, level | 0)).padStart(2, '0')];
+  const digitSfs = digits.map((ch) => frames.get(`lvh${ch}`));
+  const ready = digitSfs.every(Boolean);
+  for (let i = 0; i < 8; i++) {
+    const n = root.getChildByName(`G_${i}`);
+    if (n) n.active = false;
+  }
+  const fallback = root.getChildByName('Fallback');
+  if (fallback) fallback.active = false;
+  if (!ready) return;
+
+  const gap = glyphH * 0.04;
+  const widths = digits.map((ch) => {
+    const sf = frames.get(`lvh${ch}`);
+    const ow = sf?.originalSize.width || 1;
+    const oh = Math.max(1, sf?.originalSize.height || 1);
+    return glyphH * (ow / oh);
+  });
+  const total = widths.reduce((s, w) => s + w, 0) + (digits.length - 1) * gap;
+  let x = -total * 0.5;
+  for (let i = 0; i < digits.length; i++) {
+    const dw = widths[i];
+    x += dw * 0.5;
+    const n = glyphNode(root, i, dw, glyphH);
+    n.setPosition(x, 0, 0);
+    applyArtSprite(n, `lvh${digits[i]}` as ArtKey, dw, glyphH);
+    x += dw * 0.5 + gap;
+  }
 }
 
 export function paintLevelTitle(root: Node | null, level: number, glyphH: number): void {

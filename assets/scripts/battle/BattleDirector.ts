@@ -8,7 +8,6 @@ import {
   input,
   Input,
   instantiate,
-  Label,
   Node,
   Prefab,
   UITransform,
@@ -16,7 +15,10 @@ import {
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
 import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
-import { BENCH, ColorToken, benchSeatX, benchSeatZ, GAME, PLAY, randomBenchUnit, wallStartX } from '../game/GameConfig';
+import { playShuaxinBurst, preloadShuaxinBurst } from './ShuaxinBurst';
+import { bindPowerLayer } from './PowerMark';
+import { BENCH, ColorToken, benchSeatX, benchSeatZ, GAME, PLAY, wallStartX } from '../game/GameConfig';
+import { isTutorialLevel } from '../game/LevelCatalog';
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
@@ -53,51 +55,68 @@ export class BattleDirector extends Component {
   private _canvas: Node | null = null;
   private _playing = false;
   private _won = false;
+  private _lost = false;
   private readonly _blocks: BlockCell[] = [];
   private readonly _units: UnitActor[] = [];
   private readonly _slots: SlotPad[] = [];
   private readonly _debris: DebrisBit[] = [];
   private _flyRoot: Node | null = null;
-  private _winLab: Label | null = null;
   private _drag: UnitActor | null = null;
   private readonly _dragOff = new Vec3();
   private _fromTouch = false;
   private _mouseHeld = false;
   private readonly _byCol: BlockCell[][] = [];
-  private readonly _colTop: number[] = [];
   private _remain = 0;
   private _unitPfs = new Map<ColorToken, Prefab>();
+  private _reserve: Array<readonly [ColorToken, number]> = [];
   private _bench: Node | null = null;
   private _nextUnitIndex = 0;
   private _cols = PLAY.wallCols;
   private _onWin: (() => void) | null = null;
+  private _onLose: (() => void) | null = null;
   private _hint: HintHand | null = null;
-  private _hintHud: Node | null = null;
 
-  armSpawn(unitPfs: Map<ColorToken, Prefab>): void {
+  armSpawn(
+    unitPfs: Map<ColorToken, Prefab>,
+    reserve: ReadonlyArray<readonly [ColorToken, number]> = [],
+  ): void {
     this._unitPfs = unitPfs;
+    this._reserve = reserve.slice();
   }
 
   bind(opts: {
     camera: Camera;
     canvas: Node;
-    winLabel: Label | null;
     onWin?: () => void;
+    onLose?: () => void;
   }): void {
     this._cam = opts.camera;
     this._canvas = opts.canvas;
-    this._winLab = opts.winLabel;
+    bindPowerLayer(opts.canvas);
     this._onWin = opts.onWin ?? null;
+    this._onLose = opts.onLose ?? null;
     this._collect();
     this._bindTouch();
     this.setPlaying(false);
     void preloadMergeBurst();
+    void preloadShuaxinBurst();
   }
 
   setPlaying(on: boolean): void {
     this._playing = on;
-    if (this._winLab) this._winLab.node.active = this._won && on;
     for (const u of this._units) u.setPowerVisible(on);
+  }
+
+  forceWin(): void {
+    if (this._won || this._lost) return;
+    this._won = true;
+    this._onWin?.();
+  }
+
+  forceLose(): void {
+    if (this._won || this._lost) return;
+    this._lost = true;
+    this._onLose?.();
   }
 
   onDestroy(): void {
@@ -138,9 +157,9 @@ export class BattleDirector extends Component {
       this._debris.push(c);
     });
     this._flyRoot = this.node.getChildByName('FlyRoot');
-    this._hintHud = this._canvas?.getChildByName('PlayHud') ?? null;
-    this._hint = this._hintHud?.getChildByName('HintHand')?.getComponent(HintHand) ?? null;
-    if (this._hint && PLAY.levelId !== 1) this._hint.hide();
+    this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
+    this._hint = this._ensureWorldHint();
+    if (this._hint && !isTutorialLevel(PLAY.levelId)) this._hint.hide();
     this._slots.sort((a, b) => a.index - b.index);
     this._units.sort((a, b) => a.index - b.index);
     this._bench = bench;
@@ -151,12 +170,23 @@ export class BattleDirector extends Component {
     this._indexBlocks();
   }
 
+  private _ensureWorldHint(): HintHand | null {
+    let n = this.node.getChildByName('HintHand');
+    if (!n) {
+      n = new Node('HintHand');
+      this.node.addChild(n);
+    }
+    const hint = n.getComponent(HintHand) ?? n.addComponent(HintHand);
+    hint.bindCamera(this._cam);
+    return hint;
+  }
+
   private _syncHint(): void {
-    if (!this._playing || this._won || PLAY.levelId !== 1) return;
+    if (!this._playing || this._won || this._lost || this._drag) return;
+    if (!isTutorialLevel(PLAY.levelId)) return;
     const hint = this._hint;
-    const cam = this._cam;
-    const hud = this._hintHud;
-    if (!hint || !cam || !hud) return;
+    if (!hint) return;
+    hint.bindCamera(this._cam);
     let unit: UnitActor | null = null;
     for (const u of this._units) {
       if (u.usable && u.state === 'bench' && this._isColFront(u)) {
@@ -165,10 +195,36 @@ export class BattleDirector extends Component {
       }
     }
     if (!unit) return;
+    const slot = this._hintSlot(unit);
     unit.node.getWorldPosition(_world);
-    _world.y += 0.18;
-    cam.convertToUINode(_world, hud, _tmp);
-    hint.place(_tmp.x, _tmp.y + 28);
+    _world.y += 0.28;
+    _world.z += 0.06;
+    if (!slot) {
+      hint.placeWorld(_world, _world);
+      return;
+    }
+    slot.node.getWorldPosition(_tmp);
+    _tmp.y += 0.22;
+    _tmp.z += 0.04;
+    hint.placeWorld(_world, _tmp);
+  }
+
+  private _hintSlot(unit: UnitActor): SlotPad | null {
+    let best: SlotPad | null = null;
+    let bestScore = 1e9;
+    unit.node.getWorldPosition(_world);
+    for (const s of this._slots) {
+      if (!s.open || !s.empty) continue;
+      s.node.getWorldPosition(_tmp);
+      const dx = _tmp.x - _world.x;
+      const dz = _tmp.z - _world.z;
+      const score = dx * dx + dz * dz + (this._colHasMatch(s.homeCol, unit.colorId) ? -2 : 0);
+      if (score < bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    return best;
   }
 
   private _indexBlocks(): void {
@@ -176,38 +232,22 @@ export class BattleDirector extends Component {
     for (const b of this._blocks) cols = Math.max(cols, b.col + 1);
     this._cols = Math.max(1, cols);
     this._byCol.length = 0;
-    this._colTop.length = 0;
-    for (let i = 0; i < this._cols; i++) {
-      this._byCol.push([]);
-      this._colTop.push(-1);
-    }
+    for (let i = 0; i < this._cols; i++) this._byCol.push([]);
     this._remain = 0;
     for (const b of this._blocks) {
       if (!b.suckable || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
-      if (b.row > this._colTop[b.col]) this._colTop[b.col] = b.row;
       this._remain += 1;
     }
   }
 
   private _unindex(block: BlockCell): void {
     const list = this._byCol[block.col];
-    if (list) {
-      const i = list.indexOf(block);
-      if (i >= 0) {
-        list[i] = list[list.length - 1];
-        list.pop();
-      }
-    }
-    if (block.row === this._colTop[block.col]) {
-      let top = -1;
-      const remain = this._byCol[block.col];
-      if (remain) {
-        for (let i = 0; i < remain.length; i++) {
-          if (remain[i].row > top) top = remain[i].row;
-        }
-      }
-      this._colTop[block.col] = top;
+    if (!list) return;
+    const i = list.indexOf(block);
+    if (i >= 0) {
+      list[i] = list[list.length - 1];
+      list.pop();
     }
   }
 
@@ -264,8 +304,8 @@ export class BattleDirector extends Component {
   }
 
   private _beginDrag(e: PointerEvt): void {
-    if (!this._playing || this._won || this._drag) return;
-    if (this._overBackBtn(e)) return;
+    if (!this._playing || this._won || this._lost || this._drag) return;
+    if (this._overUi(e)) return;
     const unit = this._pickBench(e);
     if (!unit) {
       this._tryUnlockSlot(e);
@@ -274,7 +314,6 @@ export class BattleDirector extends Component {
     this._drag = unit;
     unit.state = 'drag';
     gameAudio()?.playUiClick();
-    this._hint?.hide();
     this._groundAt(e, _hit);
     Vec3.subtract(this._dragOff, unit.node.worldPosition, _hit);
   }
@@ -312,19 +351,16 @@ export class BattleDirector extends Component {
       slot.node.getWorldPosition(_tmp);
       unit.node.setWorldPosition(_tmp.x, unit.homePos.y + SLOT_PAD_TOP, _tmp.z);
       this._refillBenchCol(unit.benchCol);
+      this._hint?.hide();
       return;
     }
     unit.resetHome();
   }
 
   private _tickCombat(dt: number): void {
-    if (!this._playing || this._won) return;
+    if (!this._playing || this._won || this._lost) return;
     if (this._remain === 0) {
       this._won = true;
-      if (this._winLab) {
-        this._winLab.string = '墙体已拆完';
-        this._winLab.node.active = true;
-      }
       this._onWin?.();
       return;
     }
@@ -376,6 +412,10 @@ export class BattleDirector extends Component {
       if (s.occupant === u) s.occupant = null;
     }
     if (this._drag === u) this._drag = null;
+    u.node.getWorldPosition(_world);
+    _world.y += 0.18;
+    playShuaxinBurst(this.node, _world);
+    gameAudio()?.playRemove();
     u.state = 'bench';
     u.lockedCol = -1;
     u.inflight = 0;
@@ -383,23 +423,35 @@ export class BattleDirector extends Component {
   }
 
   private _bestBlock(u: UnitActor): BlockCell | null {
-    const col = this._bestCol(u);
-    if (col < 0) return null;
-    const list = this._byCol[col];
-    if (!list) return null;
-    const row = this._colTop[col];
+    const home = this._bestCol(u);
+    if (home < 0) return null;
+    const lo = this._spanEdge(home, u.colorId, -1);
+    const hi = this._spanEdge(home, u.colorId, 1);
     let best: BlockCell | null = null;
     let bestScore = -1e9;
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i];
-      if (b.row !== row || b.colorId !== u.colorId) continue;
-      const score = -b.layer + Math.random() * 0.01;
-      if (score > bestScore) {
-        bestScore = score;
-        best = b;
+    for (let col = lo; col <= hi; col++) {
+      const list = this._byCol[col];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const b = list[i];
+        if (b.colorId !== u.colorId || !this._clearAbove(b)) continue;
+        // Same-color span: peel the top row first so one strip is not tunneled.
+        const score = b.row * 1000 - b.layer * 10 - Math.abs(b.col - home) + Math.random() * 0.01;
+        if (score > bestScore) {
+          bestScore = score;
+          best = b;
+        }
       }
     }
     return best;
+  }
+
+  /** Inclusive edge of the contiguous same-color columns around `home`. */
+  private _spanEdge(home: number, colorId: number, dir: -1 | 1): number {
+    let col = home;
+    const last = dir < 0 ? 0 : this._byCol.length - 1;
+    while (col !== last && this._colHasMatch(col + dir, colorId)) col += dir;
+    return col;
   }
 
   private _bestCol(u: UnitActor): number {
@@ -423,22 +475,49 @@ export class BattleDirector extends Component {
   private _colHasMatch(col: number, colorId: number): boolean {
     const list = this._byCol[col];
     if (!list) return false;
-    const row = this._colTop[col];
-    if (row < 0) return false;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
-      if (b.row === row && b.colorId === colorId) return true;
+      if (b.colorId === colorId && this._clearAbove(b)) return true;
     }
     return false;
   }
 
-  private _overBackBtn(e: PointerEvt): boolean {
+  /** Same column + layer: no other color sits higher than this block. */
+  private _clearAbove(block: BlockCell): boolean {
+    const list = this._byCol[block.col];
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o.layer !== block.layer || o.row <= block.row) continue;
+      if (o.colorId !== block.colorId) return false;
+    }
+    return true;
+  }
+
+  private _overUi(e: PointerEvt): boolean {
+    const loc = e.getLocation();
     const hud = this._canvas?.getChildByName('PlayHud');
     const back = hud?.getChildByName('BackBtn');
     const next = hud?.getChildByName('NextBtn');
-    const loc = e.getLocation();
     if (back?.activeInHierarchy && back.getComponent(UITransform)?.hitTest(loc)) return true;
     if (next?.activeInHierarchy && next.getComponent(UITransform)?.hitTest(loc)) return true;
+    const gm = this._canvas?.getChildByName('GmPanel');
+    if (this._hitsUi(gm?.getChildByName('Toggle'), loc)) return true;
+    if (this._hitsUi(gm?.getChildByName('Dim'), loc)) return true;
+    if (this._hitsUi(gm?.getChildByName('Card'), loc)) return true;
+    for (const name of ['FailPanel', 'VictoryPanel', 'SettingsPanel']) {
+      const n = this._canvas?.getChildByName(name);
+      if (n?.activeInHierarchy) return true;
+    }
+    return false;
+  }
+
+  private _hitsUi(node: Node | null | undefined, loc: ReturnType<PointerEvt['getLocation']>): boolean {
+    if (!node?.activeInHierarchy) return false;
+    if (node.getComponent(UITransform)?.hitTest(loc)) return true;
+    for (const child of node.children) {
+      if (this._hitsUi(child, loc)) return true;
+    }
     return false;
   }
 
@@ -523,7 +602,9 @@ export class BattleDirector extends Component {
   private _spawnBenchUnit(col: number, rank: number): boolean {
     const bench = this._bench;
     if (!bench) return false;
-    const [token, power] = randomBenchUnit();
+    const next = this._reserve.shift();
+    if (!next) return false;
+    const [token, power] = next;
     const pf = this._unitPfs.get(token) ?? this._unitPfs.get('o');
     if (!pf) return false;
     const index = this._nextUnitIndex++;

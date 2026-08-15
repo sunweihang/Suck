@@ -30,12 +30,12 @@ export const GAME = {
   wallDepth: 4,
   blockStep: 0.38,
   blockSize: 0.374,
-  wallFrontZ: -2.92,
-  slotStandZ: -2.16,
-  slotRowStep: 1.02,
+  wallFrontZ: -2.08,
+  slotStandZ: -1.38,
+  slotRowStep: 0.58,
   slotStart: 4,
   slotMax: 8,
-  slotRows: 2,
+  slotRows: 1,
   slotPickR: 0.42,
 } as const;
 
@@ -108,9 +108,9 @@ export function wallColAtX(x: number): number {
 
 export const BENCH = {
   cols: 6,
-  rows: 7,
+  rows: 6,
   stepX: 0.52,
-  stepZ: 0.58,
+  stepZ: 0.74,
   startZ: 0.62,
 } as const;
 
@@ -184,22 +184,3 @@ export function wallColorToken(x: number, _y: number): ColorToken {
   return tokens[Math.min(tokens.length - 1, Math.max(0, band))];
 }
 
-export const UNIT_SETUP: ReadonlyArray<readonly [ColorToken, number]> = [
-  ['c', 40], ['p', 20], ['v', 80], ['o', 49], ['y', 40], ['g', 20],
-  ['v', 49], ['o', 80], ['g', 40], ['c', 20], ['p', 49], ['y', 80],
-  ['o', 40], ['y', 49], ['c', 80], ['g', 136], ['p', 40], ['v', 49],
-  ['c', 20], ['o', 316], ['y', 40], ['p', 80], ['g', 136], ['v', 49],
-  ['g', 80], ['c', 40], ['o', 20], ['y', 40], ['p', 200], ['v', 80],
-  ['o', 49], ['v', 20], ['c', 80], ['g', 40], ['p', 20], ['y', 40],
-  ['y', 20], ['g', 80], ['p', 49], ['c', 40], ['o', 20], ['g', 49],
-];
-
-const FILL_POWERS = [8, 12, 16, 22] as const;
-
-export function randomBenchUnit(): readonly [ColorToken, number] {
-  const palette = PLAY.palette.length > 0 ? PLAY.palette : ALL_COLOR_TOKENS;
-  return [
-    palette[(Math.random() * palette.length) | 0],
-    FILL_POWERS[(Math.random() * FILL_POWERS.length) | 0],
-  ];
-}

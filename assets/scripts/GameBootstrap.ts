@@ -20,7 +20,7 @@ import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME } from './game/GameConfig';
-import { getLevel, LEVEL_COUNT, loadLevelIndex, saveLevelIndex } from './game/LevelCatalog';
+import { getLevel, LEVEL_COUNT, saveLevelIndex } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -28,9 +28,12 @@ import {
   portraitVisibleSize,
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
+import { FailPanel } from './view/FailPanel';
+import { GmPanel } from './view/GmPanel';
 import { HomePanel } from './view/HomePanel';
 import { PlayHud } from './view/PlayHud';
 import { SettingsPanel } from './view/SettingsPanel';
+import { VictoryPanel } from './view/VictoryPanel';
 import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { preloadUiArt } from './view/UiArt';
@@ -60,6 +63,9 @@ export class GameBootstrap extends Component {
   private _home: HomePanel | null = null;
   private _settings: SettingsPanel | null = null;
   private _playHud: PlayHud | null = null;
+  private _victory: VictoryPanel | null = null;
+  private _fail: FailPanel | null = null;
+  private _gm: GmPanel | null = null;
   private _battle: BattleDirector | null = null;
   private _audio: AudioService | null = null;
   private _level = 1;
@@ -68,7 +74,7 @@ export class GameBootstrap extends Component {
   private _uiJob: Promise<void> | null = null;
 
   onLoad(): void {
-    this._level = loadLevelIndex();
+    this._resetToFirst();
     this._stripLeftovers();
     this._uiJob = this._bootUi();
   }
@@ -151,8 +157,8 @@ export class GameBootstrap extends Component {
     this._battle.bind({
       camera: this._mainCam,
       canvas: this._canvas,
-      winLabel: this._playHud?.winLabel ?? null,
       onWin: () => this._onLevelCleared(),
+      onLose: () => this._onLevelFailed(),
     });
   }
 
@@ -168,6 +174,39 @@ export class GameBootstrap extends Component {
     saveLevelIndex(this._level);
     this._playHud?.showCleared(cleared, this._level > cleared);
     this._home?.setLevel(this._level, LEVEL_COUNT);
+    this._home?.hide();
+    this._settings?.hide();
+    this._fail?.hide();
+    this._gm?.collapse();
+    this._battle?.setPlaying(false);
+    this._victory?.show({
+      hasNext: this._level > cleared,
+    });
+  }
+
+  private _onLevelFailed(): void {
+    this._home?.hide();
+    this._settings?.hide();
+    this._victory?.hide();
+    this._gm?.collapse();
+    this._battle?.setPlaying(false);
+    this._fail?.show();
+  }
+
+  private _gmWin(): void {
+    if (this._battle?.isValid) {
+      this._battle.forceWin();
+      return;
+    }
+    this._onLevelCleared();
+  }
+
+  private _gmLose(): void {
+    if (this._battle?.isValid) {
+      this._battle.forceLose();
+      return;
+    }
+    this._onLevelFailed();
   }
 
   private _tuneMainCamera(): void {
@@ -274,6 +313,9 @@ export class GameBootstrap extends Component {
     this._home?.layoutChrome();
     this._settings?.layoutChrome();
     this._playHud?.layoutChrome();
+    this._victory?.layoutChrome();
+    this._fail?.layoutChrome();
+    this._gm?.layoutChrome();
   };
 
   private async _buildUi(): Promise<void> {
@@ -319,7 +361,7 @@ export class GameBootstrap extends Component {
     const homeN = await this._spawnHome(canvasN);
     this._home = homeN.getComponent(HomePanel) ?? homeN.addComponent(HomePanel);
     this._home.setup({
-      onPlay: () => this._enterPlay(),
+      onPlay: () => this._restartPlay(),
       onSettings: () => this._showSettings(),
     });
 
@@ -337,8 +379,61 @@ export class GameBootstrap extends Component {
       onNext: () => void this._enterNext(),
     });
     this._playHud.hide();
+
+    const winN = await this._spawnVictory(canvasN);
+    this._victory = winN.getComponent(VictoryPanel) ?? winN.addComponent(VictoryPanel);
+    this._victory.setup({
+      onNext: () => void this._enterNext(),
+    });
+    this._victory.hide();
+
+    const failN = await this._spawnFail(canvasN);
+    this._fail = failN.getComponent(FailPanel) ?? failN.addComponent(FailPanel);
+    this._fail.setup({
+      onRetry: () => this._retryPlay(),
+    });
+    this._fail.hide();
+
+    const gmN = new Node('GmPanel');
+    canvasN.addChild(gmN);
+    this._gm = gmN.addComponent(GmPanel);
+    this._gm.setup({
+      onWin: () => this._gmWin(),
+      onFail: () => this._gmLose(),
+    });
+
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._playHud?.setLevel(this._level);
+  }
+
+  private async _spawnFail(canvasN: Node): Promise<Node> {
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.FailPanel);
+      const n = instantiate(pf);
+      n.name = 'FailPanel';
+      canvasN.addChild(n);
+      return n;
+    } catch (err) {
+      console.warn('[Suck] FailPanel prefab missing, fallback node', err);
+      const n = new Node('FailPanel');
+      canvasN.addChild(n);
+      return n;
+    }
+  }
+
+  private async _spawnVictory(canvasN: Node): Promise<Node> {
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.VictoryPanel);
+      const n = instantiate(pf);
+      n.name = 'VictoryPanel';
+      canvasN.addChild(n);
+      return n;
+    } catch (err) {
+      console.warn('[Suck] VictoryPanel prefab missing, fallback node', err);
+      const n = new Node('VictoryPanel');
+      canvasN.addChild(n);
+      return n;
+    }
   }
 
   private async _spawnHome(canvasN: Node): Promise<Node> {
@@ -367,12 +462,22 @@ export class GameBootstrap extends Component {
     this._ensureAudio().startBgm();
   }
 
+  private _resetToFirst(): void {
+    this._level = 1;
+    this._builtLevel = 0;
+    saveLevelIndex(1);
+  }
+
   private _showHome(): void {
     this._unlockAudio();
+    this._resetToFirst();
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.show();
     this._settings?.hide();
     this._playHud?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._gm?.collapse();
     this._battle?.setPlaying(false);
   }
 
@@ -381,6 +486,9 @@ export class GameBootstrap extends Component {
     this._home?.hide();
     this._settings?.show();
     this._playHud?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._gm?.collapse();
     this._battle?.setPlaying(false);
   }
 
@@ -390,10 +498,23 @@ export class GameBootstrap extends Component {
       this._bindBattle();
       this._home?.hide();
       this._settings?.hide();
+      this._victory?.hide();
+      this._fail?.hide();
+      this._gm?.collapse();
       this._playHud?.setLevel(this._builtLevel);
       this._playHud?.show();
       this._battle?.setPlaying(true);
     });
+  }
+
+  private _restartPlay(): void {
+    this._resetToFirst();
+    this._enterPlay();
+  }
+
+  private _retryPlay(): void {
+    this._builtLevel = 0;
+    this._enterPlay();
   }
 
   private async _enterNext(): Promise<void> {

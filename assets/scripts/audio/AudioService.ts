@@ -4,6 +4,7 @@ const BGM_PATH = 'audio/bgm/bgm';
 const ABSORB_PATH = 'audio/sfx/absorb';
 const CLICK_PATH = 'audio/sfx/ui-click';
 const BOOM_PATH = 'audio/sfx/boom';
+const REMOVE_PATH = 'audio/sfx/remove';
 
 const DEFAULT_BGM = 0.4;
 /** TripleTown Merge.mp3 is quieter than most UI clips. */
@@ -12,6 +13,8 @@ const ABSORB_GAIN = 2.2;
 const CLICK_GAIN = 1;
 /** TripleTown Boom.mp3 — bomb / first-merge explosion. */
 const BOOM_GAIN = 1.8;
+/** TripleTown Remove.mp3 — shovel / piece leaves the board. */
+const REMOVE_GAIN = 1.2;
 /** Suck fires many bricks per second — keep a short gap so voices do not stack. */
 const ABSORB_GAP_SEC = 0.09;
 
@@ -27,6 +30,7 @@ export class AudioService {
   private _absorbClip: AudioClip | null = null;
   private _clickClip: AudioClip | null = null;
   private _boomClip: AudioClip | null = null;
+  private _removeClip: AudioClip | null = null;
   private _bgmDesired = false;
   private _bgmRunning = false;
   private _absorbAt = -99;
@@ -106,6 +110,20 @@ export class AudioService {
     });
   }
 
+  /** TripleTown Remove.mp3 — octopus vanishes after power runs out. */
+  playRemove(): void {
+    if (this._disposed) return;
+    if (this._removeClip) {
+      this._oneShot(this._removeClip, REMOVE_GAIN);
+      return;
+    }
+    resources.load(REMOVE_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._removeClip = clip;
+      this._oneShot(clip, REMOVE_GAIN);
+    });
+  }
+
   playUiClick(): void {
     if (this._disposed) return;
     if (this._clickClip) {
@@ -148,6 +166,13 @@ export class AudioService {
         return;
       }
       this._boomClip = clip;
+    });
+    resources.load(REMOVE_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] remove SFX load failed:', err);
+        return;
+      }
+      this._removeClip = clip;
     });
   }
 

@@ -11,14 +11,16 @@ import {
   Widget,
 } from 'cc';
 import { HintHand } from '../battle/HintHand';
-import { isTutorialLevel, levelTitle } from '../game/LevelCatalog';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
-import { applyLevelBadge, layoutLevelBadge } from './UiArt';
+import { layoutHomeLevel } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
+
+const PLAY_BADGE = 360;
+const PLAY_DIGIT_H = 150;
 
 @ccclass('PlayHud')
 export class PlayHud extends Component {
@@ -32,12 +34,7 @@ export class PlayHud extends Component {
     this._onNext = opts.onNext ?? null;
     this._ensureTree();
     const back = this.node.getChildByName('BackBtn');
-    back?.off(Node.EventType.TOUCH_END);
-    back?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
-      e.propagationStopped = true;
-      gameAudio()?.playUiClick();
-      this._onHome?.();
-    }, this);
+    if (back) back.active = false;
     const next = this.node.getChildByName('NextBtn');
     next?.off(Node.EventType.TOUCH_END);
     next?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
@@ -62,26 +59,20 @@ export class PlayHud extends Component {
 
   applyArt(): void {
     this._ensureTree();
-    layoutLevelBadge(this.node.getChildByName('ScoreBoard'), this._level, 360, 84, 42);
+    layoutHomeLevel(this.node.getChildByName('ScoreBoard'), this._level, PLAY_BADGE, PLAY_DIGIT_H);
   }
 
   setLevel(n: number): void {
     this._level = n;
-    layoutLevelBadge(this.node.getChildByName('ScoreBoard'), n, 360, 84, 42);
+    layoutHomeLevel(this.node.getChildByName('ScoreBoard'), n, PLAY_BADGE, PLAY_DIGIT_H);
     this._syncTip();
   }
 
-  showCleared(cleared: number, hasNext: boolean): void {
+  showCleared(_cleared: number, _hasNext: boolean): void {
     const win = this.node.getChildByName('WinLabel');
-    const lab = win?.getComponent(Label);
-    if (lab) {
-      lab.string = hasNext
-        ? `${levelTitle(cleared)}完成`
-        : '全部通关';
-    }
-    if (win) win.active = true;
+    if (win) win.active = false;
     const next = this.node.getChildByName('NextBtn');
-    if (next) next.active = hasNext;
+    if (next) next.active = false;
     const tip = this.node.getChildByName('TipLab');
     if (tip) tip.active = false;
     this.hintHand?.hide();
@@ -104,20 +95,20 @@ export class PlayHud extends Component {
     const vis = uiVisibleSize();
     const safe = uiSafeInsets();
     const top = vis.h * 0.5 - safe.top;
-    this.node.getChildByName('BackBtn')?.setPosition(-vis.w * 0.5 + 118, top - 72, 0);
-    this.node.getChildByName('ScoreBoard')?.setPosition(0, top - 56, 0);
-    this.node.getChildByName('TipLab')?.setPosition(0, top - 140, 0);
+    const back = this.node.getChildByName('BackBtn');
+    if (back) back.active = false;
+    this.node.getChildByName('ScoreBoard')?.setPosition(0, top - PLAY_BADGE * 0.52, 0);
+    this.node.getChildByName('TipLab')?.setPosition(0, top - PLAY_BADGE - 16, 0);
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
   }
 
   private _syncTip(): void {
-    const on = isTutorialLevel(this._level);
     const tip = this.node.getChildByName('TipLab');
-    if (tip) tip.active = on;
+    if (tip) tip.active = false;
     const hint = this.node.getChildByName('HintHand');
-    if (hint && this.hintHand && !on) this.hintHand.hide();
-    else if (hint) hint.active = on;
+    if (hint) hint.active = false;
+    this.hintHand?.hide();
   }
 
   private _ensureTree(): void {
@@ -134,14 +125,10 @@ export class PlayHud extends Component {
     widget.top = widget.bottom = widget.left = widget.right = 0;
     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
-    const back = this._mk('BackBtn', 168, 88);
-    paintQBtn(back.addComponent(Graphics), 168, 88, Theme.settingsFill, Theme.boardStroke);
-    this._lab(back, 'HOME', 34, Theme.settingsText, 168, 88, false);
-
     this._scoreBoard();
 
     const tip = this._mk('TipLab', 880, 56);
-    this._lab(tip, '把同色章鱼拖到墙前平台', 30, Theme.playText, 880, 56, false);
+    tip.active = false;
 
     const win = this._mk('WinLabel', 860, 96);
     win.active = false;
@@ -160,13 +147,10 @@ export class PlayHud extends Component {
   }
 
   private _scoreBoard(): Node {
-    const w = 360;
-    const h = 84;
-    const board = this._mk('ScoreBoard', w, h);
-    const face = this._mk('Board', w, h, board);
-    applyLevelBadge(face, w, h);
-    this._mk('Title', Math.round(w * 0.88), Math.round(h * 0.78), board);
-    layoutLevelBadge(board, this._level, w, h, 42);
+    const board = this._mk('ScoreBoard', PLAY_BADGE, PLAY_BADGE);
+    this._mk('Board', PLAY_BADGE, PLAY_BADGE, board);
+    this._mk('Title', Math.round(PLAY_BADGE * 0.78), Math.round(PLAY_BADGE * 0.52), board);
+    layoutHomeLevel(board, this._level, PLAY_BADGE, PLAY_DIGIT_H);
     return board;
   }
 

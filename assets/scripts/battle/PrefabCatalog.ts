@@ -10,9 +10,12 @@ export const PREFAB_UUID = {
   PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
   LockNails: '7e22bb20-0031-4b02-8002-000000000031',
   HomePanel: '7e22bb20-0040-4b02-8002-000000000040',
+  VictoryPanel: '7e22bb20-0041-4b02-8002-000000000041',
+  FailPanel: '7e22bb20-0042-4b02-8002-000000000042',
   Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
   Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
   Pingmu: 'f3acda95-f24d-4e94-a3d1-e089c980275e',
+  Shuaxin: '29821b8d-1014-439d-81ef-9f11e3487797',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {

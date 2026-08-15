@@ -1,178 +1,142 @@
 import {
   Color,
-  ImageAsset,
+  Label,
+  Layers,
   Material,
-  Mesh,
-  MeshRenderer,
   Node,
-  Texture2D,
-  Vec3,
-  assetManager,
+  RenderRoot2D,
+  UITransform,
   gfx,
-  resources,
-  utils,
 } from 'cc';
 import { OCTO_POWER_LOCAL } from './ToyLook';
 
-const DIGIT_W = 0.158;
-const DIGIT_H = 0.214;
-const FACE_EULER = new Vec3(-28, 0, 0);
+const POWER_SCALE = 0.011;
+let _depthMat: Material | null = null;
 
-const _mats: Array<Material | null> = Array.from({ length: 10 }, () => null);
-let _quad: Mesh | null = null;
-let _boot: Promise<void> | null = null;
-
-function quad(): Mesh | null {
-  if (_quad) return _quad;
-  _quad = utils.MeshUtils.createMesh({
-    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0],
-    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-    uvs: [0, 1, 1, 1, 0, 0, 1, 0],
-    indices: [0, 1, 2, 1, 3, 2, 0, 2, 1, 1, 2, 3],
-    minPos: new Vec3(-0.5, -0.5, 0),
-    maxPos: new Vec3(0.5, 0.5, 0),
-    boundingRadius: 0.75,
-  });
-  return _quad;
-}
-
-function texFromImage(img: ImageAsset): Texture2D {
-  const tex = new Texture2D();
-  tex.image = img;
+function powerDepthMat(): Material | null {
+  if (_depthMat) return _depthMat;
   try {
-    tex.setWrapMode(Texture2D.WrapMode.CLAMP_TO_EDGE, Texture2D.WrapMode.CLAMP_TO_EDGE);
-    tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
-  } catch {
-    /* older engine */
-  }
-  return tex;
-}
-
-function makeMat(tex: Texture2D): Material {
-  const mat = new Material();
-  mat.initialize({
-    effectName: 'builtin-unlit',
-    technique: 0,
-    defines: { USE_TEXTURE: true, USE_ALPHA_TEST: true },
-    states: {
-      rasterizerState: { cullMode: gfx.CullMode.NONE },
-      depthStencilState: {
-        depthTest: true,
-        depthWrite: true,
-        depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
+    const mat = new Material();
+    mat.initialize({
+      effectName: 'builtin-sprite',
+      states: {
+        depthStencilState: {
+          depthTest: true,
+          depthWrite: false,
+          depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
+        },
+        rasterizerState: {
+          cullMode: gfx.CullMode.NONE,
+        },
       },
-    },
-  });
-  mat.setProperty('mainTexture', tex);
-  mat.setProperty('mainColor', Color.WHITE);
-  try {
-    mat.setProperty('alphaThreshold', 0.18);
+    });
+    if (mat.passes?.length) {
+      _depthMat = mat;
+      return mat;
+    }
   } catch {
-    /* older unlit */
+    /* keep default UI material */
   }
-  return mat;
+  return null;
 }
 
-function loadDigit(d: number): Promise<Texture2D | null> {
-  const uuid = `9d12cc10-030${d}-4a01-8001-00000000003${d}@6c48a`;
-  return new Promise((resolve) => {
-    resources.load(`toys/power-${d}`, ImageAsset, (err, img) => {
-      if (!err && img) {
-        resolve(texFromImage(img));
-        return;
-      }
-      resources.load(`toys/power-${d}/texture`, Texture2D, (e2, tex) => {
-        if (!e2 && tex) {
-          resolve(tex);
-          return;
-        }
-        assetManager.loadAny({ uuid }, (e3, asset) => {
-          resolve(!e3 && asset ? (asset as Texture2D) : null);
-        });
-      });
-    });
-  });
+function ensureBenchRoot(host: Node): void {
+  const bench = host.parent;
+  if (bench && !bench.getComponent(RenderRoot2D)) bench.addComponent(RenderRoot2D);
+}
+
+function findPower(host: Node): Node | null {
+  const direct = host.getChildByName('Power');
+  if (direct) return direct;
+  const body = host.getChildByName('Rig')?.getChildByName('Body') ?? host.getChildByName('Body');
+  return body?.getChildByName('Power') ?? null;
+}
+
+function stripMeshJunk(tag: Node): void {
+  tag.removeComponent('MeshRenderer');
+  tag.removeComponent('Billboard');
+  tag.removeComponent('Sprite');
+  for (const child of [...tag.children]) {
+    if (child.name === 'Text') continue;
+    child.destroy();
+  }
+}
+
+function styleLabel(lab: Label): void {
+  lab.fontSize = 18;
+  lab.lineHeight = 20;
+  lab.isBold = true;
+  lab.color = new Color(255, 252, 246, 255);
+  lab.enableOutline = true;
+  lab.outlineWidth = 2;
+  lab.outlineColor = new Color(20, 24, 32, 220);
+  lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+  lab.verticalAlign = Label.VerticalAlign.CENTER;
+  lab.overflow = Label.Overflow.NONE;
+  lab.useSystemFont = true;
+  const mat = powerDepthMat();
+  if (mat) lab.customMaterial = mat;
 }
 
 export function preloadPowerDigits(): Promise<void> {
-  if (_boot) return _boot;
-  _boot = Promise.all(Array.from({ length: 10 }, (_, d) => loadDigit(d))).then((texs) => {
-    for (let d = 0; d < 10; d++) {
-      const tex = texs[d];
-      if (!tex) continue;
-      _mats[d] = makeMat(tex);
-    }
-  });
-  return _boot;
+  return Promise.resolve();
 }
 
-function dress(slot: Node, mat: Material | null): void {
-  let mr = slot.getComponent(MeshRenderer);
-  if (!mr) mr = slot.addComponent(MeshRenderer);
-  const mesh = quad();
-  if (!mesh || !mat?.passes?.length) {
-    mr.enabled = false;
-    return;
-  }
-  mr.mesh = mesh;
-  mr.setSharedMaterial(mat, 0);
-  mr.enabled = true;
-  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
-  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+export function bindPowerLayer(canvas: Node): void {
+  const leftover = canvas.getChildByName('PowerLayer');
+  if (leftover) leftover.destroy();
 }
 
-function ensureSlot(tag: Node, name: string): Node {
-  let slot = tag.getChildByName(name);
-  if (!slot) {
-    slot = new Node(name);
-    tag.addChild(slot);
-  }
-  slot.layer = tag.layer;
-  slot.setScale(DIGIT_W, DIGIT_H, 1);
-  slot.setRotationFromEuler(0, 0, 0);
-  slot.setPosition(slot.position.x, slot.position.y, 0.03);
-  return slot;
+export function syncPowerMarks(_cam: unknown): void {
+  /* labels stay on the octopus */
 }
 
 export function bindPowerMark(host: Node): Node {
-  let tag = host.getChildByName('Power');
+  ensureBenchRoot(host);
+  let tag = findPower(host);
+  if (tag && tag.parent !== host) tag.setParent(host, false);
+  if (tag && !tag.getChildByName('Text')) {
+    tag.removeFromParent();
+    tag.destroy();
+    tag = null;
+  }
   if (!tag) {
     tag = new Node('Power');
     host.addChild(tag);
+    const tagUt = tag.addComponent(UITransform);
+    tagUt.setContentSize(48, 24);
+    tagUt.hitTest = () => false;
+    const text = new Node('Text');
+    tag.addChild(text);
+    const textUt = text.addComponent(UITransform);
+    textUt.setContentSize(48, 24);
+    textUt.hitTest = () => false;
+    const lab = text.addComponent(Label);
+    lab.string = '0';
+    styleLabel(lab);
+  } else {
+    const lab = tag.getChildByName('Text')?.getComponent(Label);
+    if (lab) styleLabel(lab);
   }
-  const bank = tag.getChildByName('Bank');
-  if (bank) bank.active = false;
-  const badge = tag.getChildByName('Badge');
-  if (badge) badge.active = false;
-  tag.layer = host.layer;
+  stripMeshJunk(tag);
+  tag.layer = Layers.Enum.UI_3D;
+  const text = tag.getChildByName('Text');
+  if (text) text.layer = Layers.Enum.UI_3D;
   tag.active = true;
+  tag.setSiblingIndex(0);
   tag.setPosition(OCTO_POWER_LOCAL);
-  tag.setRotationFromEuler(FACE_EULER.x, FACE_EULER.y, FACE_EULER.z);
-  tag.setScale(1, 1, 1);
-  for (let i = 0; i < 3; i++) {
-    const slot = ensureSlot(tag, `D${i}`);
-    dress(slot, _mats[0]);
-    slot.active = i === 0;
-  }
+  tag.setRotationFromEuler(0, 0, 0);
+  tag.setScale(POWER_SCALE, POWER_SCALE, POWER_SCALE);
   return tag;
 }
 
 export function paintPowerMark(tag: Node | null, value: number): void {
   if (!tag?.isValid) return;
-  const badge = tag.getChildByName('Badge');
-  if (badge) badge.active = false;
-  const text = String(Math.max(0, Math.round(value)));
-  const n = Math.min(3, text.length);
-  const span = n === 1 ? 0 : n === 2 ? 0.1 : 0.086;
-  const start = -((n - 1) * span) / 2;
-  for (let i = 0; i < 3; i++) {
-    const slot = ensureSlot(tag, `D${i}`);
-    if (i >= n) {
-      slot.active = false;
-      continue;
-    }
-    slot.setPosition(start + i * span, 0, 0.03);
-    dress(slot, _mats[Number(text[i])]);
-    slot.active = true;
-  }
+  const lab = tag.getChildByName('Text')?.getComponent(Label);
+  if (!lab) return;
+  const num = String(Math.max(0, Math.round(value)));
+  lab.string = num;
+  const w = Math.max(32, 14 + num.length * 11);
+  lab.node.getComponent(UITransform)?.setContentSize(w, 18);
+  tag.getComponent(UITransform)?.setContentSize(w, 18);
 }

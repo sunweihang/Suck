@@ -105,7 +105,10 @@ export async function buildPlayWorld(
 
   const bench = new Node('Bench');
   root.addChild(bench);
-  level.units.forEach((pair, i) => {
+  const seats = BENCH.cols * BENCH.rows;
+  const shown = level.units.slice(0, seats);
+  const reserve = level.units.slice(seats);
+  shown.forEach((pair, i) => {
     const [token, power] = pair;
     const cx = i % BENCH.cols;
     const cz = Math.floor(i / BENCH.cols);
@@ -145,6 +148,6 @@ export async function buildPlayWorld(
   }
 
   const battle = root.addComponent(BattleDirector);
-  battle.armSpawn(unitPfs);
+  battle.armSpawn(unitPfs, reserve);
   return { root, battle };
 }

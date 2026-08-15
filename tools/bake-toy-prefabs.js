@@ -141,8 +141,9 @@ function gltfMeta(uuid) {
   };
 }
 
-function imageMeta(uuid, name, w, h) {
+function imageMeta(uuid, name, w, h, extra) {
   const tex = `${uuid}@6c48a`;
+  const opt = extra || {};
   return {
     ver: '1.0.27',
     importer: 'image',
@@ -161,7 +162,7 @@ function imageMeta(uuid, name, w, h) {
           wrapModeT: 'clamp-to-edge',
           minfilter: 'linear',
           magfilter: 'linear',
-          mipfilter: 'none',
+          mipfilter: opt.mipfilter || 'none',
           anisotropy: 0,
           isUuid: true,
           imageUuidOrDatabaseUri: uuid,
@@ -175,7 +176,7 @@ function imageMeta(uuid, name, w, h) {
     },
     userData: {
       type: 'texture',
-      fixAlphaTransparencyArtifacts: false,
+      fixAlphaTransparencyArtifacts: !!opt.fixAlpha,
       hasAlpha: true,
       redirect: tex,
     },
@@ -944,8 +945,7 @@ function buildUnitPrefab(color, lift) {
     addMeshRenderer(doc, n.id, MESH_BALL, p.m, true, false);
   }
 
-  const powerY = Number((0.15 + lift).toFixed(5));
-  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: powerY, z: 0.23, rx: -28 });
+  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: 0.18, z: -0.18 });
   addPrefabInfo(doc, power.id, assetRef, false);
   for (let i = 0; i < 3; i++) {
     const slot = addNode(doc, {
@@ -971,12 +971,11 @@ function buildUnitPrefab(color, lift) {
   write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.unit, name));
 }
 
-function writeToyLook(lift) {
-  const powerY = Number((0.15 + lift).toFixed(5));
+function writeToyLook(_lift) {
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts'), `import { Vec3 } from 'cc';
 
 export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, ${powerY}, 0.23);
+export const OCTO_POWER_LOCAL = new Vec3(0, 0.18, -0.18);
 `);
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts.meta'), tsMeta(UUID.ToyLook));
 }
@@ -999,6 +998,7 @@ export const PREFAB_UUID = {
   Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
   Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
   Pingmu: 'f3acda95-f24d-4e94-a3d1-e089c980275e',
+  Shuaxin: '29821b8d-1014-439d-81ef-9f11e3487797',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {
@@ -1049,7 +1049,10 @@ function main() {
   for (let d = 0; d < 10; d++) {
     const imgUuid = powerImgUuid(d);
     const matUuid = powerMatUuid(d);
-    write(path.join(ASSETS, `resources/toys/power-${d}.png.meta`), imageMeta(imgUuid, `power-${d}`, 256, 256));
+    write(path.join(ASSETS, `resources/toys/power-${d}.png.meta`), imageMeta(imgUuid, `power-${d}`, 256, 256, {
+      mipfilter: 'none',
+      fixAlpha: true,
+    }));
     write(path.join(ASSETS, `materials/MatPower${d}.mtl`), powerDigitMaterial(`MatPower${d}`, imgUuid));
     write(path.join(ASSETS, `materials/MatPower${d}.mtl.meta`), mtlMeta(matUuid));
   }
