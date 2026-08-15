@@ -1,0 +1,90 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0312-4b02-8002-000000000002",
+  "files": [],
+  "subMetas": {
+    "9d64e": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0312-4b02-8002-000000000002@9d64e",
+      "displayName": "",
+      "id": "9d64e",
+      "name": "ToyOctopus.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 3152
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "77ec7": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0312-4b02-8002-000000000002@77ec7",
+      "displayName": "",
+      "id": "77ec7",
+      "name": "toy-octopus.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "imageMetas": [],
+    "legacyFbxImporter": false,
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "generateLightmapUVNode": false,
+    "meshOptimizer": {
+      "enable": false,
+      "algorithm": "simplify",
+      "simplifyOptions": {
+        "targetRatio": 1,
+        "enableSmartLink": true,
+        "agressiveness": 7,
+        "maxIterationCount": 100
+      }
+    },
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0312-4b02-8002-000000000002@9d64e"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0312-4b02-8002-000000000002@77ec7"
+      ]
+    }
+  }
+}

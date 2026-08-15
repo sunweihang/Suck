@@ -1,11 +1,28 @@
 import { assetManager, instantiate, Node, Prefab, Vec3 } from 'cc';
-import { GAME, UNIT_SETUP, slotLocked, slotX, wallColAtX, wallColorToken } from '../game/GameConfig';
+import {
+  ALL_COLOR_TOKENS,
+  BENCH,
+  ColorToken,
+  GAME,
+  PLAY,
+  benchSeatX,
+  benchSeatZ,
+  slotLocked,
+  slotTotal,
+  slotX,
+  slotZ,
+  wallColAtX,
+  wallStartX,
+} from '../game/GameConfig';
+import { applyLevel, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
-import { PREFAB_UUID } from './PrefabCatalog';
+import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { SlotPad } from './SlotPad';
+import { spawnToyBackdrop } from './ToyBackdrop';
 import { applyShadowReceiver } from './ToyBlockMesh';
+import { preloadToyMeshes } from './ToyMeshBank';
 import { OCTOPUS_STAND_Y } from './ToyOctopusMesh';
 import { UnitActor } from './UnitActor';
 
@@ -29,38 +46,53 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
   return n;
 }
 
-export async function buildPlayWorld(scene: Node): Promise<{ root: Node; battle: BattleDirector }> {
-  const pack = await Promise.all([
+export async function buildPlayWorld(
+  scene: Node,
+  level: LevelDef = getLevel(1),
+): Promise<{ root: Node; battle: BattleDirector }> {
+  applyLevel(level);
+  const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
+  const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
+  const [groundPf, slotPf, debrisPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
-    loadPrefab(PREFAB_UUID.BlockOrange),
-    loadPrefab(PREFAB_UUID.UnitOrange),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
+    ...blockUuids.map(loadPrefab),
+    ...unitUuids.map(loadPrefab),
   ]);
-  const [groundPf, blockPf, unitPf, slotPf, debrisPf] = pack;
+  await preloadToyMeshes();
+  const blockPfs = new Map<ColorToken, Prefab>();
+  const unitPfs = new Map<ColorToken, Prefab>();
+  ALL_COLOR_TOKENS.forEach((token, i) => {
+    blockPfs.set(token, colorPfs[i]);
+    unitPfs.set(token, colorPfs[ALL_COLOR_TOKENS.length + i]);
+  });
 
   const root = new Node('PlayWorld');
   scene.addChild(root);
 
   applyShadowReceiver(spawn(groundPf, root, 'Ground', new Vec3(0, -0.12, 0)));
+  spawnToyBackdrop(root);
 
   const wall = new Node('Wall');
   root.addChild(wall);
-  const cols = GAME.wallCols;
-  const rows = GAME.wallRows;
-  const depth = GAME.wallDepth;
-  const step = GAME.blockStep;
-  const startX = -((cols - 1) * step) / 2;
+  const cols = level.cols;
+  const rows = level.rows;
+  const step = PLAY.blockStep;
+  const startX = wallStartX(cols);
   const frontZ = GAME.wallFrontZ;
-  for (let z = 0; z < depth; z++) {
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const token = wallColorToken(x, y);
+  const baseY = PLAY.wallBaseY;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = level.cells[y * cols + x];
+      if (!cell) continue;
+      for (let z = 0; z < cell.tokens.length; z++) {
+        const token = cell.tokens[z];
         const n = spawn(
-          blockPf,
+          blockPfs.get(token) ?? blockPfs.get('o')!,
           wall,
           `Blk_${token}_${x}_${y}_${z}`,
-          new Vec3(startX + x * step, 0.22 + y * step, frontZ - z * step),
+          new Vec3(startX + x * step, baseY + y * step, frontZ - z * step),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
       }
@@ -69,19 +101,14 @@ export async function buildPlayWorld(scene: Node): Promise<{ root: Node; battle:
 
   const bench = new Node('Bench');
   root.addChild(bench);
-  const ucols = 6;
-  const usx = 0.52;
-  const usz = 0.46;
-  const uStartX = -((ucols - 1) * usx) / 2;
-  const uStartZ = 1.08;
-  UNIT_SETUP.forEach((pair, i) => {
+  level.units.forEach((pair, i) => {
     const [token, power] = pair;
-    const cx = i % ucols;
-    const cz = Math.floor(i / ucols);
-    const x = uStartX + cx * usx;
-    const z = uStartZ + cz * usz;
+    const cx = i % BENCH.cols;
+    const cz = Math.floor(i / BENCH.cols);
+    const x = benchSeatX(cx);
+    const z = benchSeatZ(cz);
     const n = spawn(
-      unitPf,
+      unitPfs.get(token) ?? unitPfs.get('o')!,
       bench,
       `Unit_${String(i).padStart(2, '0')}_${token}_${power}`,
       new Vec3(x, OCTOPUS_STAND_Y, z),
@@ -91,9 +118,10 @@ export async function buildPlayWorld(scene: Node): Promise<{ root: Node; battle:
 
   const slots = new Node('Slots');
   root.addChild(slots);
-  for (let i = 0; i < GAME.slotMax; i++) {
-    const x = slotX(i, GAME.slotMax);
-    const n = spawn(slotPf, slots, `Slot_${i}`, new Vec3(x, 0, GAME.slotStandZ));
+  const total = slotTotal();
+  for (let i = 0; i < total; i++) {
+    const x = slotX(i);
+    const n = spawn(slotPf, slots, `Slot_${i}`, new Vec3(x, 0, slotZ(i)));
     const pad = n.getComponent(SlotPad) ?? n.addComponent(SlotPad);
     pad.locked = slotLocked(i);
     pad.homeCol = wallColAtX(x);
@@ -113,5 +141,6 @@ export async function buildPlayWorld(scene: Node): Promise<{ root: Node; battle:
   }
 
   const battle = root.addComponent(BattleDirector);
+  battle.armSpawn(unitPfs);
   return { root, battle };
 }

@@ -1,0 +1,90 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0311-4b02-8002-000000000001",
+  "files": [],
+  "subMetas": {
+    "e1d15": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0311-4b02-8002-000000000001@e1d15",
+      "displayName": "",
+      "id": "e1d15",
+      "name": "ToyBlock.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 108
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4cd46": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0311-4b02-8002-000000000001@4cd46",
+      "displayName": "",
+      "id": "4cd46",
+      "name": "toy-block.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "imageMetas": [],
+    "legacyFbxImporter": false,
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "generateLightmapUVNode": false,
+    "meshOptimizer": {
+      "enable": false,
+      "algorithm": "simplify",
+      "simplifyOptions": {
+        "targetRatio": 1,
+        "enableSmartLink": true,
+        "agressiveness": 7,
+        "maxIterationCount": 100
+      }
+    },
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0311-4b02-8002-000000000001@e1d15"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0311-4b02-8002-000000000001@4cd46"
+      ]
+    }
+  }
+}

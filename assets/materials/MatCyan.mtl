@@ -9,17 +9,48 @@
     "__expectedType__": "cc.EffectAsset"
   },
   "_techIdx": 0,
-  "_defines": [{}, {}, {}],
+  "_defines": [
+    {},
+    {},
+    {}
+  ],
   "_states": [
-    { "rasterizerState": {}, "depthStencilState": {}, "blendState": { "targets": [{}] } },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
     {},
     {}
   ],
   "_props": [
     {
-      "mainColor": { "__type__": "cc.Color", "r": 64, "g": 242, "b": 236, "a": 255 },
-      "roughness": 0.48,
-      "metallic": 0.0
+      "mainColor": {
+        "__type__": "cc.Color",
+        "r": 24,
+        "g": 228,
+        "b": 236,
+        "a": 255
+      },
+      "roughness": 0.42,
+      "metallic": 0,
+      "emissive": {
+        "__type__": "cc.Color",
+        "r": 24,
+        "g": 228,
+        "b": 236,
+        "a": 255
+      },
+      "emissiveScale": {
+        "__type__": "cc.Vec3",
+        "x": 0.28,
+        "y": 0.28,
+        "z": 0.28
+      }
     },
     {},
     {}

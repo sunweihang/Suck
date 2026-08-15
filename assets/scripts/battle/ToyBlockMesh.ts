@@ -12,6 +12,12 @@ const BLOCK_COLOR: Record<ColorId, Color> = {
   [ColorId.Lime]: new Color(96, 224, 48, 255),
   [ColorId.Pink]: new Color(255, 84, 164, 255),
   [ColorId.Violet]: new Color(164, 92, 255, 255),
+  [ColorId.Red]: new Color(255, 60, 76, 255),
+  [ColorId.Sky]: new Color(72, 176, 255, 255),
+  [ColorId.Coral]: new Color(255, 124, 100, 255),
+  [ColorId.Mint]: new Color(0, 212, 128, 255),
+  [ColorId.Magenta]: new Color(240, 56, 216, 255),
+  [ColorId.Gold]: new Color(255, 196, 44, 255),
 };
 
 let _mesh: Mesh | null = null;
@@ -83,7 +89,11 @@ function addFace(axis: number, sign: number, pos: number[], nrm: number[], uvs: 
   }
 }
 
-export function getToyBlockMesh(): Mesh {
+function makeMesh(data: Parameters<typeof utils.MeshUtils.createMesh>[0]): Mesh | null {
+  return utils.MeshUtils.createMesh(data) ?? null;
+}
+
+export function getToyBlockMesh(): Mesh | null {
   if (_mesh) return _mesh;
   const positions: number[] = [];
   const normals: number[] = [];
@@ -93,7 +103,7 @@ export function getToyBlockMesh(): Mesh {
     addFace(axis, 1, positions, normals, uvs, indices);
     addFace(axis, -1, positions, normals, uvs, indices);
   }
-  _mesh = utils.MeshUtils.createMesh({
+  _mesh = makeMesh({
     positions,
     normals,
     uvs,
@@ -105,16 +115,9 @@ export function getToyBlockMesh(): Mesh {
   return _mesh;
 }
 
-export function makeInstancedMat(
-  color: Color,
-  roughness: number,
-  emit: number,
-): Material {
+function makeLitMat(color: Color, roughness: number, emit: number): Material {
   const mat = new Material();
-  mat.initialize({
-    effectName: 'builtin-standard',
-    defines: { USE_INSTANCING: true },
-  });
+  mat.initialize({ effectName: 'builtin-standard' });
   mat.setProperty('mainColor', color);
   mat.setProperty('roughness', roughness);
   mat.setProperty('metallic', 0);
@@ -123,12 +126,37 @@ export function makeInstancedMat(
   return mat;
 }
 
+export function makeInstancedMat(
+  color: Color,
+  roughness: number,
+  emit: number,
+): Material {
+  return makeLitMat(color, roughness, emit);
+}
+
 export function getClayMat(id: ColorId): Material {
   let mat = _mats.get(id);
   if (mat) return mat;
-  mat = makeInstancedMat(BLOCK_COLOR[id], 0.52, 0.18);
+  mat = makeLitMat(BLOCK_COLOR[id], 0.52, 0.18);
   _mats.set(id, mat);
   return mat;
+}
+
+export function applyMesh(
+  mr: MeshRenderer | null,
+  mesh: Mesh | null,
+  mat: Material | null,
+): boolean {
+  if (!mr) return false;
+  if (!mesh || !mat?.passes?.length) {
+    mr.enabled = false;
+    return false;
+  }
+  mr.enabled = false;
+  mr.setSharedMaterial(mat, 0);
+  mr.mesh = mesh;
+  mr.enabled = true;
+  return true;
 }
 
 export function applyToyBlock(
@@ -136,9 +164,11 @@ export function applyToyBlock(
   colorId: ColorId,
 ): void {
   const mr = node.getComponent(MeshRenderer);
-  if (!mr) return;
-  mr.mesh = getToyBlockMesh();
+  const mesh = getToyBlockMesh();
+  if (!mr || !mesh) return;
+  mr.mesh = mesh;
   mr.setSharedMaterial(getClayMat(colorId), 0);
+  mr.enabled = true;
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
@@ -148,9 +178,14 @@ export function applyToySkin(
   colorId: ColorId,
 ): void {
   const mat = getClayMat(colorId);
+  if (!mat.passes?.length) return;
   for (const mr of node.getComponentsInChildren(MeshRenderer)) {
     const name = mr.node.name;
     if (name.startsWith('Eye') || name.startsWith('Pupil')) continue;
+    if (!mr.mesh) {
+      mr.enabled = false;
+      continue;
+    }
     mr.setSharedMaterial(mat, 0);
     mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
     mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;

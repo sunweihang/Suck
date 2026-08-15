@@ -2,12 +2,12 @@
   "ver": "1.1.50",
   "importer": "prefab",
   "imported": true,
-  "uuid": "7e22bb20-0006-4b02-8002-000000000006",
+  "uuid": "7e22bb20-0012-4b02-8002-000000000012",
   "files": [
     ".json"
   ],
   "subMetas": {},
   "userData": {
-    "syncNodeName": "UnitBlack"
+    "syncNodeName": "BlockLime"
   }
 }

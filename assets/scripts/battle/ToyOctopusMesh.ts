@@ -13,6 +13,7 @@ const { blobs: BLOBS, lift: Y_LIFT } = buildBlobs();
 const { MIN, MAX } = boundsFromBlobs(BLOBS);
 
 export const OCTOPUS_STAND_Y = 0.012;
+export const OCTO_POWER_LOCAL = new Vec3(0, 0.062 + Y_LIFT, 0.138);
 export const OCTO_BACK_LOCAL = new Vec3(0, 0.138 + Y_LIFT - 0.14, -0.06);
 
 let _mesh: Mesh | null = null;

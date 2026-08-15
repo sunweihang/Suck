@@ -1,0 +1,90 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0313-4b02-8002-000000000003",
+  "files": [],
+  "subMetas": {
+    "642dc": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0313-4b02-8002-000000000003@642dc",
+      "displayName": "",
+      "id": "642dc",
+      "name": "ToyBall.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 192
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "c2453": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0313-4b02-8002-000000000003@c2453",
+      "displayName": "",
+      "id": "c2453",
+      "name": "toy-ball.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "imageMetas": [],
+    "legacyFbxImporter": false,
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "generateLightmapUVNode": false,
+    "meshOptimizer": {
+      "enable": false,
+      "algorithm": "simplify",
+      "simplifyOptions": {
+        "targetRatio": 1,
+        "enableSmartLink": true,
+        "agressiveness": 7,
+        "maxIterationCount": 100
+      }
+    },
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0313-4b02-8002-000000000003@642dc"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0313-4b02-8002-000000000003@c2453"
+      ]
+    }
+  }
+}

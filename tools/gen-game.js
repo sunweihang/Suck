@@ -1106,12 +1106,7 @@ function main() {
   write(path.join(ASSETS, 'scripts/battle/HintHand.ts.meta'), tsMeta(UUID.HintHandScript));
   write(path.join(ASSETS, 'scripts/view/PlayHud.ts.meta'), tsMeta(UUID.PlayHud));
 
-  buildBlockPrefab('o', 'BlockOrange', UUID.BlockOrange);
-  buildBlockPrefab('c', 'BlockCyan', UUID.BlockCyan);
-  buildBlockPrefab('k', 'BlockBlack', UUID.BlockBlack);
-  buildUnitPrefab('o', 'UnitOrange', UUID.UnitOrange);
-  buildUnitPrefab('c', 'UnitCyan', UUID.UnitCyan);
-  buildUnitPrefab('k', 'UnitBlack', UUID.UnitBlack);
+  // Block/Unit prefabs are baked by tools/bake-toy-prefabs.js (real meshes, all colors).
 
   buildSimplePrefab('Slot', UUID.Slot, (doc, prefabId) => {
     const root = addNode(doc, { name: 'Slot', sx: 0.78, sy: 0.045, sz: 0.78 });

@@ -1,0 +1,103 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "bake-toy-prefabs"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "ToyOctopus"
+    }
+  ],
+  "meshes": [
+    {
+      "name": "ToyOctopus",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 1572,
+      "type": "VEC3",
+      "min": [
+        -0.31263522157760465,
+        -0.10615,
+        -0.3138344793446889
+      ],
+      "max": [
+        0.31263522157760465,
+        0.57916,
+        0.3098
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 1572,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1572,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 9456,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 18864,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 18864,
+      "byteLength": 18864,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 37728,
+      "byteLength": 12576,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 50304,
+      "byteLength": 18912,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 69216,
+      "uri": "toy-octopus.bin"
+    }
+  ]
+}

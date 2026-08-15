@@ -21,7 +21,7 @@ function glossy(key: string, color: Color, roughness: number, emit: number): Mat
   return mat;
 }
 
-export function getToyBall(): Mesh {
+export function getToyBall(): Mesh | null {
   if (_ball) return _ball;
   const su = 12;
   const sv = 8;
@@ -72,7 +72,7 @@ function finish(
   r: number,
   y0: number,
   y1: number,
-): Mesh {
+): Mesh | null {
   return utils.MeshUtils.createMesh({
     positions: pos,
     normals: nrm,
@@ -84,7 +84,7 @@ function finish(
   });
 }
 
-function lathe(profile: ReadonlyArray<readonly [number, number]>, segs: number): Mesh {
+function lathe(profile: ReadonlyArray<readonly [number, number]>, segs: number): Mesh | null {
   const pos: number[] = [];
   const nrm: number[] = [];
   const uvs: number[] = [];
@@ -136,24 +136,24 @@ function arc(cx: number, cy: number, rad: number, a0: number, a1: number, steps:
   return out;
 }
 
-function getFloor(): Mesh {
+function getFloor(): Mesh | null {
   if (_floor) return _floor;
   _floor = lathe(
     [
-      [0.02, 0.004],
-      [0.2, 0.004],
-      [0.2, 0.014],
-      [0.02, 0.014],
+      [0.02, 0.006],
+      [0.2, 0.006],
+      [0.2, 0.018],
+      [0.02, 0.018],
     ],
     32,
   );
   return _floor;
 }
 
-function getRim(): Mesh {
+function getRim(): Mesh | null {
   if (_rim) return _rim;
-  const R = 0.24;
-  const tube = 0.05;
+  const R = 0.26;
+  const tube = 0.062;
   const y = 0.03;
   const segR = 32;
   const segT = 14;
@@ -200,12 +200,12 @@ function part(root: Node, name: string): Node {
   return n;
 }
 
-function dress(node: Node, mesh: Mesh, mat: Material, y: number): void {
+function dress(node: Node, mesh: Mesh | null, mat: Material, y: number): void {
   node.setPosition(0, y, 0);
   node.setScale(1, 1, 1);
   node.setRotationFromEuler(0, 0, 0);
   const mr = node.getComponent(MeshRenderer);
-  if (!mr) return;
+  if (!mr || !mesh) return;
   mr.enabled = true;
   mr.mesh = mesh;
   mr.setSharedMaterial(mat, 0);
@@ -232,9 +232,10 @@ function blob(
   n.setScale(sx, sy, sz);
   n.setRotationFromEuler(rx, ry, rz);
   const mr = n.getComponent(MeshRenderer);
-  if (!mr) return;
+  const mesh = getToyBall();
+  if (!mr || !mesh) return;
   mr.enabled = true;
-  mr.mesh = getToyBall();
+  mr.mesh = mesh;
   mr.setSharedMaterial(mat, 0);
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;

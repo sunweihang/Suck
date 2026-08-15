@@ -12,6 +12,7 @@ import {
 } from 'cc';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
+import { paintQBoard, paintQBtn, styleQCaption, styleQNum } from './QChrome';
 
 const { ccclass } = _decorator;
 
@@ -46,8 +47,8 @@ export class SettingsPanel extends Component {
     this.node.getChildByName('Card')?.setPosition(0, 40, 0);
     const safe = uiSafeInsets();
     this.node.getChildByName('CloseBtn')?.setPosition(
-      vis.w * 0.5 - safe.right - 88,
-      vis.h * 0.5 - safe.top - 88,
+      vis.w * 0.5 - safe.right - 92,
+      vis.h * 0.5 - safe.top - 92,
       0,
     );
   }
@@ -70,14 +71,12 @@ export class SettingsPanel extends Component {
     dim.addComponent(Graphics);
     this._fill(dim, Theme.veil);
     const card = this._mk('Card', this.node, 860, 720);
-    card.addComponent(Graphics);
-    this._fill(card, Theme.panel);
-    this._label(card, 'Title', 'SETTINGS', 56, Theme.title, 0, 260, 700, 80);
-    this._label(card, 'Body', '拖章鱼到墙前平台开始拆墙\n同色合成，只吸本色小块', 32, Theme.subtitle, 0, 40, 760, 160);
-    const close = this._mk('CloseBtn', this.node, 112, 112);
-    close.addComponent(Graphics);
-    this._fill(close, Theme.settingsFill, 22);
-    this._label(close, 'Label', 'BACK', 28, Theme.settingsText, 0, 0, 112, 112);
+    paintQBoard(card.addComponent(Graphics), 860, 720);
+    this._label(card, 'Title', 'SETTINGS', 56, Theme.boardNum, 0, 220, 700, 80, true);
+    this._label(card, 'Body', '拖章鱼到墙前平台开始拆墙\n同色合成，只吸本色小块', 32, Theme.subtitle, 0, 20, 760, 180, false);
+    const close = this._mk('CloseBtn', this.node, 120, 120);
+    paintQBtn(close.addComponent(Graphics), 120, 120, Theme.settingsFill, Theme.boardStroke);
+    this._label(close, 'Label', 'BACK', 30, Theme.playText, 0, 0, 120, 120, false);
     close.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       this._onClose?.();
@@ -116,17 +115,14 @@ export class SettingsPanel extends Component {
     y: number,
     w: number,
     h: number,
+    big = false,
   ): Label {
     const n = this._mk(name, parent, w, h);
     n.setPosition(x, y, 0);
     const lab = n.addComponent(Label);
     lab.string = text;
-    lab.fontSize = size;
-    lab.lineHeight = size + 10;
-    lab.isBold = true;
-    lab.color = color;
-    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    if (big) styleQNum(lab, size, color);
+    else styleQCaption(lab, size, color);
     return lab;
   }
 }

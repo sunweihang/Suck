@@ -13,9 +13,11 @@ import {
   Widget,
   view,
 } from 'cc';
+import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME } from './game/GameConfig';
+import { getLevel, LEVEL_COUNT, loadLevelIndex, saveLevelIndex } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -26,6 +28,7 @@ import { Theme } from './game/Theme';
 import { HomePanel } from './view/HomePanel';
 import { PlayHud } from './view/PlayHud';
 import { SettingsPanel } from './view/SettingsPanel';
+import { preloadUiArt } from './view/UiArt';
 
 const { ccclass } = _decorator;
 
@@ -41,8 +44,13 @@ export class GameBootstrap extends Component {
   private _settings: SettingsPanel | null = null;
   private _playHud: PlayHud | null = null;
   private _battle: BattleDirector | null = null;
+  private _audio: AudioService | null = null;
+  private _level = 1;
+  private _builtLevel = 0;
+  private _bootJob: Promise<void> | null = null;
 
   onLoad(): void {
+    this._level = loadLevelIndex();
     this._stripLeftovers();
     try {
       applyDesignResolution();
@@ -50,6 +58,11 @@ export class GameBootstrap extends Component {
       this._tuneLighting();
       this._ensureLetterboxCam();
       this._buildUi();
+      void preloadUiArt().then(() => {
+        this._home?.applyArt();
+        this._playHud?.applyArt();
+      });
+      this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
     } catch (err) {
@@ -63,6 +76,8 @@ export class GameBootstrap extends Component {
 
   onDestroy(): void {
     view.off('canvas-resize', this._applyPortraitFrame, this);
+    setGameAudio(null);
+    this._audio = null;
   }
 
   private _stripLeftovers(): void {
@@ -83,24 +98,48 @@ export class GameBootstrap extends Component {
     n.destroy();
   }
 
-  private async _bootWorld(): Promise<void> {
+  private _bootWorld(): Promise<void> {
+    if (this._bootJob) return this._bootJob;
+    this._bootJob = this._bootWorldInner().finally(() => {
+      this._bootJob = null;
+    });
+    return this._bootJob;
+  }
+
+  private async _bootWorldInner(): Promise<void> {
     try {
       if (!this.node.scene) return;
       this._disposeNamed('PlayWorld');
-      const world = await buildPlayWorld(this.node.scene);
+      const world = await buildPlayWorld(this.node.scene, getLevel(this._level));
       this._battle = world.battle;
+      this._builtLevel = this._level;
       if (this._mainCam && this._canvas) {
         this._battle.bind({
           camera: this._mainCam,
           canvas: this._canvas,
-          powerRoot: this._playHud?.powerRoot ?? null,
           winLabel: this._playHud?.winLabel ?? null,
+          onWin: () => this._onLevelCleared(),
         });
       }
-      this._showHome();
+      this._home?.setLevel(this._level, LEVEL_COUNT);
+      this._playHud?.setLevel(this._level);
     } catch (err) {
       console.error('[Suck] boot world failed', err);
     }
+  }
+
+  private async _ensureWorld(): Promise<void> {
+    if (this._bootJob) await this._bootJob;
+    if (this._builtLevel === this._level && this._battle?.isValid) return;
+    await this._bootWorld();
+  }
+
+  private _onLevelCleared(): void {
+    const cleared = this._level;
+    if (this._level < LEVEL_COUNT) this._level += 1;
+    saveLevelIndex(this._level);
+    this._playHud?.showCleared(cleared, this._level > cleared);
+    this._home?.setLevel(this._level, LEVEL_COUNT);
   }
 
   private _tuneMainCamera(): void {
@@ -124,6 +163,7 @@ export class GameBootstrap extends Component {
     cam.far = GAME.worldCamFar;
     cam.clearColor = Theme.sky;
     cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+    cam.visibility |= Layers.Enum.UI_3D;
     applyPortraitCameraRect(cam);
     cam.enabled = true;
   }
@@ -247,6 +287,8 @@ export class GameBootstrap extends Component {
     this._home.setup({
       onPlay: () => this._enterPlay(),
       onSettings: () => this._showSettings(),
+      onPrevLevel: () => this._shiftLevel(-1),
+      onNextLevel: () => this._shiftLevel(1),
     });
 
     const settingsN = new Node('SettingsPanel');
@@ -258,11 +300,39 @@ export class GameBootstrap extends Component {
     const hudN = new Node('PlayHud');
     canvasN.addChild(hudN);
     this._playHud = hudN.addComponent(PlayHud);
-    this._playHud.setup({ onHome: () => this._showHome() });
+    this._playHud.setup({
+      onHome: () => this._showHome(),
+      onNext: () => void this._enterNext(),
+    });
     this._playHud.hide();
+    this._home?.setLevel(this._level, LEVEL_COUNT);
+    this._playHud?.setLevel(this._level);
+  }
+
+  private _ensureAudio(): AudioService {
+    if (this._audio) return this._audio;
+    this._audio = new AudioService(this.node);
+    setGameAudio(this._audio);
+    return this._audio;
+  }
+
+  private _unlockAudio(): void {
+    this._ensureAudio().startBgm();
+  }
+
+  private _shiftLevel(delta: number): void {
+    this._unlockAudio();
+    const next = Math.max(1, Math.min(LEVEL_COUNT, this._level + delta));
+    if (next === this._level) return;
+    this._level = next;
+    saveLevelIndex(this._level);
+    this._home?.setLevel(this._level, LEVEL_COUNT);
+    this._playHud?.setLevel(this._level);
   }
 
   private _showHome(): void {
+    this._unlockAudio();
+    this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.show();
     this._settings?.hide();
     this._playHud?.hide();
@@ -270,6 +340,7 @@ export class GameBootstrap extends Component {
   }
 
   private _showSettings(): void {
+    this._unlockAudio();
     this._home?.hide();
     this._settings?.show();
     this._playHud?.hide();
@@ -277,9 +348,18 @@ export class GameBootstrap extends Component {
   }
 
   private _enterPlay(): void {
-    this._home?.hide();
-    this._settings?.hide();
-    this._playHud?.show();
-    this._battle?.setPlaying(true);
+    this._unlockAudio();
+    void this._ensureWorld().then(() => {
+      this._home?.hide();
+      this._settings?.hide();
+      this._playHud?.setLevel(this._builtLevel);
+      this._playHud?.show();
+      this._battle?.setPlaying(true);
+    });
+  }
+
+  private async _enterNext(): Promise<void> {
+    await this._ensureWorld();
+    this._enterPlay();
   }
 }

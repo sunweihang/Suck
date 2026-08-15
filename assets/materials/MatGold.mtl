@@ -1,0 +1,58 @@
+{
+  "__type__": "cc.Material",
+  "_name": "MatGold",
+  "_objFlags": 0,
+  "__editorExtras__": {},
+  "_native": "",
+  "_effectAsset": {
+    "__uuid__": "c8f66d17-351a-48da-a12c-0212d28575c4",
+    "__expectedType__": "cc.EffectAsset"
+  },
+  "_techIdx": 0,
+  "_defines": [
+    {},
+    {},
+    {}
+  ],
+  "_states": [
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {},
+    {}
+  ],
+  "_props": [
+    {
+      "mainColor": {
+        "__type__": "cc.Color",
+        "r": 255,
+        "g": 232,
+        "b": 40,
+        "a": 255
+      },
+      "roughness": 0.22,
+      "metallic": 0,
+      "emissive": {
+        "__type__": "cc.Color",
+        "r": 255,
+        "g": 232,
+        "b": 40,
+        "a": 255
+      },
+      "emissiveScale": {
+        "__type__": "cc.Vec3",
+        "x": 0.52,
+        "y": 0.52,
+        "z": 0.52
+      }
+    },
+    {},
+    {}
+  ]
+}

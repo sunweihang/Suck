@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, parseColorToken } from '../game/GameConfig';
+import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
 import { applyToyBlock } from './ToyBlockMesh';
 
 const { ccclass } = _decorator;
@@ -43,7 +43,7 @@ export class BlockCell extends Component {
 
   syncFromName(): void {
     this._parseName();
-    this.node.setScale(GAME.blockSize, GAME.blockSize, GAME.blockSize);
+    this.node.setScale(PLAY.blockSize, PLAY.blockSize, PLAY.blockSize);
     this.node.setRotationFromEuler(0, 0, 0);
     this._baseScale.set(this.node.scale);
     applyToyBlock(this.node, this.colorId);
