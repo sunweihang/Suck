@@ -36,8 +36,8 @@
         "b": 255,
         "a": 255
       },
-      "roughness": 0.12,
-      "metallic": 0,
+      "roughness": 0.1,
+      "metallic": 0.04,
       "emissive": {
         "__type__": "cc.Color",
         "r": 255,
@@ -47,9 +47,9 @@
       },
       "emissiveScale": {
         "__type__": "cc.Vec3",
-        "x": 0.42,
-        "y": 0.42,
-        "z": 0.42
+        "x": 0.34,
+        "y": 0.34,
+        "z": 0.34
       }
     },
     {},

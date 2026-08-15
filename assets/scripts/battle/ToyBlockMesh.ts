@@ -1,4 +1,4 @@
-import { Mesh, MeshRenderer, Material } from 'cc';
+import { Mesh, MeshRenderer, Material, Node } from 'cc';
 
 export function applyMesh(
   mr: MeshRenderer | null,
@@ -22,4 +22,13 @@ export function applyShadowReceiver(node: { getComponent: (t: typeof MeshRendere
   if (!mr) return;
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.ON;
+}
+
+export function applyToyCaster(node: Node, receive = false): void {
+  for (const mr of node.getComponentsInChildren(MeshRenderer)) {
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+    mr.shadowReceivingMode = receive
+      ? MeshRenderer.ShadowReceivingMode.ON
+      : MeshRenderer.ShadowReceivingMode.OFF;
+  }
 }

@@ -79,15 +79,15 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": 8.76,
-      "z": 12.26
+      "y": 20.62,
+      "z": 32.62
     },
     "_lrot": {
       "__type__": "cc.Quat",
-      "x": -0.224951,
+      "x": -0.241922,
       "y": 0,
       "z": 0,
-      "w": 0.97437
+      "w": 0.970296
     },
     "_lscale": {
       "__type__": "cc.Vec3",
@@ -99,7 +99,7 @@
     "_layer": 1073741824,
     "_euler": {
       "__type__": "cc.Vec3",
-      "x": -26,
+      "x": -28,
       "y": 0,
       "z": 0
     },
@@ -116,7 +116,7 @@
     "__prefab": null,
     "_projection": 1,
     "_priority": 0,
-    "_fov": 38,
+    "_fov": 16,
     "_fovAxis": 0,
     "_orthoHeight": 10,
     "_near": 0.1,
@@ -216,9 +216,9 @@
       "__id__": 6
     },
     "_visibility": -325058561,
-    "_illuminanceHDR": 180000,
-    "_illuminance": 180000,
-    "_illuminanceLDR": 5.2,
+    "_illuminanceHDR": 215000,
+    "_illuminance": 215000,
+    "_illuminanceLDR": 5.8,
     "_shadowEnabled": true,
     "_shadowPcf": 2,
     "_shadowBias": 0.0003,
@@ -336,8 +336,8 @@
       "z": 0.9,
       "w": 0.55
     },
-    "_skyIllumHDR": 60000,
-    "_skyIllum": 60000,
+    "_skyIllumHDR": 26000,
+    "_skyIllum": 26000,
     "_groundAlbedoHDR": {
       "__type__": "cc.Vec4",
       "x": 0.45,
@@ -374,10 +374,10 @@
     "_distance": 0,
     "_shadowColor": {
       "__type__": "cc.Color",
-      "r": 0,
-      "g": 0,
-      "b": 0,
-      "a": 255
+      "r": 32,
+      "g": 48,
+      "b": 68,
+      "a": 200
     },
     "_maxReceived": 4,
     "_size": {

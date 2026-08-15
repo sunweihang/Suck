@@ -15,6 +15,7 @@ import {
   Vec3,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
+import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
 import { BENCH, ColorToken, benchSeatX, benchSeatZ, GAME, PLAY, randomBenchUnit, wallStartX } from '../game/GameConfig';
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
@@ -90,6 +91,7 @@ export class BattleDirector extends Component {
     this._collect();
     this._bindTouch();
     this.setPlaying(false);
+    void preloadMergeBurst();
   }
 
   setPlaying(on: boolean): void {
@@ -99,13 +101,7 @@ export class BattleDirector extends Component {
   }
 
   onDestroy(): void {
-    input.off(Input.EventType.TOUCH_START, this._onTouchStart, this);
-    input.off(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
-    input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
-    input.off(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
-    input.off(Input.EventType.MOUSE_DOWN, this._onMouseDown, this);
-    input.off(Input.EventType.MOUSE_MOVE, this._onMouseMove, this);
-    input.off(Input.EventType.MOUSE_UP, this._onMouseUp, this);
+    this._unbindTouch();
   }
 
   update(dt: number): void {
@@ -187,7 +183,7 @@ export class BattleDirector extends Component {
     }
     this._remain = 0;
     for (const b of this._blocks) {
-      if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
+      if (!b.suckable || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
       if (b.row > this._colTop[b.col]) this._colTop[b.col] = b.row;
       this._remain += 1;
@@ -216,6 +212,7 @@ export class BattleDirector extends Component {
   }
 
   private _bindTouch(): void {
+    this._unbindTouch();
     input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
     input.on(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
@@ -223,6 +220,16 @@ export class BattleDirector extends Component {
     input.on(Input.EventType.MOUSE_DOWN, this._onMouseDown, this);
     input.on(Input.EventType.MOUSE_MOVE, this._onMouseMove, this);
     input.on(Input.EventType.MOUSE_UP, this._onMouseUp, this);
+  }
+
+  private _unbindTouch(): void {
+    input.off(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.off(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
+    input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
+    input.off(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
+    input.off(Input.EventType.MOUSE_DOWN, this._onMouseDown, this);
+    input.off(Input.EventType.MOUSE_MOVE, this._onMouseMove, this);
+    input.off(Input.EventType.MOUSE_UP, this._onMouseUp, this);
   }
 
   private _onTouchStart(e: EventTouch): void {
@@ -266,6 +273,7 @@ export class BattleDirector extends Component {
     }
     this._drag = unit;
     unit.state = 'drag';
+    gameAudio()?.playUiClick();
     this._hint?.hide();
     this._groundAt(e, _hit);
     Vec3.subtract(this._dragOff, unit.node.worldPosition, _hit);
@@ -286,6 +294,7 @@ export class BattleDirector extends Component {
     this._groundAt(e, _hit);
     const merge = this._pickMerge(unit, _hit);
     if (merge) {
+      gameAudio()?.playUiClick();
       merge.power += unit.power;
       merge.maxPower = Math.max(merge.maxPower, merge.power);
       merge.syncPowerLabel();
@@ -296,6 +305,7 @@ export class BattleDirector extends Component {
     }
     const slot = this._pickSlot(_hit);
     if (slot && slot.empty) {
+      gameAudio()?.playUiClick();
       slot.occupant = unit;
       unit.lockedCol = slot.homeCol;
       unit.state = 'attack';
@@ -347,7 +357,7 @@ export class BattleDirector extends Component {
   }
 
   private _suckBrick(u: UnitActor, block: BlockCell): void {
-    if (block.colorId !== u.colorId || u.power <= u.inflight) return;
+    if (!block.suckable || block.colorId !== u.colorId || u.power <= u.inflight) return;
     u.inflight += 1;
     gameAudio()?.playAbsorb();
     this._unindex(block);
@@ -494,6 +504,7 @@ export class BattleDirector extends Component {
       u.benchRank = i;
       u.homePos.set(benchSeatX(col), u.homePos.y, benchSeatZ(i));
       if (u.state === 'bench') u.slideToHome();
+      u.refreshPowerVisible();
     }
   }
 
@@ -536,6 +547,10 @@ export class BattleDirector extends Component {
   private _tryUnlockSlot(e: PointerEvt): boolean {
     const slot = this._pickLockedSlot(e);
     if (!slot) return false;
+    slot.node.getWorldPosition(_world);
+    _world.y += 0.22;
+    gameAudio()?.playBoom();
+    playMergeBurst(this.node, _world);
     return slot.unlock();
   }
 

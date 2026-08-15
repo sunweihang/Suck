@@ -252,11 +252,11 @@ export function applyToySlot(root: Node, locked = false): void {
   }
 
   const rim = locked
-    ? glossy('rimLock', new Color(168, 174, 184, 255), 0.36, 0.08)
-    : glossy('rimOpen', new Color(255, 214, 184, 255), 0.28, 0.2);
+    ? glossy('rimLock', new Color(176, 182, 192, 255), 0.36, 0.1)
+    : glossy('rimOpen', new Color(255, 214, 184, 255), 0.32, 0.16);
   const floor = locked
-    ? glossy('floorLock', new Color(140, 146, 156, 255), 0.48, 0.06)
-    : glossy('floorOpen', new Color(232, 186, 148, 255), 0.42, 0.12);
+    ? glossy('floorLock', new Color(150, 156, 166, 255), 0.48, 0.08)
+    : glossy('floorOpen', new Color(232, 186, 148, 255), 0.48, 0.12);
   dress(part(root, 'Floor'), getFloor(), floor, 0);
   dress(part(root, 'Rim'), getRim(), rim, 0);
 
@@ -272,13 +272,13 @@ export function applyToySlot(root: Node, locked = false): void {
     return;
   }
 
-  const wood = glossy('signWood', new Color(168, 112, 64, 255), 0.48, 0.1);
-  const orange = glossy('signBoard', new Color(255, 132, 28, 255), 0.48, 0.16);
-  const cream = glossy('signX', new Color(255, 236, 214, 255), 0.4, 0.14);
-  blob(root, 'SignPost', 0, 0.08, 0, 0.032, 0.12, 0.032, wood);
-  blob(root, 'SignBoard', 0, 0.2, 0.01, 0.18, 0.14, 0.04, orange);
-  blob(root, 'SignX0', 0, 0.2, 0.03, 0.14, 0.036, 0.028, cream, 0, 0, 38);
-  blob(root, 'SignX1', 0, 0.2, 0.03, 0.14, 0.036, 0.028, cream, 0, 0, -38);
+  const wood = glossy('signWood', new Color(168, 112, 64, 255), 0.48, 0.12);
+  const orange = glossy('signBoard', new Color(255, 132, 28, 255), 0.48, 0.18);
+  const red = glossy('signXRed', new Color(220, 32, 40, 255), 0.36, 0.22);
+  blob(root, 'SignPost', 0, 0.1, 0, 0.04, 0.15, 0.04, wood);
+  blob(root, 'SignBoard', 0, 0.24, 0.01, 0.26, 0.2, 0.05, orange);
+  blob(root, 'SignX0', 0, 0.24, 0.034, 0.2, 0.05, 0.036, red, 0, 0, 38);
+  blob(root, 'SignX1', 0, 0.24, 0.034, 0.2, 0.05, 0.036, red, 0, 0, -38);
 }
 
 export function applyToyHand(root: Node): void {

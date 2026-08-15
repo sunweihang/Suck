@@ -10,7 +10,7 @@ const COLORS = {
   MatOrange: { r: 232, g: 168, b: 42 },
   MatCyan: { r: 56, g: 196, b: 194 },
   MatBlack: { r: 38, g: 38, b: 42 },
-  MatGround: { r: 128, g: 208, b: 230 },
+  MatGround: { r: 176, g: 226, b: 236 },
   MatSlot: { r: 110, g: 178, b: 198 },
   MatEye: { r: 252, g: 252, b: 255 },
   MatPupil: { r: 24, g: 26, b: 32 },

@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
+import { applyToyCaster } from './ToyBlockMesh';
 
 const { ccclass } = _decorator;
 
@@ -22,6 +23,7 @@ export class BlockCell extends Component {
   col = 0;
   row = 0;
   layer = 0;
+  locked = false;
 
   private readonly _baseScale = new Vec3();
   private readonly _from = new Vec3();
@@ -37,6 +39,7 @@ export class BlockCell extends Component {
   private _onLand: (() => void) | null = null;
 
   onLoad(): void {
+    applyToyCaster(this.node);
     this.syncFromName();
   }
 
@@ -56,6 +59,10 @@ export class BlockCell extends Component {
     return this.node.active && this.hp > 0 && !this._sucking;
   }
 
+  get suckable(): boolean {
+    return this.alive && !this.locked;
+  }
+
   get inFlight(): boolean {
     return this._sucking;
   }
@@ -65,7 +72,7 @@ export class BlockCell extends Component {
   }
 
   beginSuck(target: Node, duration: number, onLand?: () => void): void {
-    if (this._sucking || !this.node.active) return;
+    if (this.locked || this._sucking || !this.node.active) return;
     this._sucking = true;
     this.hp = 0;
     this._target = target;
@@ -144,5 +151,6 @@ export class BlockCell extends Component {
     this.col = Number(p[2]) || 0;
     this.row = Number(p[3]) || 0;
     this.layer = Number(p[4]) || 0;
+    this.locked = p[5] === 'L';
   }
 }

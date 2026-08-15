@@ -1,0 +1,62 @@
+{
+  "__type__": "cc.Material",
+  "_name": "",
+  "_objFlags": 0,
+  "__editorExtras__": {},
+  "_native": "",
+  "_effectAsset": {
+    "__uuid__": "7f78400d-94a6-45a3-a362-ca4eed3138e0",
+    "__expectedType__": "cc.EffectAsset"
+  },
+  "_techIdx": 1,
+  "_defines": [
+    {},
+    {}
+  ],
+  "_states": [
+    {
+      "priority": 129,
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    }
+  ],
+  "_props": [
+    {
+      "mainTexture": {
+        "__uuid__": "e09be2d8-d40e-40ca-badb-a4d0a592e642@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "rotate": 90,
+      "MaskTex": {
+        "__uuid__": "d724e55d-8e37-4921-a4a0-14a57be5a608@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "MaskRotate": 90,
+      "distortTexture": {
+        "__uuid__": "59643b99-0b58-466b-ab78-06ac5a8cc4e2@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "distortStreagth": 1,
+      "distort_u_speed": 1,
+      "dissolveTex": {
+        "__uuid__": "68c67158-ae68-4381-9c56-0b646994d8e7@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      }
+    },
+    {}
+  ]
+}

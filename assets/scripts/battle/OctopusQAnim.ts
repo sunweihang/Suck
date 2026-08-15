@@ -46,8 +46,26 @@ function spring(x: number, v: number, dt: number): [number, number] {
   return [x, v];
 }
 
+const KEEP_OFF_RIG = new Set(['Power', 'Rig']);
+
+function ensureRig(root: Node): Node {
+  let rig = root.getChildByName('Rig');
+  if (!rig) {
+    rig = new Node('Rig');
+    root.addChild(rig);
+  }
+  rig.layer = root.layer;
+  const kids = root.children.slice();
+  for (const child of kids) {
+    if (KEEP_OFF_RIG.has(child.name)) continue;
+    child.setParent(rig, false);
+  }
+  return rig;
+}
+
 export class OctopusQAnim {
   private _root: Node | null = null;
+  private _rig: Node | null = null;
   private _t = 0;
   private _phase = 0;
 
@@ -87,6 +105,7 @@ export class OctopusQAnim {
 
   bind(root: Node, seed: number): void {
     this._root = root;
+    this._rig = ensureRig(root);
     this._phase = seed * 1.618 + Math.random() * 6.28;
     this._t = Math.random() * 4;
     this._sx = this._sy = this._sz = 0;
@@ -98,14 +117,17 @@ export class OctopusQAnim {
     this._lookWait = 0.6 + Math.random() * 1.4;
     this._jiggleWait = 1.6 + Math.random() * 2.8;
     this._appliedClose = 0;
-    this._eyeL = bindFace(root, 'EyeL');
-    this._eyeR = bindFace(root, 'EyeR');
-    this._pupilL = bindFace(root, 'PupilL');
-    this._pupilR = bindFace(root, 'PupilR');
-    this._hiL = bindFace(root, 'HighlightL');
-    this._hiR = bindFace(root, 'HighlightR');
+    const faceRoot = this._rig ?? root;
+    this._eyeL = bindFace(faceRoot, 'EyeL');
+    this._eyeR = bindFace(faceRoot, 'EyeR');
+    this._pupilL = bindFace(faceRoot, 'PupilL');
+    this._pupilR = bindFace(faceRoot, 'PupilR');
+    this._hiL = bindFace(faceRoot, 'HighlightL');
+    this._hiR = bindFace(faceRoot, 'HighlightR');
     root.setScale(1, 1, 1);
     root.setRotationFromEuler(0, 0, 0);
+    this._rig.setScale(1, 1, 1);
+    this._rig.setRotationFromEuler(0, 0, 0);
   }
 
   punchPick(): void {
@@ -158,14 +180,14 @@ export class OctopusQAnim {
     const sx = clamp(1 + breath * amp + side * amp * 0.22 + this._sx - gulp * 0.045, SCALE_MIN, SCALE_MAX);
     const sy = clamp(1 - breath * amp * 1.05 + this._sy + gulp * 0.08, SCALE_MIN, SCALE_MAX);
     const sz = clamp(1 + breath * amp * 0.7 - side * amp * 0.16 + this._sz + gulp * 0.06, SCALE_MIN, SCALE_MAX);
-    root.setScale(sx, sy, sz);
-
     const sway = state === 'drag' ? 7.5 : sucking ? 3.2 : 3.6;
     const lean = sucking ? 6 + gulp * 5 : state === 'attack' ? 4.5 : state === 'drag' ? -4.5 : 1.4;
     const pitch = clamp(lean + Math.sin(this._t * 1.15 + this._phase) * (excited ? 2.4 : 1.8) + this._rx, -16, 16);
     const yaw = clamp(Math.sin(this._t * 1.28 + this._phase * 0.7) * sway + this._ry, -16, 16);
     const roll = clamp(Math.sin(this._t * 0.92 + this._phase * 1.8) * sway * 0.55 + this._rz, -12, 12);
-    root.setRotationFromEuler(pitch, yaw, roll);
+    const rig = this._rig ?? root;
+    rig.setScale(sx, sy, sz);
+    rig.setRotationFromEuler(pitch, yaw, roll);
 
     this._tickIdleJiggle(step, state, sucking);
     this._tickLook(step, state);

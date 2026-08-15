@@ -37,7 +37,7 @@
         "a": 255
       },
       "roughness": 0.28,
-      "metallic": 0,
+      "metallic": 0.04,
       "emissive": {
         "__type__": "cc.Color",
         "r": 22,

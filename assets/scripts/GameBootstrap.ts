@@ -8,9 +8,12 @@ import {
   Graphics,
   Layers,
   Node,
+  Prefab,
   UITransform,
   Vec3,
   Widget,
+  assetManager,
+  instantiate,
   view,
 } from 'cc';
 import { AudioService, setGameAudio } from './audio/AudioService';
@@ -28,7 +31,21 @@ import { Theme } from './game/Theme';
 import { HomePanel } from './view/HomePanel';
 import { PlayHud } from './view/PlayHud';
 import { SettingsPanel } from './view/SettingsPanel';
+import { PREFAB_UUID } from './battle/PrefabCatalog';
+import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { preloadUiArt } from './view/UiArt';
+
+function loadPrefab(uuid: string): Promise<Prefab> {
+  return new Promise((resolve, reject) => {
+    assetManager.loadAny({ uuid }, (err, asset) => {
+      if (err || !asset) {
+        reject(err ?? new Error(`prefab missing ${uuid}`));
+        return;
+      }
+      resolve(asset as Prefab);
+    });
+  });
+}
 
 const { ccclass } = _decorator;
 
@@ -48,23 +65,30 @@ export class GameBootstrap extends Component {
   private _level = 1;
   private _builtLevel = 0;
   private _bootJob: Promise<void> | null = null;
+  private _uiJob: Promise<void> | null = null;
 
   onLoad(): void {
     this._level = loadLevelIndex();
     this._stripLeftovers();
+    this._uiJob = this._bootUi();
+  }
+
+  private async _bootUi(): Promise<void> {
     try {
       applyDesignResolution();
       this._tuneMainCamera();
       this._tuneLighting();
       this._ensureLetterboxCam();
-      this._buildUi();
-      void preloadUiArt().then(() => {
-        this._home?.applyArt();
-        this._playHud?.applyArt();
-      });
+      await this._buildUi();
       this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
+      await preloadUiArt();
+      if (this.node.scene) await spawnToyBackdrop(this.node.scene);
+      this._home?.applyArt();
+      this._playHud?.applyArt();
+      this._applyPortraitFrame();
+      this._bindBattle();
     } catch (err) {
       console.error('[Suck] boot ui failed', err);
     }
@@ -108,24 +132,28 @@ export class GameBootstrap extends Component {
 
   private async _bootWorldInner(): Promise<void> {
     try {
+      if (!this._canvas && this._uiJob) await this._uiJob;
       if (!this.node.scene) return;
       this._disposeNamed('PlayWorld');
       const world = await buildPlayWorld(this.node.scene, getLevel(this._level));
       this._battle = world.battle;
       this._builtLevel = this._level;
-      if (this._mainCam && this._canvas) {
-        this._battle.bind({
-          camera: this._mainCam,
-          canvas: this._canvas,
-          winLabel: this._playHud?.winLabel ?? null,
-          onWin: () => this._onLevelCleared(),
-        });
-      }
+      this._bindBattle();
       this._home?.setLevel(this._level, LEVEL_COUNT);
       this._playHud?.setLevel(this._level);
     } catch (err) {
       console.error('[Suck] boot world failed', err);
     }
+  }
+
+  private _bindBattle(): void {
+    if (!this._battle?.isValid || !this._mainCam || !this._canvas) return;
+    this._battle.bind({
+      camera: this._mainCam,
+      canvas: this._canvas,
+      winLabel: this._playHud?.winLabel ?? null,
+      onWin: () => this._onLevelCleared(),
+    });
   }
 
   private async _ensureWorld(): Promise<void> {
@@ -162,8 +190,9 @@ export class GameBootstrap extends Component {
     cam.near = GAME.worldCamNear;
     cam.far = GAME.worldCamFar;
     cam.clearColor = Theme.sky;
-    cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
-    cam.visibility |= Layers.Enum.UI_3D;
+    cam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
+    cam.priority = 1;
+    cam.visibility = Layers.Enum.DEFAULT | Layers.Enum.UI_3D;
     applyPortraitCameraRect(cam);
     cam.enabled = true;
   }
@@ -176,29 +205,34 @@ export class GameBootstrap extends Component {
       shadows.enabled = true;
       shadows.type = 1;
       shadows.shadowMapSize = 1024;
-      shadows.shadowColor = new Color(18, 28, 40, 220);
+      shadows.shadowColor = new Color(32, 48, 68, 200);
     }
     const ambient = scene.globals?.ambient;
     if (ambient) {
-      ambient.skyIllum = 16000;
+      ambient.skyIllum = 26000;
+      ambient.skyColor = new Color(254, 250, 220, 255);
+      ambient.groundAlbedo = new Color(176, 226, 236, 255);
     }
     const lightNode = scene.getChildByName('Directional Light');
     const light = lightNode?.getComponent(DirectionalLight);
-    if (!light || !lightNode) return;
-    lightNode.setPosition(8, 16, 10);
-    lightNode.setRotationFromEuler(-52, 40, 0);
-    light.color = new Color(255, 232, 200, 255);
-    light.illuminance = 240000;
-    light.shadowEnabled = true;
-    light.shadowPcf = 1;
-    light.shadowBias = 0.0008;
-    light.shadowNormalBias = 0.2;
-    light.shadowSaturation = 0.72;
-    light.shadowDistance = 20;
-    light.shadowFixedArea = true;
-    light.shadowNear = 0.5;
-    light.shadowFar = 28;
-    light.shadowOrthoSize = 7;
+    if (light && lightNode) {
+      lightNode.setPosition(8, 16, 10);
+      lightNode.setRotationFromEuler(-58, 46, 0);
+      light.color = new Color(255, 232, 204, 255);
+      light.illuminance = 215000;
+      light.shadowEnabled = true;
+      light.shadowPcf = 2;
+      light.shadowBias = 0.0006;
+      light.shadowNormalBias = 0.16;
+      light.shadowSaturation = 0.64;
+      light.shadowDistance = 20;
+      light.shadowFixedArea = true;
+      light.shadowNear = 0.5;
+      light.shadowFar = 28;
+      light.shadowOrthoSize = 7;
+    }
+    const fillNode = scene.getChildByName('Fill Light');
+    if (fillNode) fillNode.active = false;
   }
 
   private _ensureLetterboxCam(): void {
@@ -236,12 +270,13 @@ export class GameBootstrap extends Component {
       this._letterboxCam.rect.set(0, 0, 1, 1);
       this._letterboxCam.enabled = true;
     }
+    layoutWorldBg(this.node.scene);
     this._home?.layoutChrome();
     this._settings?.layoutChrome();
     this._playHud?.layoutChrome();
   };
 
-  private _buildUi(): void {
+  private async _buildUi(): Promise<void> {
     const scene = this.node.scene!;
     this._disposeNamed('Canvas');
     const vis = portraitVisibleSize();
@@ -281,14 +316,11 @@ export class GameBootstrap extends Component {
     g.rect(-540, -960, 1080, 1920);
     g.fill();
 
-    const homeN = new Node('HomePanel');
-    canvasN.addChild(homeN);
-    this._home = homeN.addComponent(HomePanel);
+    const homeN = await this._spawnHome(canvasN);
+    this._home = homeN.getComponent(HomePanel) ?? homeN.addComponent(HomePanel);
     this._home.setup({
       onPlay: () => this._enterPlay(),
       onSettings: () => this._showSettings(),
-      onPrevLevel: () => this._shiftLevel(-1),
-      onNextLevel: () => this._shiftLevel(1),
     });
 
     const settingsN = new Node('SettingsPanel');
@@ -309,6 +341,21 @@ export class GameBootstrap extends Component {
     this._playHud?.setLevel(this._level);
   }
 
+  private async _spawnHome(canvasN: Node): Promise<Node> {
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.HomePanel);
+      const n = instantiate(pf);
+      n.name = 'HomePanel';
+      canvasN.addChild(n);
+      return n;
+    } catch (err) {
+      console.warn('[Suck] HomePanel prefab missing, fallback node', err);
+      const n = new Node('HomePanel');
+      canvasN.addChild(n);
+      return n;
+    }
+  }
+
   private _ensureAudio(): AudioService {
     if (this._audio) return this._audio;
     this._audio = new AudioService(this.node);
@@ -318,16 +365,6 @@ export class GameBootstrap extends Component {
 
   private _unlockAudio(): void {
     this._ensureAudio().startBgm();
-  }
-
-  private _shiftLevel(delta: number): void {
-    this._unlockAudio();
-    const next = Math.max(1, Math.min(LEVEL_COUNT, this._level + delta));
-    if (next === this._level) return;
-    this._level = next;
-    saveLevelIndex(this._level);
-    this._home?.setLevel(this._level, LEVEL_COUNT);
-    this._playHud?.setLevel(this._level);
   }
 
   private _showHome(): void {
@@ -350,6 +387,7 @@ export class GameBootstrap extends Component {
   private _enterPlay(): void {
     this._unlockAudio();
     void this._ensureWorld().then(() => {
+      this._bindBattle();
       this._home?.hide();
       this._settings?.hide();
       this._playHud?.setLevel(this._builtLevel);

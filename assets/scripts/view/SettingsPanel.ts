@@ -13,6 +13,7 @@ import {
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { paintQBoard, paintQBtn, styleQCaption, styleQNum } from './QChrome';
+import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
 
@@ -79,6 +80,7 @@ export class SettingsPanel extends Component {
     this._label(close, 'Label', 'BACK', 30, Theme.playText, 0, 0, 120, 120, false);
     close.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
+      gameAudio()?.playUiClick();
       this._onClose?.();
     }, this);
   }

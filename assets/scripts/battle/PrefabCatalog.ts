@@ -8,6 +8,11 @@ export const PREFAB_UUID = {
   HintHandSprite: '7e22bb20-000e-4b02-8002-00000000000e@f9941',
   SlotCircle: '7e22bb20-000b-4b02-8002-00000000000b@6c48a',
   PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
+  LockNails: '7e22bb20-0031-4b02-8002-000000000031',
+  HomePanel: '7e22bb20-0040-4b02-8002-000000000040',
+  Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
+  Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
+  Pingmu: 'f3acda95-f24d-4e94-a3d1-e089c980275e',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {

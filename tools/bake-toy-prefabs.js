@@ -12,6 +12,7 @@ const ASSETS = path.join(ROOT, 'assets');
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 const FX_STD = 'c8f66d17-351a-48da-a12c-0212d28575c4';
+const FX_UNLIT = 'a3cd009f-0ab0-420d-9278-b9fdab939bbc';
 const LAYER_3D = 1073741824;
 
 const UUID = {
@@ -24,9 +25,11 @@ const UUID = {
   MeshBlockJson: '7e22bb20-0301-4b02-8002-000000000001',
   MeshOctopusJson: '7e22bb20-0302-4b02-8002-000000000002',
   MeshBallJson: '7e22bb20-0303-4b02-8002-000000000003',
+  MeshPowerJson: '7e22bb20-0304-4b02-8002-000000000004',
   GltfBlock: '7e22bb20-0311-4b02-8002-000000000001',
   GltfOctopus: '7e22bb20-0312-4b02-8002-000000000002',
   GltfBall: '7e22bb20-0313-4b02-8002-000000000003',
+  GltfPower: '7e22bb20-0314-4b02-8002-000000000004',
   dirModels: 'c0110001-0001-4001-8001-000000000010',
   dirMeshes: 'c0110001-0001-4001-8001-000000000011',
 };
@@ -34,11 +37,20 @@ const UUID = {
 const MESH_BLOCK = `${UUID.GltfBlock}@e1d15`;
 const MESH_OCTOPUS = `${UUID.GltfOctopus}@9d64e`;
 const MESH_BALL = `${UUID.GltfBall}@642dc`;
+const MESH_POWER = `${UUID.GltfPower}@cc693`;
 const MESH_ID = {
   [UUID.GltfBlock]: { id: 'e1d15', name: 'ToyBlock', tris: 300 },
   [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 3152 },
   [UUID.GltfBall]: { id: '642dc', name: 'ToyBall', tris: 192 },
+  [UUID.GltfPower]: { id: 'cc693', name: 'ToyPower', tris: 2 },
 };
+
+function powerImgUuid(d) {
+  return `9d12cc10-030${d}-4a01-8001-00000000003${d}`;
+}
+function powerMatUuid(d) {
+  return `9d11aa10-00c${d}-4a01-8001-0000000000c${d}`;
+}
 
 const COLORS = [
   { token: 'o', name: 'Orange', rgb: [255, 132, 28], block: '7e22bb20-0001-4b02-8002-000000000001', unit: '7e22bb20-0004-4b02-8002-000000000004', mat: '9d11aa10-0001-4a01-8001-000000000001', skin: '9d12cc10-0100-4a01-8001-000000000001' },
@@ -129,6 +141,78 @@ function gltfMeta(uuid) {
   };
 }
 
+function imageMeta(uuid, name, w, h) {
+  const tex = `${uuid}@6c48a`;
+  return {
+    ver: '1.0.27',
+    importer: 'image',
+    imported: true,
+    uuid,
+    files: ['.json', '.png'],
+    subMetas: {
+      '6c48a': {
+        importer: 'texture',
+        uuid: tex,
+        displayName: name,
+        id: '6c48a',
+        name: 'texture',
+        userData: {
+          wrapModeS: 'clamp-to-edge',
+          wrapModeT: 'clamp-to-edge',
+          minfilter: 'linear',
+          magfilter: 'linear',
+          mipfilter: 'none',
+          anisotropy: 0,
+          isUuid: true,
+          imageUuidOrDatabaseUri: uuid,
+          visible: false,
+        },
+        ver: '1.0.22',
+        imported: true,
+        files: ['.json'],
+        subMetas: {},
+      },
+    },
+    userData: {
+      type: 'texture',
+      fixAlphaTransparencyArtifacts: false,
+      hasAlpha: true,
+      redirect: tex,
+    },
+  };
+}
+
+function powerDigitMaterial(name, texUuid) {
+  const tex = `${texUuid}@6c48a`;
+  return {
+    __type__: 'cc.Material',
+    _name: name,
+    _objFlags: 0,
+    __editorExtras__: {},
+    _native: '',
+    _effectAsset: { __uuid__: FX_UNLIT, __expectedType__: 'cc.EffectAsset' },
+    _techIdx: 1,
+    _defines: [{}, { USE_TEXTURE: true }, {}],
+    _states: [
+      {},
+      {
+        rasterizerState: { cullMode: 0 },
+        depthStencilState: { depthTest: true, depthWrite: false },
+        blendState: { targets: [{ blend: true, blendSrc: 2, blendDst: 4 }] },
+      },
+      {},
+    ],
+    _props: [
+      {},
+      {
+        mainTexture: { __uuid__: tex, __expectedType__: 'cc.Texture2D' },
+        mainColor: { __type__: 'cc.Color', r: 255, g: 255, b: 255, a: 255 },
+      },
+      {},
+    ],
+  };
+}
+
 function clayMaterial(name, rgb, roughness, emit) {
   return {
     __type__: 'cc.Material',
@@ -148,7 +232,7 @@ function clayMaterial(name, rgb, roughness, emit) {
       {
         mainColor: { __type__: 'cc.Color', r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
         roughness,
-        metallic: 0,
+        metallic: 0.04,
         emissive: { __type__: 'cc.Color', r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
         emissiveScale: { __type__: 'cc.Vec3', x: emit, y: emit, z: emit },
       },
@@ -185,9 +269,30 @@ function fileId(tag) {
   return s.slice(0, 22);
 }
 
+function eulerToQuat(xDeg, yDeg, zDeg) {
+  const hx = (xDeg * Math.PI) / 360;
+  const hy = (yDeg * Math.PI) / 360;
+  const hz = (zDeg * Math.PI) / 360;
+  const sx = Math.sin(hx);
+  const cx = Math.cos(hx);
+  const sy = Math.sin(hy);
+  const cy = Math.cos(hy);
+  const sz = Math.sin(hz);
+  const cz = Math.cos(hz);
+  return quat(
+    sx * cy * cz + cx * sy * sz,
+    cx * sy * cz - sx * cy * sz,
+    cx * cy * sz + sx * sy * cz,
+    cx * cy * cz - sx * sy * sz,
+  );
+}
+
 function addNode(doc, opts) {
   const children = [];
   const components = [];
+  const rx = opts.rx || 0;
+  const ry = opts.ry || 0;
+  const rz = opts.rz || 0;
   const id = doc.add({
     __type__: 'cc.Node',
     _name: opts.name,
@@ -199,11 +304,11 @@ function addNode(doc, opts) {
     _components: components,
     _prefab: null,
     _lpos: vec3(opts.x || 0, opts.y || 0, opts.z || 0),
-    _lrot: quat(0, 0, 0, 1),
+    _lrot: eulerToQuat(rx, ry, rz),
     _lscale: vec3(opts.sx == null ? 1 : opts.sx, opts.sy == null ? 1 : opts.sy, opts.sz == null ? 1 : opts.sz),
     _mobility: 0,
     _layer: LAYER_3D,
-    _euler: vec3(0, 0, 0),
+    _euler: vec3(rx, ry, rz),
     _id: '',
   });
   if (opts.parentId != null) doc.items[opts.parentId]._children.push({ __id__: id });
@@ -235,8 +340,8 @@ function addMeshRenderer(doc, nodeId, mesh, mat, asPrefab, cast) {
     uvParam: { __type__: 'cc.Vec4', x: 0, y: 0, z: 0, w: 0 },
     _bakeable: false,
     _castShadow: !!cast,
-    _receiveShadow: !!cast,
-    _recieveShadow: !!cast,
+    _receiveShadow: false,
+    _recieveShadow: false,
     _lightmapSize: 64,
     _useLightProbe: false,
     _bakeToLightProbe: true,
@@ -256,7 +361,7 @@ function addMeshRenderer(doc, nodeId, mesh, mat, asPrefab, cast) {
     bakeSettings: { __id__: bakeId },
     _mesh: mesh ? { __uuid__: mesh, __expectedType__: 'cc.Mesh' } : null,
     _shadowCastingMode: cast ? 1 : 0,
-    _shadowReceivingMode: cast ? 1 : 0,
+    _shadowReceivingMode: 0,
     _shadowBias: 0,
     _shadowNormalBias: 0,
     _reflectionProbeId: -1,
@@ -403,6 +508,18 @@ function bakeBall() {
     }
   }
   return packMesh(pos, nrm, uvs, idx, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], 0.5);
+}
+
+function bakePowerQuad() {
+  return packMesh(
+    [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0],
+    [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    [0, 0, 1, 0, 0, 1, 1, 1],
+    [0, 1, 2, 1, 3, 2],
+    [-0.5, -0.5, 0],
+    [0.5, 0.5, 0],
+    0.71,
+  );
 }
 
 function bakeOctopus() {
@@ -827,16 +944,39 @@ function buildUnitPrefab(color, lift) {
     addMeshRenderer(doc, n.id, MESH_BALL, p.m, true, false);
   }
 
+  const powerY = Number((0.15 + lift).toFixed(5));
+  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: powerY, z: 0.23, rx: -28 });
+  addPrefabInfo(doc, power.id, assetRef, false);
+  for (let i = 0; i < 3; i++) {
+    const slot = addNode(doc, {
+      name: `D${i}`,
+      parentId: power.id,
+      sx: 0.13,
+      sy: 0.175;
+      sz: 1,
+      active: i === 0,
+    });
+    addPrefabInfo(doc, slot.id, assetRef, false);
+    addMeshRenderer(doc, slot.id, MESH_POWER, powerMatUuid(8), true, false);
+  }
+  const bank = addNode(doc, { name: 'Bank', parentId: power.id, active: false });
+  addPrefabInfo(doc, bank.id, assetRef, false);
+  for (let d = 0; d < 10; d++) {
+    const n = addNode(doc, { name: `N${d}`, parentId: bank.id });
+    addPrefabInfo(doc, n.id, assetRef, false);
+    addMeshRenderer(doc, n.id, MESH_POWER, powerMatUuid(d), true, false);
+  }
+
   write(path.join(ASSETS, `prefabs/${name}.prefab`), doc.json());
   write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.unit, name));
 }
 
 function writeToyLook(lift) {
-  const powerY = Number((0.062 + lift).toFixed(5));
+  const powerY = Number((0.15 + lift).toFixed(5));
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts'), `import { Vec3 } from 'cc';
 
 export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, ${powerY}, 0.138);
+export const OCTO_POWER_LOCAL = new Vec3(0, ${powerY}, 0.23);
 `);
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts.meta'), tsMeta(UUID.ToyLook));
 }
@@ -854,6 +994,11 @@ export const PREFAB_UUID = {
   HintHandSprite: '7e22bb20-000e-4b02-8002-00000000000e@f9941',
   SlotCircle: '7e22bb20-000b-4b02-8002-00000000000b@6c48a',
   PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
+  LockNails: '7e22bb20-0031-4b02-8002-000000000031',
+  HomePanel: '7e22bb20-0040-4b02-8002-000000000040',
+  Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
+  Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
+  Pingmu: 'f3acda95-f24d-4e94-a3d1-e089c980275e',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {
@@ -877,8 +1022,12 @@ export function unitPrefabUuid(token: string): string {
 
 function main() {
   console.log('baking toy meshes...');
+  const { execFileSync } = require('child_process');
+  execFileSync('python3', [path.join(ROOT, 'tools/draw-power-digits.py')], { stdio: 'inherit' });
+
   const block = bakeBlock();
   const ball = bakeBall();
+  const powerQuad = bakePowerQuad();
   const { mesh: octopus, lift } = bakeOctopus();
   console.log(`block verts=${block.p.length / 3} tris=${block.i.length / 3}`);
   console.log(`octopus verts=${octopus.p.length / 3} tris=${octopus.i.length / 3} lift=${lift}`);
@@ -890,19 +1039,29 @@ function main() {
   writeGltf(path.join(ASSETS, 'models/toy-block'), 'ToyBlock', block, UUID.GltfBlock);
   writeGltf(path.join(ASSETS, 'models/toy-octopus'), 'ToyOctopus', octopus, UUID.GltfOctopus);
   writeGltf(path.join(ASSETS, 'models/toy-ball'), 'ToyBall', ball, UUID.GltfBall);
+  writeGltf(path.join(ASSETS, 'models/toy-power'), 'ToyPower', powerQuad, UUID.GltfPower);
 
   writeMeshJson('toy-block', block, UUID.MeshBlockJson);
   writeMeshJson('toy-octopus', octopus, UUID.MeshOctopusJson);
   writeMeshJson('toy-ball', ball, UUID.MeshBallJson);
+  writeMeshJson('toy-power', powerQuad, UUID.MeshPowerJson);
 
-  write(path.join(ASSETS, 'materials/MatHighlight.mtl'), clayMaterial('MatHighlight', [255, 255, 255], 0.12, 0.42));
+  for (let d = 0; d < 10; d++) {
+    const imgUuid = powerImgUuid(d);
+    const matUuid = powerMatUuid(d);
+    write(path.join(ASSETS, `resources/toys/power-${d}.png.meta`), imageMeta(imgUuid, `power-${d}`, 256, 256));
+    write(path.join(ASSETS, `materials/MatPower${d}.mtl`), powerDigitMaterial(`MatPower${d}`, imgUuid));
+    write(path.join(ASSETS, `materials/MatPower${d}.mtl.meta`), mtlMeta(matUuid));
+  }
+
+  write(path.join(ASSETS, 'materials/MatHighlight.mtl'), clayMaterial('MatHighlight', [255, 255, 255], 0.1, 0.34));
   write(path.join(ASSETS, 'materials/MatHighlight.mtl.meta'), mtlMeta(UUID.MatHighlight));
-  write(path.join(ASSETS, 'materials/MatEye.mtl'), clayMaterial('MatEye', [252, 252, 255], 0.16, 0.22));
+  write(path.join(ASSETS, 'materials/MatEye.mtl'), clayMaterial('MatEye', [252, 252, 255], 0.14, 0.16));
   write(path.join(ASSETS, 'materials/MatEye.mtl.meta'), mtlMeta(UUID.MatEye));
   write(path.join(ASSETS, 'materials/MatPupil.mtl'), clayMaterial('MatPupil', [22, 24, 30], 0.28, 0.04));
   write(path.join(ASSETS, 'materials/MatPupil.mtl.meta'), mtlMeta(UUID.MatPupil));
   for (const c of COLORS) {
-    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.5, 0.16));
+    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.34, 0.12));
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl.meta`), mtlMeta(c.mat));
   }
 

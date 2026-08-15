@@ -2,15 +2,21 @@ import { AudioClip, AudioSource, Node, resources } from 'cc';
 
 const BGM_PATH = 'audio/bgm/bgm';
 const ABSORB_PATH = 'audio/sfx/absorb';
+const CLICK_PATH = 'audio/sfx/ui-click';
+const BOOM_PATH = 'audio/sfx/boom';
 
 const DEFAULT_BGM = 0.4;
 /** TripleTown Merge.mp3 is quieter than most UI clips. */
 const ABSORB_GAIN = 2.2;
+/** TripleTown UIclick.mp3 — play at settings sound scale. */
+const CLICK_GAIN = 1;
+/** TripleTown Boom.mp3 — bomb / first-merge explosion. */
+const BOOM_GAIN = 1.8;
 /** Suck fires many bricks per second — keep a short gap so voices do not stack. */
 const ABSORB_GAP_SEC = 0.09;
 
 /**
- * Looping BGM (Unravel) + absorb one-shot (TripleTown merge).
+ * Looping BGM (Unravel) + absorb / UI-click one-shots (TripleTown).
  * Never call play() again while BGM is already running — WeChat / WebAudio
  * will stack a second audible layer.
  */
@@ -19,6 +25,8 @@ export class AudioService {
   private _sfx: AudioSource;
   private _bgmClip: AudioClip | null = null;
   private _absorbClip: AudioClip | null = null;
+  private _clickClip: AudioClip | null = null;
+  private _boomClip: AudioClip | null = null;
   private _bgmDesired = false;
   private _bgmRunning = false;
   private _absorbAt = -99;
@@ -74,13 +82,40 @@ export class AudioService {
     if (now - this._absorbAt < ABSORB_GAP_SEC) return;
     this._absorbAt = now;
     if (this._absorbClip) {
-      this._oneShot(this._absorbClip);
+      this._oneShot(this._absorbClip, ABSORB_GAIN);
       return;
     }
     resources.load(ABSORB_PATH, AudioClip, (err, clip) => {
       if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
       this._absorbClip = clip;
-      this._oneShot(clip);
+      this._oneShot(clip, ABSORB_GAIN);
+    });
+  }
+
+  /** TripleTown Boom.mp3 — bomb explosion. */
+  playBoom(): void {
+    if (this._disposed) return;
+    if (this._boomClip) {
+      this._oneShot(this._boomClip, BOOM_GAIN);
+      return;
+    }
+    resources.load(BOOM_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._boomClip = clip;
+      this._oneShot(clip, BOOM_GAIN);
+    });
+  }
+
+  playUiClick(): void {
+    if (this._disposed) return;
+    if (this._clickClip) {
+      this._oneShot(this._clickClip, CLICK_GAIN);
+      return;
+    }
+    resources.load(CLICK_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._clickClip = clip;
+      this._oneShot(clip, CLICK_GAIN);
     });
   }
 
@@ -99,6 +134,20 @@ export class AudioService {
         return;
       }
       this._absorbClip = clip;
+    });
+    resources.load(CLICK_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] UI click SFX load failed:', err);
+        return;
+      }
+      this._clickClip = clip;
+    });
+    resources.load(BOOM_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] boom SFX load failed:', err);
+        return;
+      }
+      this._boomClip = clip;
     });
   }
 
@@ -125,9 +174,9 @@ export class AudioService {
     }
   }
 
-  private _oneShot(clip: AudioClip): void {
+  private _oneShot(clip: AudioClip, gain: number): void {
     if (!this._sfx.node?.isValid) return;
-    this._sfx.playOneShot(clip, ABSORB_GAIN);
+    this._sfx.playOneShot(clip, gain);
   }
 }
 

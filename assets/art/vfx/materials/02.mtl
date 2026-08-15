@@ -1,0 +1,80 @@
+{
+  "__type__": "cc.Material",
+  "_name": "",
+  "_objFlags": 0,
+  "__editorExtras__": {},
+  "_native": "",
+  "_effectAsset": {
+    "__uuid__": "7f78400d-94a6-45a3-a362-ca4eed3138e0",
+    "__expectedType__": "cc.EffectAsset"
+  },
+  "_techIdx": 1,
+  "_defines": [
+    {},
+    {}
+  ],
+  "_states": [
+    {
+      "priority": 130,
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    }
+  ],
+  "_props": [
+    {
+      "mainTexture": {
+        "__uuid__": "50c438d5-2756-4bf8-9d50-19c272038f20@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "main_v_speed": 1.7,
+      "rotate": 90,
+      "MaskTex": {
+        "__uuid__": "9932464d-3e1f-4aa4-9547-94c8cd83b49b@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "distortTexture": {
+        "__uuid__": "db2209fe-1f8b-4488-8d30-8baa41bd5290@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "distortTiling_Offset": {
+        "__type__": "cc.Vec4",
+        "x": 0.5,
+        "y": 0.5,
+        "z": 0,
+        "w": 0
+      },
+      "distortStreagth": 0.3,
+      "distort_u_speed": 0.2,
+      "distort_v_speed": 0.5,
+      "dissolveTex": {
+        "__uuid__": "db2209fe-1f8b-4488-8d30-8baa41bd5290@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
+      "dissolveTiling_Offset": {
+        "__type__": "cc.Vec4",
+        "x": 0.5,
+        "y": 0.5,
+        "z": 0,
+        "w": 0
+      },
+      "dissolveThreshold": 0.8,
+      "dissolve_u_speed": -0.2,
+      "dissolve_v_speed": 0.7
+    },
+    {}
+  ]
+}

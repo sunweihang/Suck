@@ -20,8 +20,10 @@ import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
 import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { SlotPad } from './SlotPad';
-import { spawnToyBackdrop } from './ToyBackdrop';
+import { applyToyGround } from './ToyBackdrop';
+import { applyLockNails } from './LockNails';
 import { applyShadowReceiver } from './ToyBlockMesh';
+import { preloadPowerDigits } from './PowerMark';
 import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
 
@@ -52,12 +54,14 @@ export async function buildPlayWorld(
   applyLevel(level);
   const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
   const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
-  const [groundPf, slotPf, debrisPf, ...colorPfs] = await Promise.all([
+  const [groundPf, slotPf, debrisPf, lockNailsPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
+    loadPrefab(PREFAB_UUID.LockNails),
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
+    preloadPowerDigits().then(() => null),
   ]);
   const blockPfs = new Map<ColorToken, Prefab>();
   const unitPfs = new Map<ColorToken, Prefab>();
@@ -69,8 +73,8 @@ export async function buildPlayWorld(
   const root = new Node('PlayWorld');
   scene.addChild(root);
 
-  applyShadowReceiver(spawn(groundPf, root, 'Ground', new Vec3(0, -0.12, 0)));
-  spawnToyBackdrop(root);
+  applyToyGround(spawn(groundPf, root, 'Ground', new Vec3(0, -0.12, 0)));
+  applyShadowReceiver(root.getChildByName('Ground')!);
 
   const wall = new Node('Wall');
   root.addChild(wall);
@@ -86,13 +90,15 @@ export async function buildPlayWorld(
       if (!cell) continue;
       for (let z = 0; z < cell.tokens.length; z++) {
         const token = cell.tokens[z];
+        const locked = !!cell.locked?.[z];
         const n = spawn(
           blockPfs.get(token) ?? blockPfs.get('o')!,
           wall,
-          `Blk_${token}_${x}_${y}_${z}`,
+          locked ? `Blk_${token}_${x}_${y}_${z}_L` : `Blk_${token}_${x}_${y}_${z}`,
           new Vec3(startX + x * step, baseY + y * step, frontZ - z * step),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
+        if (locked) applyLockNails(n, lockNailsPf);
       }
     }
   }

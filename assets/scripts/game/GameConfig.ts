@@ -4,10 +4,10 @@ export const GAME = {
 
   worldCamPitchDeg: 28,
   worldCamYawDeg: 0,
-  worldCamDist: 15.8,
-  worldCamFovDeg: 38,
+  worldCamDist: 38.7,
+  worldCamFovDeg: 16,
   worldCamNear: 0.1,
-  worldCamFar: 48,
+  worldCamFar: 80,
   worldCamLookAtX: 0,
   worldCamLookAtY: 2.45,
   worldCamLookAtZ: -1.55,
@@ -28,14 +28,14 @@ export const GAME = {
   wallCols: 15,
   wallRows: 11,
   wallDepth: 4,
-  blockStep: 0.36,
-  blockSize: 0.354,
-  wallFrontZ: -2.08,
-  slotStandZ: -1.38,
-  slotRowStep: 0.58,
+  blockStep: 0.38,
+  blockSize: 0.374,
+  wallFrontZ: -2.92,
+  slotStandZ: -2.16,
+  slotRowStep: 1.02,
   slotStart: 4,
   slotMax: 8,
-  slotRows: 1,
+  slotRows: 2,
   slotPickR: 0.42,
 } as const;
 
@@ -51,9 +51,9 @@ export const PLAY = {
   brickMix: 1,
 };
 
-/** World box that stays inside the fixed play camera (15x11 @ 0.36, with margin). */
-const WALL_SAFE_HALF_W = 2.48;
-const WALL_SAFE_H = 3.62;
+/** World box that stays inside the fixed play camera (15x11 @ 0.38). */
+const WALL_SAFE_HALF_W = 2.85;
+const WALL_SAFE_H = 4.18;
 const BLOCK_SIZE_RATIO = GAME.blockSize / GAME.blockStep;
 
 /** Shrink step/size so this grid stays inside the current camera frustum. */
@@ -108,10 +108,10 @@ export function wallColAtX(x: number): number {
 
 export const BENCH = {
   cols: 6,
-  rows: 5,
+  rows: 7,
   stepX: 0.52,
-  stepZ: 0.46,
-  startZ: 1.08,
+  stepZ: 0.58,
+  startZ: 0.62,
 } as const;
 
 export function benchColOf(index: number): number {
@@ -185,6 +185,8 @@ export function wallColorToken(x: number, _y: number): ColorToken {
 }
 
 export const UNIT_SETUP: ReadonlyArray<readonly [ColorToken, number]> = [
+  ['c', 40], ['p', 20], ['v', 80], ['o', 49], ['y', 40], ['g', 20],
+  ['v', 49], ['o', 80], ['g', 40], ['c', 20], ['p', 49], ['y', 80],
   ['o', 40], ['y', 49], ['c', 80], ['g', 136], ['p', 40], ['v', 49],
   ['c', 20], ['o', 316], ['y', 40], ['p', 80], ['g', 136], ['v', 49],
   ['g', 80], ['c', 40], ['o', 20], ['y', 40], ['p', 200], ['v', 80],

@@ -8,13 +8,15 @@ import {
   Layers,
   Node,
   UITransform,
+  Widget,
 } from 'cc';
 import { HintHand } from '../battle/HintHand';
 import { isTutorialLevel, levelTitle } from '../game/LevelCatalog';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
-import { applyArtSprite, paintQNumber } from './UiArt';
+import { applyLevelBadge, layoutLevelBadge } from './UiArt';
+import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
 
@@ -33,12 +35,14 @@ export class PlayHud extends Component {
     back?.off(Node.EventType.TOUCH_END);
     back?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
+      gameAudio()?.playUiClick();
       this._onHome?.();
     }, this);
     const next = this.node.getChildByName('NextBtn');
     next?.off(Node.EventType.TOUCH_END);
     next?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
+      gameAudio()?.playUiClick();
       this._onNext?.();
     }, this);
     this.layoutChrome();
@@ -58,18 +62,12 @@ export class PlayHud extends Component {
 
   applyArt(): void {
     this._ensureTree();
-    const board = this.node.getChildByName('ScoreBoard');
-    applyArtSprite(board?.getChildByName('Board') ?? null, 'board', 540, 252);
-    applyArtSprite(board?.getChildByName('Chip') ?? null, 'chip', 150, 64);
-    paintQNumber(board?.getChildByName('Digits') ?? null, this._level, 112);
+    layoutLevelBadge(this.node.getChildByName('ScoreBoard'), this._level, 360, 84, 42);
   }
 
   setLevel(n: number): void {
     this._level = n;
-    const board = this.node.getChildByName('ScoreBoard');
-    paintQNumber(board?.getChildByName('Digits') ?? null, n, 112);
-    const chip = board?.getChildByName('Chip')?.getChildByName('ChipLab')?.getComponent(Label);
-    if (chip) chip.string = isTutorialLevel(n) ? '引导' : '关';
+    layoutLevelBadge(this.node.getChildByName('ScoreBoard'), n, 360, 84, 42);
     this._syncTip();
   }
 
@@ -106,9 +104,9 @@ export class PlayHud extends Component {
     const vis = uiVisibleSize();
     const safe = uiSafeInsets();
     const top = vis.h * 0.5 - safe.top;
-    this.node.getChildByName('BackBtn')?.setPosition(-vis.w * 0.5 + 118, top - 92, 0);
-    this.node.getChildByName('ScoreBoard')?.setPosition(0, top - 140, 0);
-    this.node.getChildByName('TipLab')?.setPosition(0, top - 292, 0);
+    this.node.getChildByName('BackBtn')?.setPosition(-vis.w * 0.5 + 118, top - 72, 0);
+    this.node.getChildByName('ScoreBoard')?.setPosition(0, top - 56, 0);
+    this.node.getChildByName('TipLab')?.setPosition(0, top - 140, 0);
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
   }
@@ -126,7 +124,15 @@ export class PlayHud extends Component {
     if (this._built) return;
     this._built = true;
     this.node.layer = Layers.Enum.UI_2D;
-    this.node.addComponent(UITransform).setContentSize(0, 0);
+    const vis = uiVisibleSize();
+    let ut = this.node.getComponent(UITransform);
+    if (!ut) ut = this.node.addComponent(UITransform);
+    ut.setContentSize(vis.w, vis.h);
+    let widget = this.node.getComponent(Widget);
+    if (!widget) widget = this.node.addComponent(Widget);
+    widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
+    widget.top = widget.bottom = widget.left = widget.right = 0;
+    widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
     const back = this._mk('BackBtn', 168, 88);
     paintQBtn(back.addComponent(Graphics), 168, 88, Theme.settingsFill, Theme.boardStroke);
@@ -154,21 +160,13 @@ export class PlayHud extends Component {
   }
 
   private _scoreBoard(): Node {
-    const w = 540;
-    const h = 252;
+    const w = 360;
+    const h = 84;
     const board = this._mk('ScoreBoard', w, h);
     const face = this._mk('Board', w, h, board);
-    applyArtSprite(face, 'board', w, h);
-
-    const chip = this._mk('Chip', 150, 64, board);
-    chip.setPosition(0, 118, 0);
-    applyArtSprite(chip, 'chip', 150, 64);
-    const chipLab = this._mk('ChipLab', 150, 64, chip);
-    this._lab(chipLab, '引导', 28, Theme.title, 150, 64, false);
-
-    const digits = this._mk('Digits', 420, 128, board);
-    digits.setPosition(0, -8, 0);
-    paintQNumber(digits, this._level, 112);
+    applyLevelBadge(face, w, h);
+    this._mk('Title', Math.round(w * 0.88), Math.round(h * 0.78), board);
+    layoutLevelBadge(board, this._level, w, h, 42);
     return board;
   }
 

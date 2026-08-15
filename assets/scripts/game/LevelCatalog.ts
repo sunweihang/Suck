@@ -12,6 +12,7 @@ export const LEVEL_COUNT = 100;
 
 export type LevelCell = {
   tokens: ColorToken[];
+  locked?: boolean[];
 };
 
 export type LevelDef = {
@@ -61,6 +62,10 @@ export function isTutorialLevel(_id: number): boolean {
 
 export function levelTitle(id: number): string {
   return isTutorialLevel(id) ? '新手引导' : `第 ${id} 关`;
+}
+
+export function levelBadgeText(id: number): string {
+  return `关卡${String(Math.max(0, id | 0)).padStart(2, '0')}`;
 }
 
 class Rng {
@@ -529,8 +534,8 @@ function makeUnits(palette: readonly ColorToken[], rng: Rng): Array<readonly [Co
   return shuffleIn(out, rng);
 }
 
-function makeCell(tokens: ColorToken[]): LevelCell {
-  return { tokens };
+function makeCell(tokens: ColorToken[], locked?: boolean[]): LevelCell {
+  return locked ? { tokens, locked } : { tokens };
 }
 
 function stack(token: ColorToken, depth: number): LevelCell {
@@ -548,7 +553,13 @@ function makeClassicLevel(): LevelDef {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const token = palette[Math.min(palette.length - 1, Math.floor((x * palette.length) / cols))];
-      cells.push(stack(token, depth));
+      const tokens: ColorToken[] = [];
+      const locked: boolean[] = [];
+      for (let z = 0; z < depth; z++) {
+        tokens.push(token);
+        locked.push(z === 0 && (x + y) % 5 === 0);
+      }
+      cells.push(makeCell(tokens, locked.some(Boolean) ? locked : undefined));
     }
   }
   return {

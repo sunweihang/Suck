@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "fbx",
+  "imported": true,
+  "uuid": "04ded001-b801-465a-8fba-9a87d2e6f522",
+  "files": [],
+  "subMetas": {
+    "2e76e": {
+      "importer": "gltf-mesh",
+      "uuid": "04ded001-b801-465a-8fba-9a87d2e6f522@2e76e",
+      "displayName": "",
+      "id": "2e76e",
+      "name": "plane.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 2
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "b9378": {
+      "importer": "gltf-scene",
+      "uuid": "04ded001-b801-465a-8fba-9a87d2e6f522@b9378",
+      "displayName": "",
+      "id": "b9378",
+      "name": "plane02.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "fbx": {
+      "smartMaterialEnabled": true
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "04ded001-b801-465a-8fba-9a87d2e6f522@2e76e"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "04ded001-b801-465a-8fba-9a87d2e6f522@b9378"
+      ]
+    }
+  }
+}

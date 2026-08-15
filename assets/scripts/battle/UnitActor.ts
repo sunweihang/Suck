@@ -1,11 +1,10 @@
-import { _decorator, Color, Component, Label, Layers, Node, RenderRoot2D, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, Node, Vec3 } from 'cc';
 import { benchColOf, benchRankOf, ColorId, parseColorToken } from '../game/GameConfig';
 import { OctopusQAnim } from './OctopusQAnim';
-import { OCTO_POWER_LOCAL } from './ToyLook';
+import { bindPowerMark, paintPowerMark, preloadPowerDigits } from './PowerMark';
+import { applyToyCaster } from './ToyBlockMesh';
 
 const { ccclass } = _decorator;
-
-const POWER_SCALE = 0.0085;
 
 export type UnitState = 'bench' | 'drag' | 'walk' | 'attack';
 
@@ -33,10 +32,12 @@ export class UnitActor extends Component {
   private _prevPower = 40;
   private _prevInflight = 0;
   private _armed = false;
-  private _powerLab: Label | null = null;
+  private _powerTag: Node | null = null;
   private _shownPower = -1;
+  private _powerOn = false;
 
   onLoad(): void {
+    applyToyCaster(this.node, true);
     this.syncFromName();
   }
 
@@ -45,6 +46,7 @@ export class UnitActor extends Component {
     this.node.getPosition(this.homePos);
     this._q.bind(this.node, this.index);
     this._ensurePowerLabel();
+    this.refreshPowerVisible();
     this._prevState = this.state;
     this._prevPower = this.power;
     this._prevInflight = this.inflight;
@@ -52,8 +54,13 @@ export class UnitActor extends Component {
   }
 
   setPowerVisible(on: boolean): void {
-    const tag = this._powerLab?.node.parent;
-    if (tag) tag.active = on && this.usable;
+    this._powerOn = on;
+    this.refreshPowerVisible();
+  }
+
+  refreshPowerVisible(): void {
+    if (!this._powerTag) return;
+    this._powerTag.active = this._powerOn && this.usable && this._shouldShowPower();
   }
 
   syncPowerLabel(): void {
@@ -103,6 +110,7 @@ export class UnitActor extends Component {
         if (this.state === 'drag') this._q.punchPick();
         else if (this._prevState === 'drag') this._q.punchLand();
         this._prevState = this.state;
+        this.refreshPowerVisible();
       }
       if (this.inflight > this._prevInflight) this._q.punchInhale();
       if (this.power < this._prevPower) this._q.punchEat();
@@ -111,6 +119,11 @@ export class UnitActor extends Component {
       this._prevInflight = this.inflight;
     }
     this._q.tick(dt, this.state, this.inflight);
+  }
+
+  private _shouldShowPower(): boolean {
+    if (this.state === 'drag' || this.state === 'walk' || this.state === 'attack') return true;
+    return this.state === 'bench' && this.benchRank === 0;
   }
 
   private _parseName(): void {
@@ -126,56 +139,20 @@ export class UnitActor extends Component {
   }
 
   private _ensurePowerLabel(): void {
-    const parent = this.node.parent;
-    if (parent && !parent.getComponent(RenderRoot2D)) parent.addComponent(RenderRoot2D);
-
-    let tag = this.node.getChildByName('Power');
-    if (!tag) {
-      tag = new Node('Power');
-      this.node.addChild(tag);
-      tag.layer = Layers.Enum.UI_3D;
-      const tagUt = tag.addComponent(UITransform);
-      tagUt.setContentSize(48, 24);
-      tagUt.hitTest = () => false;
-      const text = new Node('Text');
-      tag.addChild(text);
-      text.layer = Layers.Enum.UI_3D;
-      const textUt = text.addComponent(UITransform);
-      textUt.setContentSize(48, 24);
-      textUt.hitTest = () => false;
-      const lab = text.addComponent(Label);
-      lab.string = '0';
-      lab.fontSize = 18;
-      lab.lineHeight = 20;
-      lab.isBold = true;
-      lab.color = new Color(255, 252, 246, 255);
-      lab.enableOutline = true;
-      lab.outlineWidth = 2;
-      lab.outlineColor = new Color(20, 24, 32, 220);
-      lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-      lab.verticalAlign = Label.VerticalAlign.CENTER;
-      lab.overflow = Label.Overflow.NONE;
-      lab.useSystemFont = true;
-      this._powerLab = lab;
-    } else {
-      this._powerLab = tag.getChildByName('Text')?.getComponent(Label) ?? null;
-    }
-    tag.active = true;
-    tag.layer = Layers.Enum.UI_3D;
-    tag.setPosition(OCTO_POWER_LOCAL);
-    tag.setScale(POWER_SCALE, POWER_SCALE, POWER_SCALE);
+    this._powerTag = bindPowerMark(this.node);
+    this._powerTag.active = true;
     this._shownPower = -1;
     this._syncPowerText();
+    preloadPowerDigits().then(() => {
+      if (!this.isValid || !this._powerTag?.isValid) return;
+      this._shownPower = -1;
+      this._syncPowerText();
+    });
   }
 
   private _syncPowerText(): void {
-    const lab = this._powerLab;
-    if (!lab || this._shownPower === this.power) return;
+    if (!this._powerTag || this._shownPower === this.power) return;
     this._shownPower = this.power;
-    const num = String(Math.round(this.power));
-    lab.string = num;
-    const w = Math.max(32, 14 + num.length * 11);
-    lab.node.getComponent(UITransform)?.setContentSize(w, 18);
-    lab.node.parent?.getComponent(UITransform)?.setContentSize(w, 18);
+    paintPowerMark(this._powerTag, this.power);
   }
 }

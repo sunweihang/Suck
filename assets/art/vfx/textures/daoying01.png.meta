@@ -1,0 +1,46 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "471ddefd-78aa-4e7a-9a36-0834490a2ad2",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "471ddefd-78aa-4e7a-9a36-0834490a2ad2@6c48a",
+      "displayName": "daoying01",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "repeat",
+        "wrapModeT": "repeat",
+        "imageUuidOrDatabaseUri": "471ddefd-78aa-4e7a-9a36-0834490a2ad2",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "nearest",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "compressSettings": {
+      "useCompressTexture": true,
+      "presetId": "ttAstcUi"
+    },
+    "type": "texture",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "471ddefd-78aa-4e7a-9a36-0834490a2ad2@6c48a"
+  }
+}

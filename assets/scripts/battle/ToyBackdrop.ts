@@ -1,92 +1,143 @@
-import { Color, Material, Mesh, MeshRenderer, Node, Texture2D, Vec3, utils } from 'cc';
-import { Theme } from '../game/Theme';
-import { artFrame, preloadUiArt } from '../view/UiArt';
-import { applyMesh, applyShadowReceiver } from './ToyBlockMesh';
+import {
+  Camera,
+  Canvas,
+  ImageAsset,
+  Node,
+  Sprite,
+  SpriteFrame,
+  Texture2D,
+  UITransform,
+  Widget,
+  assetManager,
+  resources,
+} from 'cc';
+import { applyPortraitCameraRect, portraitVisibleSize } from '../game/PortraitFit';
+import { DESIGN_H, DESIGN_W } from '../game/Theme';
 
-const _mats = new Map<string, Material>();
+const BG_IMAGE_UUID = '2dd19bfe-8cac-486f-9e72-ba1499869c97';
+const ROOT_NAME = 'WorldBg';
+const CAM_NAME = 'BgCam';
+/** Dedicated bit so the UI camera does not redraw this fullscreen sprite over 3D. */
+const WORLD_BG_LAYER = 1 << 5;
 
-function clay(key: string, color: Color, roughness: number, emit: number): Material {
-  let mat = _mats.get(key);
-  if (mat) return mat;
-  mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', roughness);
-  mat.setProperty('metallic', 0);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
-  _mats.set(key, mat);
-  return mat;
+function setLayerDeep(node: Node, layer: number): void {
+  node.layer = layer;
+  const ut = node.getComponent(UITransform);
+  if (ut) ut.hitTest = () => false;
+  for (const child of node.children) setLayerDeep(child, layer);
 }
 
-export function applyToyGround(node: Node): void {
-  applyShadowReceiver(node);
-  const mr = node.getComponent(MeshRenderer);
-  if (!mr?.mesh) {
-    if (mr) mr.enabled = false;
-    return;
-  }
-  const mat = clay('ground', Theme.ground, 0.62, 0.08);
-  if (!mat.passes?.length) {
-    mr.enabled = false;
-    return;
-  }
-  mr.setSharedMaterial(mat, 0);
-}
-
-function skyQuad(): Mesh | null {
-  return utils.MeshUtils.createMesh({
-    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0],
-    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-    uvs: [0, 1, 1, 1, 0, 0, 1, 0],
-    indices: [0, 1, 2, 1, 3, 2],
-    minPos: new Vec3(-0.5, -0.5, 0),
-    maxPos: new Vec3(0.5, 0.5, 0),
+function loadBgImage(): Promise<ImageAsset> {
+  return new Promise((resolve, reject) => {
+    assetManager.loadAny({ uuid: BG_IMAGE_UUID }, (err, asset) => {
+      if (!err && asset) {
+        resolve(asset as ImageAsset);
+        return;
+      }
+      resources.load('ui/bg-play-q', ImageAsset, (e2, img) => {
+        if (!e2 && img) resolve(img);
+        else reject(e2 ?? err ?? new Error('bg-play-q missing'));
+      });
+    });
   });
 }
 
-function skyMat(tex: Texture2D): Material {
-  const unlit = new Material();
+function frameFromImage(img: ImageAsset): SpriteFrame {
+  const tex = new Texture2D();
+  tex.image = img;
   try {
-    unlit.initialize({ effectName: 'builtin-unlit', defines: { USE_TEXTURE: true } });
-    if (unlit.passes?.length) {
-      unlit.setProperty('mainTexture', tex);
-      return unlit;
-    }
+    tex.setWrapMode(Texture2D.WrapMode.CLAMP_TO_EDGE, Texture2D.WrapMode.CLAMP_TO_EDGE);
   } catch {
-    /* fall through */
+    /* older engine */
   }
-  const std = new Material();
-  std.initialize({ effectName: 'builtin-standard' });
-  std.setProperty('mainTexture', tex);
-  std.setProperty('mainColor', Color.WHITE);
-  std.setProperty('roughness', 1);
-  std.setProperty('metallic', 0);
-  std.setProperty('emissive', Color.WHITE);
-  std.setProperty('emissiveScale', new Vec3(0.45, 0.45, 0.45));
-  return std;
+  const sf = new SpriteFrame();
+  sf.texture = tex;
+  return sf;
 }
 
-export async function spawnToyBackdrop(parent: Node): Promise<Node> {
-  const root = new Node('Backdrop');
-  parent.addChild(root);
-  await preloadUiArt();
-  const sf = artFrame('bg');
-  const tex = sf?.texture as Texture2D | undefined;
-  if (!tex) return root;
+function disposeNamed(scene: Node, name: string): void {
+  const n = scene.getChildByName(name);
+  if (!n) return;
+  n.removeFromParent();
+  n.destroy();
+}
 
-  const mesh = skyQuad();
-  const mat = skyMat(tex);
-  if (!mesh || !mat.passes?.length) return root;
+export function layoutWorldBg(scene: Node | null): void {
+  if (!scene) return;
+  const vis = portraitVisibleSize();
+  const camNode = scene.getChildByName(CAM_NAME);
+  const cam = camNode?.getComponent(Camera);
+  if (cam) {
+    cam.orthoHeight = vis.height * 0.5;
+    applyPortraitCameraRect(cam);
+  }
+  const root = scene.getChildByName(ROOT_NAME);
+  root?.getComponent(UITransform)?.setContentSize(vis.width, vis.height);
+  const art = root?.getChildByName('SkyArt');
+  if (!art) return;
+  const scale = Math.max(vis.width / DESIGN_W, vis.height / DESIGN_H);
+  const w = Math.ceil(DESIGN_W * scale);
+  const h = Math.ceil(DESIGN_H * scale);
+  art.getComponent(UITransform)?.setContentSize(w, h);
+}
 
-  const n = new Node('SkyArt');
-  root.addChild(n);
-  n.setPosition(0, 3.6, -10.6);
-  n.setRotationFromEuler(16, 0, 0);
-  n.setScale(15.2, 22.8, 1);
-  const mr = n.addComponent(MeshRenderer);
-  if (!applyMesh(mr, mesh, mat)) return root;
-  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
-  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+export async function spawnToyBackdrop(scene: Node): Promise<Node> {
+  disposeNamed(scene, ROOT_NAME);
+  disposeNamed(scene, CAM_NAME);
+
+  const vis = portraitVisibleSize();
+  const camNode = new Node(CAM_NAME);
+  scene.addChild(camNode);
+  camNode.setPosition(0, 0, 1000);
+  const cam = camNode.addComponent(Camera);
+  cam.projection = Camera.ProjectionType.ORTHO;
+  cam.orthoHeight = vis.height * 0.5;
+  cam.near = 0.1;
+  cam.far = 2000;
+  cam.priority = 0;
+  cam.visibility = WORLD_BG_LAYER;
+  cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+  cam.clearColor.set(196, 224, 240, 255);
+  applyPortraitCameraRect(cam);
+
+  const root = new Node(ROOT_NAME);
+  scene.addChild(root);
+  root.layer = WORLD_BG_LAYER;
+  root.addComponent(UITransform).setContentSize(vis.width, vis.height);
+  const canvas = root.addComponent(Canvas);
+  canvas.cameraComponent = cam;
+  canvas.alignCanvasWithScreen = false;
+
+  let img: ImageAsset;
+  try {
+    img = await loadBgImage();
+  } catch (err) {
+    console.error('[Suck] backdrop image failed', err);
+    return root;
+  }
+  if (!img.width || !img.height) {
+    console.error('[Suck] backdrop image has no size');
+    return root;
+  }
+
+  const scale = Math.max(vis.width / DESIGN_W, vis.height / DESIGN_H);
+  const w = Math.ceil(DESIGN_W * scale);
+  const h = Math.ceil(DESIGN_H * scale);
+  const art = new Node('SkyArt');
+  root.addChild(art);
+  art.layer = WORLD_BG_LAYER;
+  art.addComponent(UITransform).setContentSize(w, h);
+  const widget = art.addComponent(Widget);
+  widget.isAlignHorizontalCenter = widget.isAlignVerticalCenter = true;
+  widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+  const sp = art.addComponent(Sprite);
+  sp.spriteFrame = frameFromImage(img);
+  sp.sizeMode = Sprite.SizeMode.CUSTOM;
+  sp.type = Sprite.Type.SIMPLE;
+  setLayerDeep(root, WORLD_BG_LAYER);
   return root;
+}
+
+export function applyToyGround(node: Node): void {
+  node.active = false;
 }

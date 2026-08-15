@@ -23,6 +23,40 @@ export function paintQBoard(g: Graphics, w: number, h: number): void {
   g.stroke();
 }
 
+export function paintLevelBadge(g: Graphics, w: number, h: number): void {
+  const r = h * 0.5;
+  g.clear();
+  g.fillColor = Theme.badgeShadow;
+  g.roundRect(-w * 0.5 + 4, -h * 0.5 - 8, w - 8, h - 6, r);
+  g.fill();
+  g.fillColor = Theme.badgeFill;
+  g.roundRect(-w * 0.5, -h * 0.5 + 2, w, h - 10, r * 0.92);
+  g.fill();
+  g.strokeColor = Theme.badgeStroke;
+  g.lineWidth = Math.max(3, h * 0.045);
+  g.roundRect(-w * 0.5 + 10, -h * 0.5 + 12, w - 20, h - 28, Math.max(8, r * 0.72));
+  g.stroke();
+}
+
+export function styleLevelBadge(lab: Label, size: number): void {
+  lab.fontSize = size;
+  lab.lineHeight = size + 10;
+  lab.isBold = true;
+  lab.color = Theme.badgeText;
+  lab.enableOutline = true;
+  lab.outlineWidth = Math.max(4, Math.round(size * 0.12));
+  lab.outlineColor = Theme.badgeTextStroke;
+  lab.enableShadow = true;
+  lab.shadowOffset = new Vec2(0, -Math.max(2, Math.round(size * 0.05)));
+  lab.shadowBlur = 1;
+  lab.shadowColor = new Color(52, 112, 64, 90);
+  lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+  lab.verticalAlign = Label.VerticalAlign.CENTER;
+  lab.overflow = Label.Overflow.SHRINK;
+  lab.useSystemFont = true;
+  lab.fontFamily = 'PingFang SC';
+}
+
 export function paintQChip(g: Graphics, w: number, h: number, fill = Theme.boardChip): void {
   const r = h * 0.5;
   g.clear();
