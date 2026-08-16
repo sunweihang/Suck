@@ -131,18 +131,38 @@ export function getLevel(id: number): LevelDef {
   return LEVELS[n - 1];
 }
 
+export type ItemId = 'shuffle' | 'merge' | 'hook' | 'shovel';
+
+export const ITEM_UNLOCK_LEVEL: Record<ItemId, number> = {
+  shuffle: 3,
+  merge: 5,
+  hook: 8,
+  shovel: 10,
+};
+
+export function itemUnlocked(id: ItemId, level: number): boolean {
+  return (level | 0) >= ITEM_UNLOCK_LEVEL[id];
+}
+
 export function isTutorialLevel(id: number): boolean {
   return (id | 0) === 1;
 }
 
 export function showsPlayHint(id: number): boolean {
   const n = id | 0;
-  return n === 1 || n === 16 || n === 21 || n === 23;
+  return n === 1 || n === 11 || n === 21 || n === 31 || n === 41 || n === 51;
 }
 
 const SPECIAL_TITLE: Record<number, string> = {
-  21: '解救章鱼',
-  23: '油漆桶',
+  3: '解锁洗牌',
+  5: '解锁合并',
+  8: '解锁钩子',
+  10: '解锁铲子',
+  11: '挡板',
+  21: '染色',
+  31: '拯救章鱼',
+  41: '钉子锁',
+  51: '炸弹',
 };
 
 export function levelTitle(id: number): string {

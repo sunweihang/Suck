@@ -30,7 +30,7 @@ import {
   wallStartX,
 } from '../game/GameConfig';
 import { paintNodeColor } from './BrickSpecials';
-import { showsPlayHint, UnitSpec } from '../game/LevelCatalog';
+import { itemUnlocked, showsPlayHint, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
@@ -41,6 +41,16 @@ import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
 
 const { ccclass } = _decorator;
+
+export type { ItemId };
+export type ItemHudState = {
+  shuffle: number;
+  merge: number;
+  hook: number;
+  shovel: number;
+  hookPick: boolean;
+  shovelPick: boolean;
+};
 
 const _ray = new geometry.Ray();
 const _world = new Vec3();
@@ -82,6 +92,10 @@ export class BattleDirector extends Component {
   private _cols = PLAY.wallCols;
   private _onWin: (() => void) | null = null;
   private _onLose: (() => void) | null = null;
+  private _onItems: ((state: ItemHudState) => void) | null = null;
+  private readonly _items: Record<ItemId, number> = { shuffle: 1, merge: 1, hook: 1, shovel: 1 };
+  private _hookPick = false;
+  private _shovelPick = false;
   private _hint: HintHand | null = null;
   private readonly _plates: IronPlate[] = [];
   private _ironRows: number[] = [];
@@ -109,12 +123,14 @@ export class BattleDirector extends Component {
     canvas: Node;
     onWin?: () => void;
     onLose?: () => void;
+    onItems?: (state: ItemHudState) => void;
   }): void {
     this._cam = opts.camera;
     this._canvas = opts.canvas;
     bindPowerLayer(opts.canvas);
     this._onWin = opts.onWin ?? null;
     this._onLose = opts.onLose ?? null;
+    this._onItems = opts.onItems ?? null;
     this._collect();
     this._bindTouch();
     this.setPlaying(false);
@@ -128,6 +144,10 @@ export class BattleDirector extends Component {
     const units = this._units;
     if (!units) return;
     for (const u of units) u.setPowerVisible(on);
+    if (!on && (this._hookPick || this._shovelPick)) {
+      this._clearPicks();
+      this._emitItems();
+    }
   }
 
   forceWin(): void {
@@ -225,6 +245,112 @@ export class BattleDirector extends Component {
     this._placeRaft(0);
     this._refreshPlateGray();
     this._refreshRescues();
+    this._resetItems();
+  }
+
+  itemState(): ItemHudState {
+    return {
+      shuffle: this._items.shuffle,
+      merge: this._items.merge,
+      hook: this._items.hook,
+      shovel: this._items.shovel,
+      hookPick: this._hookPick,
+      shovelPick: this._shovelPick,
+    };
+  }
+
+  useItem(id: ItemId): boolean {
+    if (!this._playing || this._won || this._lost) return false;
+    if (id !== 'hook' && this._hookPick) this._hookPick = false;
+    if (id !== 'shovel' && this._shovelPick) this._shovelPick = false;
+    if (id === 'shuffle') {
+      if (this._items.shuffle <= 0 || !this._shuffleBench()) {
+        this._emitItems();
+        return false;
+      }
+      this._spend('shuffle');
+      return true;
+    }
+    if (id === 'merge') {
+      if (this._items.merge <= 0 || !this._mergeStuckSlots()) {
+        this._emitItems();
+        return false;
+      }
+      this._spend('merge');
+      return true;
+    }
+    if (id === 'hook') {
+      if (this._items.hook <= 0) {
+        this._emitItems();
+        return false;
+      }
+      if (this._hookPick) {
+        this._hookPick = false;
+        this._emitItems();
+        return true;
+      }
+      if (!this._hasRearBench()) {
+        this._emitItems();
+        return false;
+      }
+      this._hookPick = true;
+      this._emitItems();
+      return true;
+    }
+    if (id === 'shovel') {
+      if (this._items.shovel <= 0) {
+        this._emitItems();
+        return false;
+      }
+      if (this._shovelPick) {
+        this._shovelPick = false;
+        this._emitItems();
+        return true;
+      }
+      if (!this._canShovel()) {
+        this._emitItems();
+        return false;
+      }
+      this._shovelPick = true;
+      this._emitItems();
+      return true;
+    }
+    this._emitItems();
+    return false;
+  }
+
+  private _hasRearBench(): boolean {
+    for (const u of this._units) {
+      if (u.onBench && !this._isColFront(u)) return true;
+    }
+    return false;
+  }
+
+  private _canShovel(): boolean {
+    if (!this._shortestBenchSeat()) return false;
+    for (const s of this._slots) {
+      if (s.occupant?.usable) return true;
+    }
+    return false;
+  }
+
+  private _shortestBenchSeat(): { col: number; rank: number } | null {
+    let bestCol = 0;
+    let bestN = 1e9;
+    for (let c = 0; c < BENCH.cols; c++) {
+      let n = 0;
+      for (const o of this._units) {
+        if (!o.node.active || o.trapped) continue;
+        if (o.state !== 'bench' && o.state !== 'drag') continue;
+        if (o.benchCol === c) n += 1;
+      }
+      if (n < bestN) {
+        bestN = n;
+        bestCol = c;
+      }
+    }
+    if (bestN >= BENCH.rows) return null;
+    return { col: bestCol, rank: bestN };
   }
 
   private _ensureWorldHint(): HintHand | null {
@@ -334,6 +460,24 @@ export class BattleDirector extends Component {
   private _onTap(e: PointerEvt): void {
     if (!this._playing || this._won || this._lost) return;
     if (this._overUi(e)) return;
+    if (this._hookPick) {
+      const rear = this._pickAnyBench(e);
+      if (rear && !this._isColFront(rear) && this._deployHooked(rear)) this._spend('hook');
+      else {
+        this._hookPick = false;
+        this._emitItems();
+      }
+      return;
+    }
+    if (this._shovelPick) {
+      const unit = this._pickSlotUnit(e);
+      if (unit && this._shovelToBench(unit)) this._spend('shovel');
+      else {
+        this._shovelPick = false;
+        this._emitItems();
+      }
+      return;
+    }
     const unit = this._pickBench(e);
     if (unit) {
       this._placeOrMerge(unit);
@@ -421,6 +565,8 @@ export class BattleDirector extends Component {
       else if (u.power > 0 && this._bestBlock(u)) canAbsorb = true;
     }
     if (filled < GAME.slotMax || absorbing || canAbsorb) return;
+    if (this._items.merge > 0 && this._canMergeStuck()) return;
+    if (this._items.shovel > 0 && this._canShovel()) return;
     this._lost = true;
     this._onLose?.();
   }
@@ -582,14 +728,18 @@ export class BattleDirector extends Component {
     return raft && ground;
   }
 
-  /** Same column + layer: no other color sits higher than this block. */
+  /** Same column: no other color sits higher on this layer, or in front on this row. */
   private _clearAbove(block: BlockCell, ghost = false): boolean {
     if (this._plateBlocks(block.row, block.col)) return false;
     if ((PLAY.raftW | 0) > 0 && !this._raftContact(block.col, block.colorId)) return false;
     if (ghost) return true;
-    if (this._sandCols.has(block.col) && this._isSandBottom(block)) return true;
     const list = this._byCol[block.col];
     if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o.row === block.row && o.layer < block.layer && o.colorId !== block.colorId) return false;
+    }
+    if (this._sandCols.has(block.col) && this._isSandBottom(block)) return true;
     for (let i = 0; i < list.length; i++) {
       const o = list[i];
       if (o.layer !== block.layer || o.row <= block.row) continue;
@@ -797,6 +947,7 @@ export class BattleDirector extends Component {
     if (back?.activeInHierarchy && back.getComponent(UITransform)?.hitTest(loc)) return true;
     if (next?.activeInHierarchy && next.getComponent(UITransform)?.hitTest(loc)) return true;
     if (settings?.activeInHierarchy && settings.getComponent(UITransform)?.hitTest(loc)) return true;
+    if (this._hitsUi(hud?.getChildByName('Powers'), loc)) return true;
     const gm = this._canvas?.getChildByName('GmPanel');
     if (this._hitsUi(gm?.getChildByName('Toggle'), loc)) return true;
     if (this._hitsUi(gm?.getChildByName('Dim'), loc)) return true;
@@ -826,11 +977,20 @@ export class BattleDirector extends Component {
   }
 
   private _pickBench(e: PointerEvt): UnitActor | null {
+    return this._pickBenchAt(e, true);
+  }
+
+  private _pickAnyBench(e: PointerEvt): UnitActor | null {
+    return this._pickBenchAt(e, false);
+  }
+
+  private _pickBenchAt(e: PointerEvt, frontOnly: boolean): UnitActor | null {
     if (!this._aimRay(e)) return null;
     let best: UnitActor | null = null;
-    let bestD = PICK_R2;
+    let bestD = frontOnly ? PICK_R2 : 0.5 * 0.5;
     for (const u of this._units) {
-      if (!u.usable || u.state !== 'bench' || !this._isColFront(u)) continue;
+      if (!u.usable || u.state !== 'bench') continue;
+      if (frontOnly && !this._isColFront(u)) continue;
       u.node.getWorldPosition(_world);
       _world.y += 0.12;
       const d = rayPointDistSq(_ray, _world);
@@ -1078,6 +1238,216 @@ export class BattleDirector extends Component {
     if ((PLAY.raftW | 0) <= 0) return;
     this._raftT += dt;
     this._placeRaft(this._raftOffset());
+  }
+
+  private _resetItems(): void {
+    const lv = PLAY.levelId;
+    this._items.shuffle = itemUnlocked('shuffle', lv) ? 1 : 0;
+    this._items.merge = itemUnlocked('merge', lv) ? 1 : 0;
+    this._items.hook = itemUnlocked('hook', lv) ? 1 : 0;
+    this._items.shovel = itemUnlocked('shovel', lv) ? 1 : 0;
+    this._clearPicks();
+    this._emitItems();
+  }
+
+  private _clearPicks(): void {
+    this._hookPick = false;
+    this._shovelPick = false;
+  }
+
+  private _spend(id: ItemId): void {
+    this._items[id] = Math.max(0, this._items[id] - 1);
+    this._clearPicks();
+    this._emitItems();
+  }
+
+  private _emitItems(): void {
+    this._onItems?.(this.itemState());
+  }
+
+  private _shuffleBench(): boolean {
+    const seated: UnitActor[] = [];
+    for (const u of this._units) {
+      if (u.onBench) seated.push(u);
+    }
+    if (seated.length < 2) return false;
+    const seats = seated.map((u) => ({ col: u.benchCol, rank: u.benchRank }));
+    for (let i = seated.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      const swap = seated[i];
+      seated[i] = seated[j];
+      seated[j] = swap;
+    }
+    for (let i = 0; i < seated.length; i++) {
+      const u = seated[i];
+      const seat = seats[i];
+      u.benchCol = seat.col;
+      u.benchRank = seat.rank;
+      u.homePos.set(benchSeatX(seat.col), u.homePos.y, benchSeatZ(seat.rank));
+      if (u.state === 'bench') u.slideToHome();
+      u.refreshPowerVisible();
+    }
+    const mid = seated[seated.length >> 1];
+    mid.node.getWorldPosition(_world);
+    _world.y += 0.2;
+    playShuaxinBurst(this.node, _world);
+    gameAudio()?.playUiClick();
+    return true;
+  }
+
+  private _stuckSlotUnits(): UnitActor[] {
+    const out: UnitActor[] = [];
+    for (const s of this._slots) {
+      const u = s.occupant;
+      if (!u?.usable || u.power <= 0 || u.inflight > 0) continue;
+      if (this._bestBlock(u)) continue;
+      out.push(u);
+    }
+    return out;
+  }
+
+  private _canMergeStuck(): boolean {
+    const stuck = this._stuckSlotUnits();
+    for (const u of stuck) {
+      for (const s of this._slots) {
+        const o = s.occupant;
+        if (o && o !== u && o.usable && o.power > 0 && o.colorId === u.colorId) return true;
+      }
+    }
+    return false;
+  }
+
+  private _mergeStuckSlots(): boolean {
+    const stuck = this._stuckSlotUnits();
+    if (stuck.length <= 0) return false;
+    const colors = new Set<number>();
+    for (const u of stuck) colors.add(u.colorId);
+    let merged = false;
+    for (const color of colors) {
+      const mates: UnitActor[] = [];
+      for (const s of this._slots) {
+        const u = s.occupant;
+        if (!u?.usable || u.power <= 0 || u.colorId !== color) continue;
+        mates.push(u);
+      }
+      if (mates.length < 2) continue;
+      mates.sort((a, b) => {
+        const aEat = this._bestBlock(a) ? 1 : 0;
+        const bEat = this._bestBlock(b) ? 1 : 0;
+        if (aEat !== bEat) return bEat - aEat;
+        return b.power - a.power;
+      });
+      const keep = mates[0];
+      for (let i = 1; i < mates.length; i++) this._absorbSlotUnit(keep, mates[i]);
+      merged = true;
+    }
+    return merged;
+  }
+
+  private _absorbSlotUnit(keep: UnitActor, add: UnitActor): void {
+    keep.power += add.power;
+    keep.maxPower = Math.max(keep.maxPower, keep.power);
+    keep.syncPowerLabel();
+    for (const s of this._slots) {
+      if (s.occupant === add) s.occupant = null;
+    }
+    add.node.getWorldPosition(_world);
+    _world.y += 0.18;
+    playMergeBurst(this.node, _world);
+    gameAudio()?.playUiClick();
+    add.state = 'bench';
+    add.lockedCol = -1;
+    add.inflight = 0;
+    add.node.active = false;
+  }
+
+  private _deployHooked(unit: UnitActor): boolean {
+    const slot = this._hintSlot(unit);
+    if (slot) {
+      this._placeUnit(unit, slot);
+      return true;
+    }
+    const merge = this._bestMerge(unit);
+    if (merge) {
+      this._mergeUnit(unit, merge);
+      return true;
+    }
+    return this._promoteToFront(unit);
+  }
+
+  private _pickSlotUnit(e: PointerEvt): UnitActor | null {
+    if (!this._aimRay(e)) return null;
+    let best: UnitActor | null = null;
+    let bestD = GAME.slotPickR * GAME.slotPickR;
+    for (const s of this._slots) {
+      const u = s.occupant;
+      if (!u?.usable) continue;
+      u.node.getWorldPosition(_world);
+      _world.y += 0.16;
+      const d = rayPointDistSq(_ray, _world);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
+  }
+
+  private _shovelToBench(unit: UnitActor): boolean {
+    const bench = this._bench;
+    const seat = this._shortestBenchSeat();
+    if (!bench || !seat) return false;
+    let owned = false;
+    for (const s of this._slots) {
+      if (s.occupant === unit) {
+        s.occupant = null;
+        owned = true;
+      }
+    }
+    if (!owned) return false;
+    unit.lockedCol = -1;
+    unit.state = 'bench';
+    unit.benchCol = seat.col;
+    unit.benchRank = seat.rank;
+    unit.homePos.set(benchSeatX(seat.col), OCTOPUS_STAND_Y, benchSeatZ(seat.rank));
+    unit.node.setParent(bench, true);
+    unit.flyToHome();
+    unit.setPowerVisible(this._playing);
+    unit.node.getWorldPosition(_world);
+    _world.y += 0.18;
+    playMergeBurst(this.node, _world);
+    gameAudio()?.playRemove();
+    return true;
+  }
+
+  private _promoteToFront(unit: UnitActor): boolean {
+    if (!unit.onBench || this._isColFront(unit)) return false;
+    const col = unit.benchCol;
+    let front: UnitActor | null = null;
+    let bestRank = 1e9;
+    for (const o of this._units) {
+      if (!o.onBench || o.benchCol !== col) continue;
+      if (o.benchRank < bestRank) {
+        bestRank = o.benchRank;
+        front = o;
+      }
+    }
+    if (!front || front === unit) return false;
+    const r0 = front.benchRank;
+    const r1 = unit.benchRank;
+    front.benchRank = r1;
+    unit.benchRank = r0;
+    front.homePos.set(benchSeatX(col), front.homePos.y, benchSeatZ(r1));
+    unit.homePos.set(benchSeatX(col), unit.homePos.y, benchSeatZ(r0));
+    if (front.state === 'bench') front.slideToHome();
+    if (unit.state === 'bench') unit.slideToHome();
+    front.refreshPowerVisible();
+    unit.refreshPowerVisible();
+    unit.node.getWorldPosition(_world);
+    _world.y += 0.2;
+    playShuaxinBurst(this.node, _world);
+    gameAudio()?.playUiClick();
+    return true;
   }
 
   private _tryUnlockSlot(e: PointerEvt): boolean {

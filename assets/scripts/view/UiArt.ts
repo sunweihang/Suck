@@ -35,6 +35,12 @@ const KEYS = [
   'volumeTrack',
   'volumeFill',
   'sliderThumb',
+  'itemTray',
+  'itemBadge',
+  'icShuffle',
+  'icMerge',
+  'icHook',
+  'icShovel',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
@@ -57,6 +63,12 @@ function imagePathOf(key: ArtKey): string | null {
   if (key === 'volumeTrack') return 'ui/volume-track';
   if (key === 'volumeFill') return 'ui/volume-fill';
   if (key === 'sliderThumb') return 'ui/slider-thumb';
+  if (key === 'itemTray') return 'ui/item-tray';
+  if (key === 'itemBadge') return 'ui/item-badge';
+  if (key === 'icShuffle') return 'ui/ic-item-shuffle';
+  if (key === 'icMerge') return 'ui/ic-item-merge';
+  if (key === 'icHook') return 'ui/ic-item-hook';
+  if (key === 'icShovel') return 'ui/ic-item-shovel';
   return null;
 }
 
@@ -81,6 +93,12 @@ function pathOf(key: ArtKey): string {
   if (key === 'volumeTrack') return 'ui/volume-track/spriteFrame';
   if (key === 'volumeFill') return 'ui/volume-fill/spriteFrame';
   if (key === 'sliderThumb') return 'ui/slider-thumb/spriteFrame';
+  if (key === 'itemTray') return 'ui/item-tray/spriteFrame';
+  if (key === 'itemBadge') return 'ui/item-badge/spriteFrame';
+  if (key === 'icShuffle') return 'ui/ic-item-shuffle/spriteFrame';
+  if (key === 'icMerge') return 'ui/ic-item-merge/spriteFrame';
+  if (key === 'icHook') return 'ui/ic-item-hook/spriteFrame';
+  if (key === 'icShovel') return 'ui/ic-item-shovel/spriteFrame';
   if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
@@ -89,9 +107,16 @@ function pathOf(key: ArtKey): string {
 const frames = new Map<string, SpriteFrame>();
 let boot: Promise<void> | null = null;
 
+function sharpenUiTex(tex: Texture2D | null | undefined): void {
+  if (!tex) return;
+  tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+  tex.setMipFilter(Texture2D.Filter.LINEAR);
+}
+
 function frameFromImage(img: ImageAsset): SpriteFrame {
   const tex = new Texture2D();
   tex.image = img;
+  sharpenUiTex(tex);
   const sf = new SpriteFrame();
   sf.texture = tex;
   return sf;
@@ -133,12 +158,19 @@ export function artFrame(key: ArtKey | `d${number}`): SpriteFrame | null {
   return frames.get(key) ?? null;
 }
 
-function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: boolean, inset = 0): void {
-  if (sliced && inset > 0) {
-    sf.insetTop = Math.max(sf.insetTop, inset);
-    sf.insetBottom = Math.max(sf.insetBottom, inset);
-    sf.insetLeft = Math.max(sf.insetLeft, inset);
-    sf.insetRight = Math.max(sf.insetRight, inset);
+function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number } | null {
+  if (key === 'settingsCard') return { t: 128, b: 128, l: 128, r: 128 };
+  if (key === 'itemTray') return { t: 73, b: 73, l: 110, r: 110 };
+  return null;
+}
+
+function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: boolean, key?: ArtKey): void {
+  const inset = key ? sliceInset(key) : null;
+  if (sliced && inset) {
+    sf.insetTop = Math.max(sf.insetTop, inset.t);
+    sf.insetBottom = Math.max(sf.insetBottom, inset.b);
+    sf.insetLeft = Math.max(sf.insetLeft, inset.l);
+    sf.insetRight = Math.max(sf.insetRight, inset.r);
   }
   let sp = node.getComponent(Sprite);
   if (!sp) sp = node.addComponent(Sprite);
@@ -147,6 +179,9 @@ function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: 
   sp.type = sliced ? Sprite.Type.SLICED : Sprite.Type.SIMPLE;
   sp.color = Color.WHITE;
   sp.enabled = true;
+  if (key === 'icShuffle' || key === 'icMerge' || key === 'icHook' || key === 'icShovel') {
+    sharpenUiTex(sf.texture as Texture2D);
+  }
   node.getComponent(UITransform)?.setContentSize(w, h);
 }
 
@@ -160,7 +195,7 @@ export function applyArtSprite(
   if (!node) return false;
   const sf = frames.get(key);
   if (!sf) return false;
-  paintSprite(node, sf, w, h, sliced, key === 'settingsCard' ? 128 : 0);
+  paintSprite(node, sf, w, h, sliced, key);
   return true;
 }
 
@@ -177,7 +212,7 @@ export function applyArtSpriteSoon(
   resources.load(pathOf(key), SpriteFrame, (err, sf) => {
     if (!err && sf?.texture && node.isValid) {
       frames.set(key, sf);
-      paintSprite(node, sf, w, h, sliced, key === 'settingsCard' ? 128 : 0);
+      paintSprite(node, sf, w, h, sliced, key);
       return;
     }
     const imgPath = imagePathOf(key);
@@ -186,7 +221,7 @@ export function applyArtSpriteSoon(
       if (e2 || !img || !node.isValid) return;
       const made = frameFromImage(img);
       frames.set(key, made);
-      paintSprite(node, made, w, h, sliced, key === 'settingsCard' ? 128 : 0);
+      paintSprite(node, made, w, h, sliced, key);
     });
   });
 }

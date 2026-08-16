@@ -7,6 +7,7 @@ import {
   Label,
   Layers,
   Node,
+  Sprite,
   UITransform,
   Widget,
 } from 'cc';
@@ -14,8 +15,10 @@ import { HintHand } from '../battle/HintHand';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
-import { applyArtSprite, layoutHomeLevel } from './UiArt';
+import { applyArtSprite, applyArtSpriteSoon, layoutHomeLevel } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
+import type { ItemHudState, ItemId } from '../battle/BattleDirector';
+import { itemUnlocked } from '../game/LevelCatalog';
 
 const { ccclass } = _decorator;
 
@@ -26,6 +29,21 @@ const SETTINGS_GEAR = 56;
 const SETTINGS_W = 140;
 const SETTINGS_H = 168;
 const SETTINGS_INK = new Color(110, 104, 168, 255);
+const ITEM_HIT = 192;
+const ITEM_ICON = 168;
+const ITEM_GAP = 10;
+const ITEM_PAD_X = 62;
+const ITEM_BADGE = 54;
+const ITEM_TRAY_H = 220;
+const ITEM_IDS: readonly ItemId[] = ['shuffle', 'merge', 'hook', 'shovel'];
+const ITEM_ICON_KEY = {
+  shuffle: 'icShuffle',
+  merge: 'icMerge',
+  hook: 'icHook',
+  shovel: 'icShovel',
+} as const;
+const ITEM_GRAY = new Color(180, 176, 188, 255);
+const BADGE_INK = new Color(255, 255, 255, 255);
 
 @ccclass('PlayHud')
 export class PlayHud extends Component {
@@ -34,11 +52,26 @@ export class PlayHud extends Component {
   private _onHome: (() => void) | null = null;
   private _onNext: (() => void) | null = null;
   private _onSettings: (() => void) | null = null;
+  private _onItem: ((id: ItemId) => void) | null = null;
+  private _items: ItemHudState = {
+    shuffle: 1,
+    merge: 1,
+    hook: 1,
+    shovel: 1,
+    hookPick: false,
+    shovelPick: false,
+  };
 
-  setup(opts: { onHome: () => void; onNext?: () => void; onSettings?: () => void }): void {
+  setup(opts: {
+    onHome: () => void;
+    onNext?: () => void;
+    onSettings?: () => void;
+    onItem?: (id: ItemId) => void;
+  }): void {
     this._onHome = opts.onHome;
     this._onNext = opts.onNext ?? null;
     this._onSettings = opts.onSettings ?? null;
+    this._onItem = opts.onItem ?? null;
     this._ensureTree();
     const back = this.node.getChildByName('BackBtn');
     if (back) back.active = false;
@@ -65,6 +98,7 @@ export class PlayHud extends Component {
     if (next) next.active = false;
     this._syncTip();
     this.layoutChrome();
+    this._paintItems();
   }
 
   hide(): void {
@@ -81,6 +115,8 @@ export class PlayHud extends Component {
     this._level = n;
     layoutHomeLevel(this.node.getChildByName('ScoreBoard'), n, PLAY_BADGE, PLAY_DIGIT_H);
     this._syncTip();
+    this._paintItems();
+    this.layoutChrome();
   }
 
   showCleared(_cleared: number, _hasNext: boolean): void {
@@ -90,6 +126,8 @@ export class PlayHud extends Component {
     if (next) next.active = false;
     const tip = this.node.getChildByName('TipLab');
     if (tip) tip.active = false;
+    const powers = this.node.getChildByName('Powers');
+    if (powers) powers.active = false;
     this.hintHand?.hide();
   }
 
@@ -126,6 +164,7 @@ export class PlayHud extends Component {
         0,
       );
     }
+    this._layoutItems(vis.h, safe.bottom);
   }
 
   private _syncTip(): void {
@@ -165,7 +204,7 @@ export class PlayHud extends Component {
     paintQBtn(next.addComponent(Graphics), 400, 108, Theme.playFill, Theme.boardStroke);
     this._lab(next, '下一关', 44, Theme.playText, 400, 108, false);
 
-    this._mk('Powers', 0, 0).active = false;
+    this._itemBar();
 
     const hand = this._mk('HintHand', 160, 220);
     hand.addComponent(HintHand);
@@ -195,6 +234,162 @@ export class PlayHud extends Component {
     if (!n) return;
     applyArtSprite(n.getChildByName('Bg'), 'settingsBg', SETTINGS_CIRCLE, SETTINGS_CIRCLE);
     applyArtSprite(n.getChildByName('Gear'), 'settingsGear', SETTINGS_GEAR, SETTINGS_GEAR);
+    this._paintItems();
+  }
+
+  setItems(state: ItemHudState): void {
+    this._items = { ...state };
+    this._paintItems();
+  }
+
+  private _visibleIds(): ItemId[] {
+    return ITEM_IDS.filter((id) => itemUnlocked(id, this._level));
+  }
+
+  private _itemSpan(): number {
+    const n = this._visibleIds().length;
+    if (n <= 0) return 0;
+    return n * ITEM_HIT + Math.max(0, n - 1) * ITEM_GAP;
+  }
+
+  private _traySize(): { w: number; h: number } {
+    return { w: this._itemSpan() + ITEM_PAD_X * 2, h: ITEM_TRAY_H };
+  }
+
+  private _itemPos(i: number): { x: number; y: number } {
+    const span = this._itemSpan();
+    return { x: -span * 0.5 + ITEM_HIT * 0.5 + i * (ITEM_HIT + ITEM_GAP), y: 0 };
+  }
+
+  private _itemBar(): Node {
+    const tray = this._traySize();
+    const root = this._mk('Powers', tray.w, tray.h);
+    root.active = true;
+    this._ensureTray(root, tray.w, tray.h);
+    this._ensureItemBtns(root);
+    this._paintItems();
+    return root;
+  }
+
+  private _ensureItemBtns(root: Node): void {
+    ITEM_IDS.forEach((id, i) => {
+      const n = root.getChildByName(`Item_${id}`) ?? this._itemBtn(root, id, i);
+      this._syncItemBtn(n, i);
+    });
+  }
+
+  private _syncItemBtn(n: Node, i: number): void {
+    n.getComponent(UITransform)?.setContentSize(ITEM_HIT, ITEM_HIT);
+    const pos = this._itemPos(i);
+    n.setPosition(pos.x, pos.y, 0);
+    n.getChildByName('Icon')?.getComponent(UITransform)?.setContentSize(ITEM_ICON, ITEM_ICON);
+    n.getChildByName('Ring')?.getComponent(UITransform)?.setContentSize(ITEM_HIT + 8, ITEM_HIT + 8);
+    n.getChildByName('Badge')?.setPosition(ITEM_ICON * 0.42, ITEM_ICON * 0.40, 0);
+  }
+
+  private _ensureTray(root: Node, w: number, h: number): Node {
+    let tray = root.getChildByName('Tray');
+    if (!tray) {
+      tray = this._mk('Tray', w, h, root);
+      tray.setSiblingIndex(0);
+    }
+    tray.getComponent(UITransform)?.setContentSize(w, h);
+    return tray;
+  }
+
+  private _itemBtn(root: Node, id: ItemId, i: number): Node {
+    const n = this._mk(`Item_${id}`, ITEM_HIT, ITEM_HIT, root);
+    const pos = this._itemPos(i);
+    n.setPosition(pos.x, pos.y, 0);
+    this._mk('Icon', ITEM_ICON, ITEM_ICON, n);
+    const ring = this._mk('Ring', ITEM_HIT + 8, ITEM_HIT + 8, n);
+    ring.addComponent(Graphics);
+    ring.active = false;
+    const badge = this._mk('Badge', ITEM_BADGE, ITEM_BADGE, n);
+    badge.setPosition(ITEM_ICON * 0.42, ITEM_ICON * 0.40, 0);
+    this._mk('Face', ITEM_BADGE, ITEM_BADGE, badge);
+    this._lab(this._mk('Lab', ITEM_BADGE, ITEM_BADGE, badge), '1', 28, BADGE_INK, ITEM_BADGE, ITEM_BADGE, false);
+    n.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
+      e.propagationStopped = true;
+    }, this);
+    n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      gameAudio()?.playUiClick();
+      this._onItem?.(id);
+    }, this);
+    return n;
+  }
+
+  private _layoutItems(viewH: number, safeBottom: number): void {
+    const root = this.node.getChildByName('Powers');
+    if (!root) return;
+    const visible = this._visibleIds();
+    root.active = visible.length > 0;
+    if (!root.active) return;
+    const tray = this._traySize();
+    root.getComponent(UITransform)?.setContentSize(tray.w, tray.h);
+    this._ensureTray(root, tray.w, tray.h);
+    this._ensureItemBtns(root);
+    root.setPosition(0, -viewH * 0.5 + safeBottom + tray.h * 0.5 + 16, 0);
+  }
+
+  private _paintItems(): void {
+    const root = this.node.getChildByName('Powers');
+    if (!root) return;
+    const visible = this._visibleIds();
+    root.active = visible.length > 0;
+    if (!root.active) return;
+    const tray = this._traySize();
+    applyArtSpriteSoon(this._ensureTray(root, tray.w, tray.h), 'itemTray', tray.w, tray.h, true);
+    this._ensureItemBtns(root);
+    for (const id of ITEM_IDS) {
+      const n = root.getChildByName(`Item_${id}`);
+      if (!n) continue;
+      const i = visible.indexOf(id);
+      n.active = i >= 0;
+      if (i < 0) continue;
+      this._syncItemBtn(n, i);
+      applyArtSpriteSoon(n.getChildByName('Icon'), ITEM_ICON_KEY[id], ITEM_ICON, ITEM_ICON);
+      const count = this._items[id];
+      const on = count > 0;
+      const armed = (id === 'hook' && this._items.hookPick) || (id === 'shovel' && this._items.shovelPick);
+      n.setScale(armed ? 1.08 : 1, armed ? 1.08 : 1, 1);
+      const icon = n.getChildByName('Icon')?.getComponent(Sprite);
+      if (icon) icon.color = on ? Color.WHITE : ITEM_GRAY;
+      this._paintItemRing(n.getChildByName('Ring'), armed);
+      this._paintItemBadge(n.getChildByName('Badge'), count);
+    }
+  }
+
+  private _paintItemRing(ring: Node | null, on: boolean): void {
+    if (!ring) return;
+    ring.active = on;
+    const g = ring.getComponent(Graphics);
+    if (!g || !on) return;
+    g.clear();
+    g.strokeColor = new Color(255, 232, 120, 230);
+    g.lineWidth = 7;
+    g.circle(0, 0, ITEM_ICON * 0.58);
+    g.stroke();
+  }
+
+  private _paintItemBadge(badge: Node | null, count: number): void {
+    if (!badge) return;
+    badge.active = count > 0;
+    if (count <= 0) return;
+    const g = badge.getComponent(Graphics);
+    if (g) {
+      g.clear();
+      g.enabled = false;
+    }
+    applyArtSpriteSoon(badge.getChildByName('Face') ?? badge, 'itemBadge', ITEM_BADGE, ITEM_BADGE);
+    const lab = badge.getChildByName('Lab')?.getComponent(Label);
+    if (lab) {
+      lab.string = String(count);
+      lab.color = BADGE_INK;
+      lab.outlineColor = new Color(160, 40, 72, 255);
+      lab.outlineWidth = 3;
+    }
   }
 
   private _scoreBoard(): Node {

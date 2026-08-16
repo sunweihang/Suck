@@ -424,15 +424,27 @@ function paletteFor(id, count, rng) {
   return out.length > 0 ? out : [bag[0]];
 }
 
+function decadeOf(id) {
+  return Math.floor((id - 1) / 10);
+}
+
+function isTeachLevel(id) {
+  return id === 1 || id === 2 || id === 11 || id === 21 || id === 31 || id === 41 || id === 51;
+}
+
 function sizeFor(id) {
-  const t = Math.max(0, (id - 2) / Math.max(1, LEVEL_COUNT - 2));
-  const e = Math.sqrt(t);
-  return {
-    cols: 16 + Math.round(e * 8),
-    rows: 12 + Math.round(e * 8),
-    depth: 5 + Math.round(e * 6),
-    colors: 6 + Math.round(e * 2),
-  };
+  const d = decadeOf(id);
+  const t = (id - 1) % 10;
+  const cols = Math.min(16, 12 + Math.floor(d * 0.45) + Math.floor(t * 0.3));
+  const rows = Math.min(12, 9 + Math.floor(d * 0.35) + Math.floor(t * 0.2));
+  const depth = Math.min(10, 5 + d);
+  const colors = Math.min(6, 3 + Math.floor(d * 0.35) + (t >= 5 ? 1 : 0));
+  return { cols, rows, depth, colors };
+}
+
+function minUnitsFor(id) {
+  if (isTeachLevel(id)) return id <= 2 ? 1 : 3;
+  return 36 + decadeOf(id) * 2 + Math.floor(((id - 1) % 10) * 0.6);
 }
 
 function countBricks(cells) {
@@ -475,10 +487,15 @@ function plateBlocks(row, col, ironRows, aboveBy) {
 
 function clearAbove(grid, col, row, layer, ironRows, aboveBy) {
   if (plateBlocks(row, col, ironRows, aboveBy)) return false;
+  const color = grid[col][row][layer];
+  const front = grid[col][row];
+  for (let z = 0; z < layer; z++) {
+    if (front[z] != null && front[z] !== color) return false;
+  }
   const rows = grid[col]?.length ?? 0;
   for (let y = row + 1; y < rows; y++) {
     const token = grid[col][y][layer];
-    if (token != null && token !== grid[col][row][layer]) return false;
+    if (token != null && token !== color) return false;
   }
   return true;
 }
@@ -564,24 +581,32 @@ function occupiedYRange(cells, cols, rows) {
   return { minY, maxY };
 }
 
-function pickIronRows(id, cells, cols, rows) {
-  if (id < 5 || id > 10) return [];
+function chooseIronRows(cells, cols, rows, count) {
+  if (count <= 0) return [];
   const { minY, maxY } = occupiedYRange(cells, cols, rows);
   const span = maxY - minY;
   if (span < 4) return [];
-  if (id <= 7) {
-    const aboveWant = id === 5 ? 2 : id === 6 ? 3 : Math.max(3, Math.floor(span * 0.48));
-    const row = Math.max(minY + 2, Math.min(maxY - 1, maxY - aboveWant));
+  if (count === 1) {
+    const row = Math.max(minY + 2, Math.min(maxY - 1, minY + Math.floor(span * 0.55)));
     return row > minY && row <= maxY ? [row] : [];
   }
-  let top = maxY - (id === 10 ? 2 : 3);
-  let bot = minY + (id === 8 ? 2 : 3);
+  let top = maxY - 2;
+  let bot = minY + 2;
   if (top - bot < 2) {
     top = minY + Math.floor(span * 0.66);
     bot = minY + Math.floor(span * 0.33);
   }
   if (top <= bot) return [minY + Math.floor(span / 2)];
   return [bot, top];
+}
+
+function chooseIronGaps(cols, count) {
+  if (count <= 0 || cols < 5) return [];
+  const mid = (cols - 1) >> 1;
+  const gaps = [mid];
+  if (count > 1 && mid + 2 < cols) gaps.push(mid + 2);
+  if (count > 2 && mid - 2 >= 0) gaps.push(mid - 2);
+  return gaps.slice(0, count);
 }
 
 function splitToMinUnits(units, minCount) {
@@ -603,7 +628,7 @@ function splitToMinUnits(units, minCount) {
   return raw;
 }
 
-function planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps = []) {
+function planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps = [], minUnits = 12) {
   IRON_GAPS = ironGaps;
   const built = buildGrid(cells, cols, rows);
   const grid = built.grid;
@@ -655,7 +680,7 @@ function planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps = []) {
     if (ate <= 0) break;
     units.push([color, ate]);
   }
-  return splitToMinUnits(units, 30);
+  return splitToMinUnits(units, minUnits);
 }
 
 function makeCell(tokens) {
@@ -675,29 +700,20 @@ function unitsFromCounts(palette, cells) {
     .map((token) => [token, counts.get(token) ?? 0]);
 }
 
-function makeClassicLevel() {
-  const cols = 15;
-  const rows = 11;
-  const depth = 4;
-  const palette = ['o', 'c', 'g', 'p', 'r', 'k'];
-  const cells = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const token = palette[Math.min(palette.length - 1, Math.floor((x * palette.length) / cols))];
-      cells.push(stack(token, depth));
-    }
-  }
+function emptyLevelExtras() {
   return {
-    id: 1,
-    cols,
-    rows,
-    cells,
-    units: unitsFromCounts(palette, cells),
-    palette,
     brickMix: 0,
     ironRow: -1,
     ironRows: [],
     ironGaps: [],
+    sandCols: [],
+    rescuePower: 5,
+    raftX: 0,
+    raftY: 0,
+    raftW: 0,
+    raftH: 0,
+    raftTravel: 0,
+    raftPeriod: 2.5,
   };
 }
 
@@ -738,6 +754,7 @@ function tutorialBase(id, palette, face, units, extra = {}) {
   if (extra.paint) applyFlagMask(cells, cols, rows, extra.paint, 'paint');
   if (extra.magnet) applyFlagMask(cells, cols, rows, extra.magnet, 'magnet');
   if (extra.bomb) applyBombMask(cells, cols, rows, extra.bomb);
+  const ironRows = extra.ironRows ?? [];
   return {
     id,
     cols,
@@ -745,10 +762,10 @@ function tutorialBase(id, palette, face, units, extra = {}) {
     cells,
     units,
     palette,
-    brickMix: 0,
-    ironRow: -1,
-    ironRows: [],
-    ironGaps: [],
+    ...emptyLevelExtras(),
+    ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
+    ironRows,
+    ironGaps: extra.ironGaps ?? [],
     sandCols: extra.sandCols ?? [],
     rescuePower: extra.rescuePower ?? 5,
     raftX: extra.raftX ?? 0,
@@ -760,8 +777,43 @@ function tutorialBase(id, palette, face, units, extra = {}) {
   };
 }
 
-function makeRescueLevel() {
-  return tutorialBase(21, ['y', 'r', 'c'], [
+function makeAbsorbTutorial() {
+  return tutorialBase(1, ['o'], [
+    'ooooo',
+    'ooooo',
+    'ooooo',
+  ], [['o', 15]]);
+}
+
+function makeAbsorbTwo() {
+  return tutorialBase(2, ['o', 'c'], [
+    'oooooccccc',
+    'oooooccccc',
+    'oooooccccc',
+  ], [['o', 15], ['c', 15]]);
+}
+
+function makeIronTutorial() {
+  return tutorialBase(11, ['y', 'c'], [
+    'yyyyy',
+    'yyyyy',
+    'ccccc',
+    'ccccc',
+  ], [['y', 10], ['c', 10]], { ironRows: [2] });
+}
+
+function makePaintTutorial() {
+  return tutorialBase(21, ['p', 'c'], [
+    'ccpcc',
+    'ccccc',
+    'ccccc',
+  ], [['p', 1], ['p', 5], ['c', 9]], {
+    paint: ['..*..', '.....', '.....'],
+  });
+}
+
+function makeRescueTutorial() {
+  return tutorialBase(31, ['y', 'r', 'c'], [
     'rrrrr',
     'rrqrr',
     'rrrrr',
@@ -773,49 +825,23 @@ function makeRescueLevel() {
   });
 }
 
-function makePaintLevel() {
-  return tutorialBase(23, ['p', 'c'], [
-    'ccpcc',
-    'ccccc',
-    'ccccc',
-  ], [['p', 1], ['p', 5], ['c', 9]], {
-    paint: ['..*..', '.....', '.....'],
-  });
+function makeNailTutorial() {
+  return tutorialBase(41, ['o', 'r', 'c'], [
+    'ooooooo',
+    'ooRRRoo',
+    'ccccccc',
+  ], [['o', 11], ['r', 3], ['c', 7]]);
 }
 
-function makeBombLevel() {
-  const depth = 1;
-  const palette = ['y', 'p', 'r', 'c'];
-  const face = [
+function makeBombTutorial() {
+  return tutorialBase(51, ['y', 'p', 'r', 'c'], [
     '.pyp.',
     '.ppp.',
     'rrrrr',
     'ccccc',
-  ];
-  const mask = [
-    '..*..',
-    '.....',
-    '.....',
-    '.....',
-  ];
-  const { cols, rows, cells } = cellsFromFace(face, depth);
-  applyBombMask(cells, cols, rows, mask);
-  return {
-    id: 16,
-    cols,
-    rows,
-    cells,
-    units: [
-      ['y', 1],
-      ['r', 5],
-      ['c', 5],
-    ],
-    palette,
-    brickMix: 0,
-    ironRow: -1,
-    ironRows: [],
-    ironGaps: [],
-  };
+  ], [['y', 1], ['r', 5], ['c', 5]], {
+    bomb: ['..*..', '.....', '.....', '.....'],
+  });
 }
 
 function cellsFromFace(face, depth, extra = {}) {
@@ -848,95 +874,172 @@ function cellsFromFace(face, depth, extra = {}) {
   return { cols, rows, cells };
 }
 
-function makeNailLevel(id) {
-  const depth = 2;
+function markFront(cell, key) {
+  cell[key] = cell.tokens.map((_, z) => z === 0);
+}
+
+function occupiedCells(cells, cols, rows) {
+  const out = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = cells[y * cols + x];
+      if (cell?.tokens?.length) out.push({ x, y, cell });
+    }
+  }
+  return out;
+}
+
+function neighborCount(cells, cols, rows, x, y) {
+  let n = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const cell = cells[(y + dy) * cols + (x + dx)];
+      if (cell?.tokens?.length) n += 1;
+    }
+  }
+  return n;
+}
+
+function placePaints(cells, cols, rows, count, rng) {
+  const spots = occupiedCells(cells, cols, rows)
+    .filter((s) => !s.cell.paint && !s.cell.bomb && !s.cell.magnet && !s.cell.locked)
+    .sort((a, b) => neighborCount(cells, cols, rows, b.x, b.y) - neighborCount(cells, cols, rows, a.x, a.y));
+  const picked = [];
+  for (let i = 0; i < spots.length && picked.length < count; i++) {
+    if (rng.next() > 0.7 && i + 1 < spots.length) continue;
+    markFront(spots[i].cell, 'paint');
+    picked.push(spots[i]);
+  }
+  return picked;
+}
+
+function placeBombs(cells, cols, rows, count, rng) {
+  const spots = occupiedCells(cells, cols, rows)
+    .filter((s) => !s.cell.paint && !s.cell.bomb && neighborCount(cells, cols, rows, s.x, s.y) >= 3);
+  shuffleIn(spots, rng);
+  const picked = [];
+  for (let i = 0; i < spots.length && picked.length < count; i++) {
+    markFront(spots[i].cell, 'bomb');
+    picked.push(spots[i]);
+  }
+  return picked;
+}
+
+function placeLocks(cells, cols, rows, clusters, rng) {
+  const spots = occupiedCells(cells, cols, rows).filter((s) => !s.cell.locked && s.y < rows - 1);
+  shuffleIn(spots, rng);
+  let placed = 0;
+  for (const start of spots) {
+    if (placed >= clusters) return;
+    const token = start.cell.tokens[0];
+    const group = [];
+    const seen = new Set();
+    const stack = [start];
+    while (stack.length && group.length < 6) {
+      const cur = stack.pop();
+      const key = `${cur.x},${cur.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (cur.cell.tokens[0] !== token || cur.cell.locked) continue;
+      group.push(cur);
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, 1], [0, -1]]) {
+        const x = cur.x + dx;
+        const y = cur.y + dy;
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const cell = cells[y * cols + x];
+        if (cell?.tokens?.length) stack.push({ x, y, cell });
+      }
+    }
+    if (group.length < 3) continue;
+    for (const g of group) {
+      g.cell.locked = g.cell.tokens.map((_, z) => z === 0);
+    }
+    placed += 1;
+  }
+}
+
+function placeRescues(cells, cols, rows, count, palette, rng) {
+  const spots = occupiedCells(cells, cols, rows)
+    .filter((s) => s.x > 0 && s.x < cols - 1 && s.y > 0 && s.y < rows - 1)
+    .filter((s) => neighborCount(cells, cols, rows, s.x, s.y) >= 5);
+  shuffleIn(spots, rng);
+  const placed = [];
+  const counts = countBricks(cells);
+  for (let i = 0; i < spots.length && placed.length < count; i++) {
+    const around = new Set();
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const n = cells[(spots[i].y + dy) * cols + (spots[i].x + dx)];
+        if (n?.tokens?.[0]) around.add(n.tokens[0]);
+      }
+    }
+    const token = placed[0]
+      || palette.find((t) => !around.has(t) && (counts.get(t) ?? 0) >= 4)
+      || palette.find((t) => !around.has(t))
+      || null;
+    if (!token) continue;
+    cells[spots[i].y * cols + spots[i].x] = { tokens: [], rescue: token };
+    placed.push(token);
+  }
+  return placed;
+}
+
+function specFor(id) {
+  const d = decadeOf(id);
+  const t = (id - 1) % 10;
   const spec = {
-    11: {
-      palette: ['r', 'o', 'p', 'c', 'g'],
-      face: [
-        'ooRRRRRRRoo',
-        'ooRRRRRRRoo',
-        'ppppppppppp',
-        'ccccccccccc',
-        'ccccccccccc',
-        'ggggggggggg',
-      ],
-    },
-    12: {
-      palette: ['y', 'c', 'p', 'g', 'r'],
-      face: [
-        'yyCCCCCCCyy',
-        'ppppppppppp',
-        'ppppppppppp',
-        'ggggggggggg',
-        'ggggggggggg',
-        'rrrrrrrrrrr',
-      ],
-    },
-    13: {
-      palette: ['o', 'r', 'p', 'c', 'g'],
-      face: [
-        'ooRRRRRRRoo',
-        'ppppppppppp',
-        'ppppppppppp',
-        'ccGGGGGGGcc',
-        'ggggggggggg',
-      ],
-    },
-    14: {
-      palette: ['y', 'c', 'p', 'g', 'r'],
-      face: [
-        'yyyyyyyyyyy',
-        'yyCCCCCCCyy',
-        'ppppppppppp',
-        'ppppppppppp',
-        'ggggggggggg',
-        'rrrrrrrrrrr',
-      ],
-    },
-    15: {
-      palette: ['y', 'p', 'r', 'c', 'g'],
-      face: [
-        'yyyyyyyyyyy',
-        'yyRRRRRRRyy',
-        'ppRRRRRRRpp',
-        'ccccccccccc',
-        'ggggggggggg',
-      ],
-    },
-  }[id];
-  const { cols, rows, cells } = cellsFromFace(spec.face, depth);
-  return {
-    id,
-    cols,
-    rows,
-    cells,
-    units: unitsFromCounts(spec.palette, cells),
-    palette: spec.palette,
-    brickMix: 0,
-    ironRow: -1,
-    ironRows: [],
-    ironGaps: [],
+    iron: 0,
+    ironGaps: 0,
+    paints: 0,
+    bombs: 0,
+    lockClusters: 0,
+    rescues: 0,
   };
+  if (d === 1) {
+    spec.iron = t <= 6 ? 1 : 2;
+    spec.ironGaps = t >= 6 ? 1 : 0;
+  } else if (d === 2) {
+    spec.paints = t <= 4 ? 1 : 2;
+  } else if (d === 3) {
+    spec.rescues = 1;
+  } else if (d === 4) {
+    spec.lockClusters = 1 + Math.floor(t / 3);
+  } else if (d === 5) {
+    spec.bombs = t <= 4 ? 1 : 2;
+  } else if (d === 6) {
+    spec.iron = t <= 4 ? 1 : 2;
+    spec.lockClusters = t >= 3 ? 1 : 0;
+    spec.ironGaps = t >= 7 ? 1 : 0;
+  } else if (d === 7) {
+    spec.paints = 1;
+    spec.bombs = t >= 4 ? 1 : 0;
+  } else if (d === 8) {
+    spec.rescues = 1;
+    spec.iron = t >= 3 ? 1 : 0;
+    spec.lockClusters = t >= 6 ? 1 : 0;
+  } else if (d === 9) {
+    const mix = [
+      { iron: 1, paints: 1 },
+      { iron: 1, lockClusters: 1 },
+      { bombs: 1, paints: 1 },
+      { iron: 2, bombs: 1 },
+      { rescues: 1, iron: 1 },
+      { lockClusters: 1, paints: 1 },
+      { bombs: 1, lockClusters: 1 },
+      { iron: 1, lockClusters: 1, bombs: 1 },
+      { paints: 1, rescues: 1 },
+      { iron: 1, bombs: 1, lockClusters: 1 },
+    ][t];
+    Object.assign(spec, mix);
+  }
+  return spec;
 }
 
-function makeNailTutorialLevel() {
-  return makeNailLevel(11);
-}
-
-function makeLevel(id) {
-  if (id === 1) return makeClassicLevel();
-  if (id >= 11 && id <= 15) return makeNailLevel(id);
-  if (id === 16) return makeBombLevel();
-  if (id === 21) return makeRescueLevel();
-  if (id === 23) return makePaintLevel();
-  const rng = new Rng(id * 2654435761);
-  const size = sizeFor(id);
+function buildShapedCells(id, size, palette, rng) {
   const kind = (id - 1) % 50;
   const alt = Math.floor((id - 1) / 50);
-  const brickMix = id < 28 ? 0 : Math.min(0.16, (id - 28) / 450);
-  if (id >= 5 && id <= 10) size.colors = Math.min(8, size.colors + 1);
-  const palette = paletteFor(id, size.colors, rng);
   const fat = 0.74;
   const occ = new Array(size.cols * size.rows).fill(false);
   let filled = 0;
@@ -950,7 +1053,7 @@ function makeLevel(id) {
       }
     }
   }
-  const minFill = Math.floor(size.cols * size.rows * 0.55);
+  const minFill = Math.floor(size.cols * size.rows * (size.depth >= 2 ? 0.72 : 0.62));
   if (filled < minFill) {
     for (let y = 0; y < size.rows; y++) {
       for (let x = 0; x < size.cols; x++) {
@@ -971,7 +1074,11 @@ function makeLevel(id) {
       if (occ[y * size.cols + x]) spots.push([x, y]);
     }
   }
-  const face = paintFace(spots, size.cols, size.rows, palette, rng, id >= 5 && id <= 10 ? 4 : CLUSTER_MIN);
+  const clusterMin = 3;
+  const layerFaces = [];
+  for (let z = 0; z < size.depth; z++) {
+    layerFaces.push(paintFace(spots, size.cols, size.rows, palette, rng, clusterMin));
+  }
   const cells = [];
   for (let y = 0; y < size.rows; y++) {
     for (let x = 0; x < size.cols; x++) {
@@ -980,22 +1087,77 @@ function makeLevel(id) {
         cells.push(null);
         continue;
       }
-      const token = face[i] ?? palette[0];
       const tokens = [];
-      for (let z = 0; z < size.depth; z++) tokens.push(token);
+      for (let z = 0; z < size.depth; z++) {
+        tokens.push(layerFaces[z][i] ?? palette[z % palette.length]);
+      }
       cells.push(makeCell(tokens));
     }
   }
-  mixBackLayers(cells, palette, rng, brickMix);
-  let ironRows = pickIronRows(id, cells, size.cols, size.rows);
-  let units = planSolvableUnits(cells, size.cols, size.rows, rng, ironRows);
+  return cells;
+}
+
+function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits) {
+  let units = planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps, minUnits);
   if (!unitsCover(cells, units) && ironRows.length > 1) {
-    ironRows = [ironRows[ironRows.length - 1]];
-    units = planSolvableUnits(cells, size.cols, size.rows, rng, ironRows);
+    units = planSolvableUnits(cells, cols, rows, rng, [ironRows[ironRows.length - 1]], ironGaps, minUnits);
+    if (unitsCover(cells, units)) return { units, ironRows: [ironRows[ironRows.length - 1]] };
   }
   if (!unitsCover(cells, units) && ironRows.length) {
-    ironRows = [];
-    units = planSolvableUnits(cells, size.cols, size.rows, rng, ironRows);
+    units = planSolvableUnits(cells, cols, rows, rng, [], ironGaps, minUnits);
+    return { units, ironRows: [] };
+  }
+  return { units, ironRows };
+}
+
+function makeDecadeLevel(id) {
+  const rng = new Rng(id * 2654435761);
+  const size = sizeFor(id);
+  if (id <= 10) size.colors = id <= 4 ? 3 : 4;
+  const palette = paletteFor(id, size.colors, rng);
+  const cells = buildShapedCells(id, size, palette, rng);
+  const spec = specFor(id);
+  const extra = emptyLevelExtras();
+  extra.brickMix = 0;
+  if (spec.paints) placePaints(cells, size.cols, size.rows, spec.paints, rng);
+  if (spec.bombs) placeBombs(cells, size.cols, size.rows, spec.bombs, rng);
+  if (spec.lockClusters) placeLocks(cells, size.cols, size.rows, spec.lockClusters, rng);
+  if (spec.rescues) placeRescues(cells, size.cols, size.rows, spec.rescues, palette, rng);
+
+  let ironRows = chooseIronRows(cells, size.cols, size.rows, spec.iron);
+  const ironGaps = chooseIronGaps(size.cols, spec.ironGaps);
+  extra.ironGaps = ironGaps;
+  const planned = planUnitsForBoard(
+    cells,
+    size.cols,
+    size.rows,
+    rng,
+    ironRows,
+    ironGaps,
+    minUnitsFor(id),
+  );
+  ironRows = planned.ironRows;
+  extra.ironRows = ironRows;
+  extra.ironRow = ironRows.length ? ironRows[ironRows.length - 1] : -1;
+  let units = planned.units;
+  if (spec.rescues) {
+    const counts = countBricks(cells);
+    const rescueTokens = new Set();
+    for (const cell of cells) {
+      if (cell?.rescue) rescueTokens.add(cell.rescue);
+    }
+    const dropColor = spec.iron === 0 && spec.paints === 0 && spec.bombs === 0;
+    if (rescueTokens.size && dropColor) {
+      units = splitToMinUnits(
+        units.filter((u) => !rescueTokens.has(u[0])),
+        minUnitsFor(id),
+      );
+      let power = 5;
+      for (const token of rescueTokens) power = counts.get(token) ?? 5;
+      extra.rescuePower = power;
+    } else if (rescueTokens.size) {
+      extra.rescuePower = 5;
+    }
   }
   return {
     id,
@@ -1004,11 +1166,19 @@ function makeLevel(id) {
     cells,
     units,
     palette,
-    brickMix,
-    ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
-    ironRows,
-    ironGaps: [],
+    ...extra,
   };
+}
+
+function makeLevel(id) {
+  if (id === 1) return makeAbsorbTutorial();
+  if (id === 2) return makeAbsorbTwo();
+  if (id === 11) return makeIronTutorial();
+  if (id === 21) return makePaintTutorial();
+  if (id === 31) return makeRescueTutorial();
+  if (id === 41) return makeNailTutorial();
+  if (id === 51) return makeBombTutorial();
+  return makeDecadeLevel(id);
 }
 
 function unitsCover(cells, units) {
@@ -1084,9 +1254,19 @@ function bakeAll() {
       }
     }
     const bricks = level.cells.reduce((n, cell) => n + (cell ? cell.tokens.length : 0), 0);
-    const gaps = (level.ironGaps || []).join(',');
+    const tags = [];
+    if ((level.ironRows || []).length) tags.push(`iron=${level.ironRows.join('/')}`);
+    if ((level.ironGaps || []).length) tags.push(`gap=${level.ironGaps.join(',')}`);
+    if ((level.sandCols || []).length) tags.push(`sand=${level.sandCols.length}`);
+    if ((level.raftW || 0) > 0) tags.push('raft');
+    if (level.cells.some((c) => c?.paint?.some(Boolean))) tags.push('paint');
+    if (level.cells.some((c) => c?.bomb?.some(Boolean))) tags.push('bomb');
+    if (level.cells.some((c) => c?.magnet?.some(Boolean))) tags.push('magnet');
+    if (level.cells.some((c) => c?.locked?.some(Boolean))) tags.push('nail');
+    if (level.cells.some((c) => c?.rescue)) tags.push('rescue');
+    const depth = level.cells.reduce((n, cell) => Math.max(n, cell ? cell.tokens.length : 0), 0);
     console.log(
-      `L${String(id).padStart(3)} ${level.cols}x${level.rows} iron=${(level.ironRows || []).join('/') || '-'}${gaps ? ` gap=${gaps}` : ''} bricks=${bricks} units=${level.units.length}`,
+      `L${String(id).padStart(3)} ${level.cols}x${level.rows}x${depth} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length}`,
     );
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
@@ -1098,4 +1278,4 @@ function bakeAll() {
 
 if (require.main === module) bakeAll();
 
-module.exports = { makeLevel, encodeLevel, makeNailTutorialLevel, makeNailLevel, makeBombLevel, bakeAll };
+module.exports = { makeLevel, encodeLevel, bakeAll };

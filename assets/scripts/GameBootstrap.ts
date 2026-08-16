@@ -170,7 +170,9 @@ export class GameBootstrap extends Component {
       canvas: this._canvas,
       onWin: () => this._onLevelCleared(),
       onLose: () => this._onLevelFailed(),
+      onItems: (state) => this._playHud?.setItems(state),
     });
+    this._playHud?.setItems(this._battle.itemState());
   }
 
   private async _ensureWorld(): Promise<void> {
@@ -402,6 +404,7 @@ export class GameBootstrap extends Component {
       onHome: () => this._showHome(),
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
+      onItem: (id) => this._battle?.useItem(id),
     });
     this._playHud.hide();
 

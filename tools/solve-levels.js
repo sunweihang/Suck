@@ -652,11 +652,16 @@ function clearAboveGrid(grid, col, row, layer, ghost) {
   if (cellLocked(grid, col, row, layer)) return false;
   if (plateBlocksGrid(grid, row, col)) return false;
   if (ghost) return true;
+  const color = grid[col][row][layer];
+  const front = grid[col][row];
+  for (let z = 0; z < layer; z++) {
+    if (front[z] != null && front[z] !== color) return false;
+  }
   if (isSandBottom(grid, col, row, layer)) return true;
   const rows = grid[col]?.length ?? 0;
   for (let y = row + 1; y < rows; y++) {
     const token = grid[col][y][layer];
-    if (token != null && token !== grid[col][row][layer]) return false;
+    if (token != null && token !== color) return false;
   }
   return true;
 }
