@@ -32,8 +32,8 @@
       "mainColor": {
         "__type__": "cc.Color",
         "r": 255,
-        "g": 220,
-        "b": 40,
+        "g": 158,
+        "b": 72,
         "a": 255
       },
       "roughness": 0.34,
@@ -41,8 +41,8 @@
       "emissive": {
         "__type__": "cc.Color",
         "r": 255,
-        "g": 220,
-        "b": 40,
+        "g": 158,
+        "b": 72,
         "a": 255
       },
       "emissiveScale": {

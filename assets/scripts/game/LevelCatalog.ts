@@ -10,6 +10,7 @@ export const LEVEL_COUNT = 100;
 export type LevelCell = {
   tokens: ColorToken[];
   locked?: boolean[];
+  bomb?: boolean[];
 };
 
 export type LevelDef = {
@@ -105,6 +106,11 @@ export function isTutorialLevel(id: number): boolean {
   return (id | 0) === 1;
 }
 
+export function showsPlayHint(id: number): boolean {
+  const n = id | 0;
+  return n === 1 || n === 16;
+}
+
 export function levelTitle(id: number): string {
   return isTutorialLevel(id) ? '新手引导' : `第 ${id} 关`;
 }
@@ -117,15 +123,28 @@ function decodeCell(raw: string | null): LevelCell | null {
   if (!raw) return null;
   const tokens: ColorToken[] = [];
   const locked: boolean[] = [];
+  const bomb: boolean[] = [];
   let anyLock = false;
+  let anyBomb = false;
   for (let i = 0; i < raw.length; i++) {
+    let marked = false;
+    if (raw[i] === '*') {
+      marked = true;
+      i += 1;
+      if (i >= raw.length) break;
+    }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push((up ? ch.toLowerCase() : ch) as ColorToken);
-    locked.push(up);
-    if (up) anyLock = true;
+    locked.push(up && !marked);
+    bomb.push(marked);
+    if (up && !marked) anyLock = true;
+    if (marked) anyBomb = true;
   }
-  return anyLock ? { tokens, locked } : { tokens };
+  const cell: LevelCell = { tokens };
+  if (anyLock) cell.locked = locked;
+  if (anyBomb) cell.bomb = bomb;
+  return cell;
 }
 
 function decodeIronRows(raw: RawLevel): number[] {

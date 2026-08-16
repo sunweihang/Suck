@@ -17,9 +17,9 @@ const TOKEN_HUE = {
 };
 /** Same-family colors that read as 靠色 in play. At most one per group. */
 const CLASH_GROUPS = [
+  ['o', 'y', 'd'],
   ['p', 'v', 'a'],
   ['c', 's'],
-  ['y', 'd'],
   ['g', 'm'],
 ];
 
@@ -679,7 +679,7 @@ function makeClassicLevel() {
   const cols = 15;
   const rows = 11;
   const depth = 4;
-  const palette = ['o', 'y', 'c', 'g', 'p', 'r'];
+  const palette = ['o', 'c', 'g', 'p', 'r', 'k'];
   const cells = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -716,6 +716,54 @@ function mixBackLayers(cells, palette, rng, mix) {
   }
 }
 
+function applyBombMask(cells, cols, rows, mask) {
+  for (let fy = 0; fy < mask.length; fy++) {
+    const y = rows - 1 - fy;
+    const line = mask[fy];
+    for (let x = 0; x < cols; x++) {
+      if (line[x] !== '*') continue;
+      const cell = cells[y * cols + x];
+      if (!cell) continue;
+      cell.bomb = cell.tokens.map((_, z) => z === 0);
+    }
+  }
+}
+
+function makeBombLevel() {
+  const depth = 1;
+  const palette = ['y', 'p', 'r', 'c'];
+  const face = [
+    '.pyp.',
+    '.ppp.',
+    'rrrrr',
+    'ccccc',
+  ];
+  const mask = [
+    '..*..',
+    '.....',
+    '.....',
+    '.....',
+  ];
+  const { cols, rows, cells } = cellsFromFace(face, depth);
+  applyBombMask(cells, cols, rows, mask);
+  return {
+    id: 16,
+    cols,
+    rows,
+    cells,
+    units: [
+      ['y', 1],
+      ['r', 5],
+      ['c', 5],
+    ],
+    palette,
+    brickMix: 0,
+    ironRow: -1,
+    ironRows: [],
+    ironGaps: [],
+  };
+}
+
 function cellsFromFace(face, depth) {
   const rows = face.length;
   const cols = face[0].length;
@@ -746,54 +794,54 @@ function makeNailLevel(id) {
   const depth = 2;
   const spec = {
     11: {
-      palette: ['r', 'o', 'y', 'c', 'g'],
+      palette: ['r', 'o', 'p', 'c', 'g'],
       face: [
         'ooRRRRRRRoo',
         'ooRRRRRRRoo',
-        'yyyyyyyyyyy',
+        'ppppppppppp',
         'ccccccccccc',
         'ccccccccccc',
         'ggggggggggg',
       ],
     },
     12: {
-      palette: ['y', 'c', 'o', 'g', 'r'],
+      palette: ['y', 'c', 'p', 'g', 'r'],
       face: [
         'yyCCCCCCCyy',
-        'ooooooooooo',
-        'ooooooooooo',
+        'ppppppppppp',
+        'ppppppppppp',
         'ggggggggggg',
         'ggggggggggg',
         'rrrrrrrrrrr',
       ],
     },
     13: {
-      palette: ['o', 'r', 'y', 'c', 'g'],
+      palette: ['o', 'r', 'p', 'c', 'g'],
       face: [
         'ooRRRRRRRoo',
-        'yyyyyyyyyyy',
-        'yyyyyyyyyyy',
+        'ppppppppppp',
+        'ppppppppppp',
         'ccGGGGGGGcc',
         'ggggggggggg',
       ],
     },
     14: {
-      palette: ['y', 'c', 'o', 'g', 'r'],
+      palette: ['y', 'c', 'p', 'g', 'r'],
       face: [
         'yyyyyyyyyyy',
         'yyCCCCCCCyy',
-        'ooooooooooo',
-        'ooooooooooo',
+        'ppppppppppp',
+        'ppppppppppp',
         'ggggggggggg',
         'rrrrrrrrrrr',
       ],
     },
     15: {
-      palette: ['y', 'o', 'r', 'c', 'g'],
+      palette: ['y', 'p', 'r', 'c', 'g'],
       face: [
         'yyyyyyyyyyy',
         'yyRRRRRRRyy',
-        'ooRRRRRRRoo',
+        'ppRRRRRRRpp',
         'ccccccccccc',
         'ggggggggggg',
       ],
@@ -821,6 +869,7 @@ function makeNailTutorialLevel() {
 function makeLevel(id) {
   if (id === 1) return makeClassicLevel();
   if (id >= 11 && id <= 15) return makeNailLevel(id);
+  if (id === 16) return makeBombLevel();
   const rng = new Rng(id * 2654435761);
   const size = sizeFor(id);
   const kind = (id - 1) % 50;
@@ -926,7 +975,12 @@ function encodeLevel(level) {
     units: level.units,
     cells: level.cells.map((cell) => {
       if (!cell) return null;
-      return cell.tokens.map((t, z) => (cell.locked?.[z] ? t.toUpperCase() : t)).join('');
+      return cell.tokens
+        .map((t, z) => {
+          const ch = cell.locked?.[z] ? t.toUpperCase() : t;
+          return cell.bomb?.[z] ? `*${ch}` : ch;
+        })
+        .join('');
     }),
   };
 }
@@ -949,6 +1003,14 @@ function bakeAll() {
   for (let id = 1; id <= LEVEL_COUNT; id++) {
     const level = makeLevel(id);
     levels.push(encodeLevel(level));
+    const pal = level.palette || [];
+    for (let i = 0; i < pal.length; i++) {
+      for (let j = i + 1; j < pal.length; j++) {
+        if (clashes(pal[i], pal[j])) {
+          throw new Error(`L${id} clash ${pal[i]}+${pal[j]}`);
+        }
+      }
+    }
     const bricks = level.cells.reduce((n, cell) => n + (cell ? cell.tokens.length : 0), 0);
     const gaps = (level.ironGaps || []).join(',');
     console.log(
@@ -964,4 +1026,4 @@ function bakeAll() {
 
 if (require.main === module) bakeAll();
 
-module.exports = { makeLevel, encodeLevel, makeNailTutorialLevel, makeNailLevel, bakeAll };
+module.exports = { makeLevel, encodeLevel, makeNailTutorialLevel, makeNailLevel, makeBombLevel, bakeAll };

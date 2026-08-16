@@ -19,7 +19,7 @@ import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
 import { playShuaxinBurst, preloadShuaxinBurst } from './ShuaxinBurst';
 import { bindPowerLayer } from './PowerMark';
 import { BENCH, ColorToken, benchSeatX, benchSeatZ, GAME, PLAY, wallStartX } from '../game/GameConfig';
-import { isTutorialLevel } from '../game/LevelCatalog';
+import { showsPlayHint } from '../game/LevelCatalog';
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
@@ -115,7 +115,9 @@ export class BattleDirector extends Component {
 
   setPlaying(on: boolean): void {
     this._playing = on;
-    for (const u of this._units) u.setPowerVisible(on);
+    const units = this._units;
+    if (!units) return;
+    for (const u of units) u.setPowerVisible(on);
   }
 
   forceWin(): void {
@@ -185,7 +187,7 @@ export class BattleDirector extends Component {
     this._flyRoot = this.node.getChildByName('FlyRoot');
     this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
     this._hint = this._ensureWorldHint();
-    if (this._hint && !isTutorialLevel(PLAY.levelId)) this._hint.hide();
+    if (this._hint && !showsPlayHint(PLAY.levelId)) this._hint.hide();
     this._slots.sort((a, b) => a.index - b.index);
     this._units.sort((a, b) => a.index - b.index);
     this._bench = bench;
@@ -195,6 +197,7 @@ export class BattleDirector extends Component {
     }
     this._indexBlocks();
     this._refreshLocks();
+    this._refreshPlateGray();
   }
 
   private _ensureWorldHint(): HintHand | null {
@@ -210,7 +213,7 @@ export class BattleDirector extends Component {
 
   private _syncHint(): void {
     if (!this._playing || this._won || this._lost || this._drag) return;
-    if (!isTutorialLevel(PLAY.levelId)) return;
+    if (!showsPlayHint(PLAY.levelId)) return;
     const hint = this._hint;
     if (!hint) return;
     hint.bindCamera(this._cam);
@@ -393,7 +396,9 @@ export class BattleDirector extends Component {
       this._onWin?.();
       return;
     }
-    for (const u of this._units) {
+    const units = this._units;
+    if (!units) return;
+    for (const u of units) {
       if (!u.usable || u.state === 'bench' || u.state === 'drag' || u.power <= 0) continue;
       u.suckWait -= dt;
       u.state = 'attack';
@@ -445,10 +450,21 @@ export class BattleDirector extends Component {
 
   private _suckBrick(u: UnitActor, block: BlockCell): void {
     if (!block.suckable || block.colorId !== u.colorId || u.power <= u.inflight) return;
-    u.inflight += 1;
     gameAudio()?.playAbsorb();
+    const boom = block.bombed;
     this._unindex(block);
+    u.inflight += 1;
     this._refreshLocks();
+    if (boom) {
+      block.beginPrimeBoom(u.node, 0.28, () => {
+        this._detonate(u, block);
+        u.inflight = Math.max(0, u.inflight - 1);
+        u.power = Math.max(0, u.power - 1);
+        u.syncPowerLabel();
+        if (u.power <= 0) this._retireUnit(u);
+      });
+      return;
+    }
     if (this._flyRoot) block.node.setParent(this._flyRoot, true);
     block.beginSuck(u.node, GAME.suckFlightSec, () => {
       this._remain = Math.max(0, this._remain - 1);
@@ -554,6 +570,45 @@ export class BattleDirector extends Component {
     }
   }
 
+  /** 3x3 blast; extra bricks fly in free and can chain into other bombs. */
+  private _detonate(u: UnitActor, bomb: BlockCell): void {
+    bomb.node.getWorldPosition(_world);
+    playBaozhaBurst(this.node, _world, 0, 1.15);
+    gameAudio()?.playBoom();
+    this._popBomb(bomb);
+    const dirs: Array<readonly [number, number]> = [
+      [-1, 0], [1, 0], [0, 1], [0, -1],
+      [-1, 1], [1, 1], [-1, -1], [1, -1],
+    ];
+    for (let i = 0; i < dirs.length; i++) {
+      const n = this._aliveAt(bomb.col + dirs[i][0], bomb.row + dirs[i][1], bomb.layer);
+      if (n) this._blastAway(u, n);
+    }
+  }
+
+  private _popBomb(block: BlockCell): void {
+    if (block.node.active && block.hp > 0) {
+      this._remain = Math.max(0, this._remain - 1);
+    }
+    block.hp = 0;
+    block.node.active = false;
+  }
+
+  private _blastAway(u: UnitActor, block: BlockCell): void {
+    if (!block.alive) return;
+    if (block.locked) block.unlock();
+    const chain = block.bombed;
+    this._unindex(block);
+    if (chain) {
+      this._detonate(u, block);
+      return;
+    }
+    if (this._flyRoot) block.node.setParent(this._flyRoot, true);
+    block.beginSuck(u.node, GAME.suckFlightSec, () => {
+      this._remain = Math.max(0, this._remain - 1);
+    });
+  }
+
   /** Whole nailed blob stays shut until no member has a free neighbor on the left, right, or top. */
   private _groupHeld(group: BlockCell[]): boolean {
     const hold: Array<readonly [number, number]> = [[-1, 0], [1, 0], [0, 1]];
@@ -618,6 +673,13 @@ export class BattleDirector extends Component {
     return false;
   }
 
+  private _refreshPlateGray(): void {
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      b.setGrayed(b.alive && this._plateBlocks(b.row, b.col));
+    }
+  }
+
   private _rowHasBricksAtOrAbove(ironRow: number): boolean {
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
@@ -637,16 +699,18 @@ export class BattleDirector extends Component {
   }
 
   private _refreshPlates(dt: number): void {
-    if (this._platesOpen || this._ironRows.length === 0) return;
+    if (this._ironRows.length === 0) return;
+    if (this._platesOpen && !this._platesBreaking) return;
     if (this._platesBreaking) {
       this._plateBreakT += dt;
       if (this._plateBreakT >= 0.72) {
         for (let i = 0; i < this._plates.length; i++) {
           if (this._plates[i].row === this._breakingRow) this._plates[i].shatter();
         }
-      }
-      if (this._plateBreakT >= 1.2) {
-        this._openRows.add(this._breakingRow);
+        if (this._breakingRow >= 0 && !this._openRows.has(this._breakingRow)) {
+          this._openRows.add(this._breakingRow);
+          this._refreshPlateGray();
+        }
         this._platesBreaking = false;
         this._breakingRow = -1;
         this._platesOpen = this._ironRows.every((p) => this._openRows.has(p));

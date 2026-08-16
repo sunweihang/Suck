@@ -50,6 +50,9 @@ export function preloadBaozhaBurst(): Promise<void> {
 }
 
 export function playBaozhaBurst(host: Node, world: Vec3, delayMs = 0, scale = SCALE): void {
+  const x = world.x;
+  const y = world.y;
+  const z = world.z;
   void preload().then(() => {
     if (!host?.isValid || !_prefab) return;
     const spawn = (): void => {
@@ -59,7 +62,7 @@ export function playBaozhaBurst(host: Node, world: Vec3, delayMs = 0, scale = SC
       node.name = 'Baozha';
       setLayerRecursive(node, Layers.Enum.DEFAULT);
       host.addChild(node);
-      node.setWorldPosition(world.x, world.y, world.z);
+      node.setWorldPosition(x, y, z);
       node.setScale(scale, scale, scale);
       const systems = node.getComponentsInChildren(ParticleSystem);
       let playing = 0;

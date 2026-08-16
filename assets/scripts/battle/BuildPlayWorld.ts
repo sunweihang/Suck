@@ -22,6 +22,7 @@ import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
+import { applyBombs, preloadBombs } from './Bombs';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { applyShadowReceiver } from './ToyBlockMesh';
 import { preloadPowerDigits } from './PowerMark';
@@ -65,6 +66,7 @@ export async function buildPlayWorld(
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
     preloadLockNails(),
+    preloadBombs(),
     preloadPowerDigits().then(() => null),
   ]);
   const blockPfs = new Map<ColorToken, Prefab>();
@@ -95,14 +97,17 @@ export async function buildPlayWorld(
       for (let z = 0; z < cell.tokens.length; z++) {
         const token = cell.tokens[z];
         const locked = !!cell.locked?.[z];
+        const bombed = !!cell.bomb?.[z];
+        const tag = locked ? '_L' : bombed ? '_B' : '';
         const n = spawn(
           blockPfs.get(token) ?? blockPfs.get('o')!,
           wall,
-          locked ? `Blk_${token}_${x}_${y}_${z}_L` : `Blk_${token}_${x}_${y}_${z}`,
+          `Blk_${token}_${x}_${y}_${z}${tag}`,
           new Vec3(startX + x * step, baseY + y * step, frontZ - z * step),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
         if (locked && z === 0) applyLockNails(n);
+        if (bombed) applyBombs(n, token);
       }
     }
   }

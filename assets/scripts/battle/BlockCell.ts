@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
-import { applyToyCaster } from './ToyBlockMesh';
+import { applyBrickGray, applyToyCaster } from './ToyBlockMesh';
 import { clearLockLook } from './LockNails';
 
 const { ccclass } = _decorator;
@@ -25,6 +25,7 @@ export class BlockCell extends Component {
   row = 0;
   layer = 0;
   locked = false;
+  bombed = false;
 
   private readonly _baseScale = new Vec3();
   private readonly _from = new Vec3();
@@ -35,11 +36,13 @@ export class BlockCell extends Component {
   private _grain = 1;
   private _target: Node | null = null;
   private _sucking = false;
+  private _priming = false;
   private _suckT = 0;
   private _suckDur = GAME.suckFlightSec;
   private _onLand: (() => void) | null = null;
   private readonly _nudgeBase = new Vec3();
   private _nudgeT = 0;
+  private _grayed = false;
 
   onLoad(): void {
     applyToyCaster(this.node);
@@ -53,6 +56,7 @@ export class BlockCell extends Component {
     this._baseScale.set(this.node.scale);
     this.hp = this.maxHp = GAME.blockHp;
     this._sucking = false;
+    this._priming = false;
     this._target = null;
     this._onLand = null;
     this._nudgeT = 0;
@@ -65,6 +69,12 @@ export class BlockCell extends Component {
 
   get suckable(): boolean {
     return this.alive && !this.locked;
+  }
+
+  setGrayed(on: boolean): void {
+    if (this._grayed === on) return;
+    this._grayed = on;
+    applyBrickGray(this.node, on);
   }
 
   unlock(): boolean {
@@ -89,8 +99,22 @@ export class BlockCell extends Component {
     return this.node.getWorldPosition(out);
   }
 
-  beginSuck(target: Node, duration: number, onLand?: () => void): void {
+  /** Stay put: swell, shake, then boom. */
+  beginPrimeBoom(_target: Node, duration: number, onBoom?: () => void): void {
     if (this.locked || this._sucking || !this.node.active) return;
+    this._sucking = true;
+    this._priming = true;
+    this._target = null;
+    this._suckT = 0;
+    this._suckDur = Math.max(0.2, duration);
+    this._onLand = onBoom ?? null;
+    this.node.getWorldPosition(this._from);
+    this.node.getWorldRotation(this._q);
+    this.enabled = true;
+  }
+
+  beginSuck(target: Node, duration: number, onLand?: () => void): void {
+    if (this.locked || this._sucking || this._priming || !this.node.active) return;
     this._sucking = true;
     this.hp = 0;
     this._target = target;
@@ -114,6 +138,10 @@ export class BlockCell extends Component {
   }
 
   update(dt: number): void {
+    if (this._priming) {
+      this._tickPrime(dt);
+      return;
+    }
     if (this._nudgeT > 0 && !this._sucking) {
       this._nudgeT -= dt;
       if (this._nudgeT <= 0) {
@@ -177,6 +205,29 @@ export class BlockCell extends Component {
     }
   }
 
+  private _tickPrime(dt: number): void {
+    this._suckT += dt;
+    const u = Math.min(1, this._suckT / this._suckDur);
+    const swell = 1 + 0.42 * u;
+    const amp = 0.01 + 0.024 * u * u;
+    this.node.setWorldPosition(
+      this._from.x + Math.sin(u * Math.PI * 16) * amp,
+      this._from.y + Math.sin(u * Math.PI * 13 + 1.2) * amp,
+      this._from.z,
+    );
+    this.node.setWorldRotation(this._q);
+    this.node.setScale(this._baseScale.x * swell, this._baseScale.y * swell, this._baseScale.z * swell);
+    if (u < 1) return;
+    this.node.setWorldPosition(this._from);
+    this._priming = false;
+    this._sucking = false;
+    this._target = null;
+    const done = this._onLand;
+    this._onLand = null;
+    this.enabled = false;
+    done?.();
+  }
+
   private _parseName(): void {
     const p = this.node.name.split('_');
     if (p.length < 5) return;
@@ -185,5 +236,6 @@ export class BlockCell extends Component {
     this.row = Number(p[3]) || 0;
     this.layer = Number(p[4]) || 0;
     this.locked = p[5] === 'L';
+    this.bombed = p[5] === 'B';
   }
 }

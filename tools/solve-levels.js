@@ -13,9 +13,9 @@ const TOKEN_HUE = {
 };
 /** Same-family colors that read as 靠色 in play. At most one per group. */
 const CLASH_GROUPS = [
+  ['o', 'y', 'd'],
   ['p', 'v', 'a'],
   ['c', 's'],
-  ['y', 'd'],
   ['g', 'm'],
 ];
 
@@ -452,30 +452,62 @@ function countBricks(cells) {
 function buildGrid(cells, cols, rows) {
   const grid = [];
   const lock = [];
+  const bomb = [];
   let remain = 0;
   for (let x = 0; x < cols; x++) {
     grid[x] = [];
     lock[x] = [];
+    bomb[x] = [];
     for (let y = 0; y < rows; y++) {
       const cell = cells[y * cols + x];
       const layers = cell ? cell.tokens.slice() : [];
       const locked = cell && cell.locked ? cell.locked : [];
+      const marked = cell && cell.bomb ? cell.bomb : [];
       grid[x][y] = [];
       lock[x][y] = [];
+      bomb[x][y] = [];
       for (let z = 0; z < layers.length; z++) {
         grid[x][y][z] = layers[z];
         lock[x][y][z] = !!locked[z];
+        bomb[x][y][z] = !!marked[z];
         remain += 1;
       }
     }
   }
   grid.lock = lock;
+  grid.bomb = bomb;
   refreshLocks(grid);
   return { grid, lock, remain };
 }
 
 function cellLocked(grid, col, row, layer) {
   return !!grid.lock?.[col]?.[row]?.[layer];
+}
+
+function cellBomb(grid, col, row, layer) {
+  return !!grid.bomb?.[col]?.[row]?.[layer];
+}
+
+function blastPlus(grid, x, y, z) {
+  const dirs = [
+    [-1, 0], [1, 0], [0, 1], [0, -1],
+    [-1, 1], [1, 1], [-1, -1], [1, -1],
+  ];
+  let n = 0;
+  const chain = [];
+  for (let i = 0; i < dirs.length; i++) {
+    const nx = x + dirs[i][0];
+    const ny = y + dirs[i][1];
+    if (grid[nx]?.[ny]?.[z] == null) continue;
+    const boom = cellBomb(grid, nx, ny, z);
+    grid[nx][ny][z] = null;
+    if (grid.lock?.[nx]?.[ny]) grid.lock[nx][ny][z] = false;
+    if (grid.bomb?.[nx]?.[ny]) grid.bomb[nx][ny][z] = false;
+    n += 1;
+    if (boom) chain.push([nx, ny, z]);
+  }
+  for (let i = 0; i < chain.length; i++) n += blastPlus(grid, chain[i][0], chain[i][1], chain[i][2]);
+  return n;
 }
 
 function lockGroupHeld(grid, sx, sy, sz, seen) {
@@ -530,6 +562,9 @@ function clonePlayGrid(grid) {
   const next = grid.map((col) => col.map((row) => row.slice()));
   if (grid.lock) {
     next.lock = grid.lock.map((col) => col.map((row) => row.slice()));
+  }
+  if (grid.bomb) {
+    next.bomb = grid.bomb.map((col) => col.map((row) => row.slice()));
   }
   return next;
 }
@@ -655,10 +690,14 @@ function eatOneGrid(grid, color, homeCol) {
     }
   }
   if (bestCol < 0) return false;
+  const wasBomb = cellBomb(grid, bestCol, bestRow, bestLayer);
   grid[bestCol][bestRow][bestLayer] = null;
   if (grid.lock?.[bestCol]?.[bestRow]) grid.lock[bestCol][bestRow][bestLayer] = false;
+  if (grid.bomb?.[bestCol]?.[bestRow]) grid.bomb[bestCol][bestRow][bestLayer] = false;
+  let cleared = 1;
+  if (wasBomb) cleared += blastPlus(grid, bestCol, bestRow, bestLayer);
   refreshLocks(grid);
-  return true;
+  return cleared;
 }
 
 function planSolvableUnits(cells, cols, rows, rng) {
@@ -684,9 +723,11 @@ function planSolvableUnits(cells, cols, rows, rng) {
     const acc = accessibleCountGrid(grid, color);
     const bite = acc;
     let ate = 0;
-    while (ate < bite && eatOneGrid(grid, color, homeCol)) {
+    while (ate < bite) {
+      const n = eatOneGrid(grid, color, homeCol);
+      if (!n) break;
       ate += 1;
-      remain -= 1;
+      remain -= n;
     }
     if (ate <= 0) break;
     units.push([color, ate]);
@@ -950,9 +991,10 @@ function eatOne(wall, color, homeCol) {
 function eatAll(wall, unit) {
   let ate = 0;
   while (unit.power > 0) {
-    if (!eatOneGrid(wall.grid, unit.color, unit.homeCol)) break;
+    const n = eatOneGrid(wall.grid, unit.color, unit.homeCol);
+    if (!n) break;
     unit.power -= 1;
-    wall.remain -= 1;
+    wall.remain -= n;
     ate += 1;
   }
   return ate;
@@ -1285,7 +1327,7 @@ function asciiFace(level) {
         continue;
       }
       const ch = cell.tokens[0];
-      row += cell.locked?.[0] ? ch.toUpperCase() : ch;
+      row += cell.bomb?.[0] ? '*' : cell.locked?.[0] ? ch.toUpperCase() : ch;
     }
     lines.push(row);
   }
@@ -1299,15 +1341,28 @@ function decodeCatalogCell(raw) {
   if (!raw) return null;
   const tokens = [];
   const locked = [];
-  let any = false;
+  const bomb = [];
+  let anyLock = false;
+  let anyBomb = false;
   for (let i = 0; i < raw.length; i++) {
+    let marked = false;
+    if (raw[i] === '*') {
+      marked = true;
+      i += 1;
+      if (i >= raw.length) break;
+    }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push(up ? ch.toLowerCase() : ch);
-    locked.push(up);
-    if (up) any = true;
+    locked.push(up && !marked);
+    bomb.push(marked);
+    if (up && !marked) anyLock = true;
+    if (marked) anyBomb = true;
   }
-  return any ? { tokens, locked } : { tokens };
+  const cell = { tokens };
+  if (anyLock) cell.locked = locked;
+  if (anyBomb) cell.bomb = bomb;
+  return cell;
 }
 
 function decodeCatalogLevel(raw) {

@@ -17,7 +17,7 @@ export const Theme = {
   dim: new Color(168, 120, 88, 220),
   ground: new Color(186, 232, 240, 255),
   orange: new Color(255, 132, 28, 255),
-  yellow: new Color(255, 220, 40, 255),
+  yellow: new Color(255, 158, 72, 255),
   cyan: new Color(24, 228, 236, 255),
   lime: new Color(96, 224, 48, 255),
   pink: new Color(255, 84, 164, 255),
