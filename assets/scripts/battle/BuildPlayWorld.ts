@@ -22,7 +22,7 @@ import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
-import { applyLockNails } from './LockNails';
+import { applyLockNails, preloadLockNails } from './LockNails';
 import { applyShadowReceiver } from './ToyBlockMesh';
 import { preloadPowerDigits } from './PowerMark';
 import { OCTOPUS_STAND_Y } from './ToyLook';
@@ -57,14 +57,14 @@ export async function buildPlayWorld(
   applyLevel(level);
   const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
   const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
-  const [groundPf, slotPf, debrisPf, lockNailsPf, ironPf, ...colorPfs] = await Promise.all([
+  const [groundPf, slotPf, debrisPf, ironPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
-    loadPrefab(PREFAB_UUID.LockNails),
     loadPrefab(PREFAB_UUID.IronPlate),
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
+    preloadLockNails(),
     preloadPowerDigits().then(() => null),
   ]);
   const blockPfs = new Map<ColorToken, Prefab>();
@@ -102,7 +102,7 @@ export async function buildPlayWorld(
           new Vec3(startX + x * step, baseY + y * step, frontZ - z * step),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
-        if (locked) applyLockNails(n, lockNailsPf);
+        if (locked && z === 0) applyLockNails(n);
       }
     }
   }
@@ -119,10 +119,12 @@ export async function buildPlayWorld(
     const sx = PLAY.blockSize;
     const sy = PLAY.blockSize;
     const sz = Math.max(PLAY.blockSize, PLAY.wallDepth * step * 0.96);
+    const gaps = new Set(level.ironGaps ?? PLAY.ironGaps ?? []);
     for (let i = 0; i < ironRows.length; i++) {
       const ironRow = ironRows[i];
       const ironY = baseY + ironRow * step - step * 0.5;
       for (let x = 0; x < cols; x++) {
+        if (gaps.has(x)) continue;
         const below = ironRow > 0 ? level.cells[(ironRow - 1) * cols + x] : null;
         const above = ironRow < rows ? level.cells[ironRow * cols + x] : null;
         if (!below && !above) continue;

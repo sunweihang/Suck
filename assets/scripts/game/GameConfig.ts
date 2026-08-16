@@ -51,6 +51,8 @@ export const PLAY = {
   brickMix: 1,
   ironRow: -1,
   ironRows: [] as number[],
+  /** Columns with no plate; bricks below stay suckable. */
+  ironGaps: [] as number[],
 };
 
 /** World box that stays inside the fixed play camera (15x11 @ 0.38). */

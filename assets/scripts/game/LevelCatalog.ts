@@ -24,6 +24,8 @@ export type LevelDef = {
   ironRow: number;
   /** Plate rows, low to high. Bricks at y >= row sit above that plate. */
   ironRows: number[];
+  /** Columns with no plate on every iron row. */
+  ironGaps: number[];
 };
 
 type RawLevel = {
@@ -32,6 +34,7 @@ type RawLevel = {
   rows: number;
   ironRow?: number;
   ironRows?: number[];
+  ironGaps?: number[];
   brickMix?: number;
   palette: string;
   units: Array<[string, number]>;
@@ -67,6 +70,7 @@ export function applyLevel(def: LevelDef): void {
   PLAY.brickMix = def.brickMix;
   PLAY.ironRows = (def.ironRows ?? []).slice().sort((a, b) => a - b);
   PLAY.ironRow = PLAY.ironRows.length ? PLAY.ironRows[PLAY.ironRows.length - 1] : -1;
+  PLAY.ironGaps = (def.ironGaps ?? []).slice();
   fitPlayLayout(def.cols, def.rows, depth);
 }
 
@@ -109,6 +113,21 @@ export function levelBadgeText(id: number): string {
   return `关卡${String(Math.max(0, id | 0)).padStart(2, '0')}`;
 }
 
+function decodeCell(raw: string | null): LevelCell | null {
+  if (!raw) return null;
+  const tokens: ColorToken[] = [];
+  const locked: boolean[] = [];
+  let anyLock = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const up = ch >= 'A' && ch <= 'Z';
+    tokens.push((up ? ch.toLowerCase() : ch) as ColorToken);
+    locked.push(up);
+    if (up) anyLock = true;
+  }
+  return anyLock ? { tokens, locked } : { tokens };
+}
+
 function decodeIronRows(raw: RawLevel): number[] {
   if (raw.ironRows?.length) return raw.ironRows.filter((n) => n >= 0).sort((a, b) => a - b);
   if ((raw.ironRow ?? -1) >= 0) return [raw.ironRow as number];
@@ -123,9 +142,10 @@ function decodeLevel(raw: RawLevel): LevelDef {
     rows: raw.rows,
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
+    ironGaps: (raw.ironGaps ?? []).filter((n) => n >= 0),
     brickMix: raw.brickMix ?? 0,
     palette: [...raw.palette] as ColorToken[],
     units: raw.units.map(([token, n]) => [token as ColorToken, n] as const),
-    cells: raw.cells.map((cell) => (cell ? { tokens: [...cell] as ColorToken[] } : null)),
+    cells: raw.cells.map(decodeCell),
   };
 }

@@ -451,23 +451,91 @@ function countBricks(cells) {
 
 function buildGrid(cells, cols, rows) {
   const grid = [];
+  const lock = [];
   let remain = 0;
   for (let x = 0; x < cols; x++) {
     grid[x] = [];
+    lock[x] = [];
     for (let y = 0; y < rows; y++) {
       const cell = cells[y * cols + x];
       const layers = cell ? cell.tokens.slice() : [];
+      const locked = cell && cell.locked ? cell.locked : [];
       grid[x][y] = [];
+      lock[x][y] = [];
       for (let z = 0; z < layers.length; z++) {
         grid[x][y][z] = layers[z];
+        lock[x][y][z] = !!locked[z];
         remain += 1;
       }
     }
   }
-  return { grid, remain };
+  grid.lock = lock;
+  refreshLocks(grid);
+  return { grid, lock, remain };
+}
+
+function cellLocked(grid, col, row, layer) {
+  return !!grid.lock?.[col]?.[row]?.[layer];
+}
+
+function lockGroupHeld(grid, sx, sy, sz, seen) {
+  const walk = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+  const hold = [[-1, 0], [1, 0], [0, 1]];
+  const stack = [[sx, sy, sz]];
+  const group = [];
+  let held = false;
+  while (stack.length) {
+    const [x, y, z] = stack.pop();
+    const key = `${x},${y},${z}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    group.push([x, y, z]);
+    for (let i = 0; i < hold.length; i++) {
+      const nx = x + hold[i][0];
+      const ny = y + hold[i][1];
+      if (grid[nx]?.[ny]?.[z] == null) continue;
+      if (!cellLocked(grid, nx, ny, z)) held = true;
+    }
+    for (let i = 0; i < walk.length; i++) {
+      const nx = x + walk[i][0];
+      const ny = y + walk[i][1];
+      if (grid[nx]?.[ny]?.[z] == null) continue;
+      if (cellLocked(grid, nx, ny, z)) stack.push([nx, ny, z]);
+    }
+  }
+  return { group, held };
+}
+
+function refreshLocks(grid) {
+  const lock = grid.lock;
+  if (!lock) return;
+  const seen = new Set();
+  for (let x = 0; x < grid.length; x++) {
+    for (let y = 0; y < grid[x].length; y++) {
+      for (let z = 0; z < grid[x][y].length; z++) {
+        if (!lock[x][y][z] || grid[x][y][z] == null) continue;
+        if (seen.has(`${x},${y},${z}`)) continue;
+        const { group, held } = lockGroupHeld(grid, x, y, z, seen);
+        if (held) continue;
+        for (let i = 0; i < group.length; i++) {
+          const [gx, gy, gz] = group[i];
+          lock[gx][gy][gz] = false;
+        }
+      }
+    }
+  }
+}
+
+function clonePlayGrid(grid) {
+  const next = grid.map((col) => col.map((row) => row.slice()));
+  if (grid.lock) {
+    next.lock = grid.lock.map((col) => col.map((row) => row.slice()));
+  }
+  return next;
 }
 
 let IRON_ROWS = [];
+let IRON_GAPS = [];
 
 function setIronRows(level) {
   if (Array.isArray(level.ironRows) && level.ironRows.length) {
@@ -477,6 +545,7 @@ function setIronRows(level) {
   } else {
     IRON_ROWS = [];
   }
+  IRON_GAPS = Array.isArray(level.ironGaps) ? level.ironGaps.filter((n) => n >= 0) : [];
 }
 
 function hasBrickAbovePlate(grid, ironRow) {
@@ -492,7 +561,8 @@ function hasBrickAbovePlate(grid, ironRow) {
   return false;
 }
 
-function plateBlocksGrid(grid, row) {
+function plateBlocksGrid(grid, row, col) {
+  if (IRON_GAPS.includes(col)) return false;
   for (let i = 0; i < IRON_ROWS.length; i++) {
     const p = IRON_ROWS[i];
     if (row < p && hasBrickAbovePlate(grid, p)) return true;
@@ -501,7 +571,8 @@ function plateBlocksGrid(grid, row) {
 }
 
 function clearAboveGrid(grid, col, row, layer) {
-  if (plateBlocksGrid(grid, row)) return false;
+  if (cellLocked(grid, col, row, layer)) return false;
+  if (plateBlocksGrid(grid, row, col)) return false;
   const rows = grid[col]?.length ?? 0;
   for (let y = row + 1; y < rows; y++) {
     const token = grid[col][y][layer];
@@ -585,6 +656,8 @@ function eatOneGrid(grid, color, homeCol) {
   }
   if (bestCol < 0) return false;
   grid[bestCol][bestRow][bestLayer] = null;
+  if (grid.lock?.[bestCol]?.[bestRow]) grid.lock[bestCol][bestRow][bestLayer] = false;
+  refreshLocks(grid);
   return true;
 }
 
@@ -920,7 +993,7 @@ function tickWaiters(wall, slots) {
 function cloneState(state) {
   return {
     wall: {
-      grid: state.wall.grid.map((col) => col.map((row) => row.slice())),
+      grid: clonePlayGrid(state.wall.grid),
       remain: state.wall.remain,
     },
     bench: state.bench.map((col) => col.map((u) => ({ color: u.color, power: u.power }))),
@@ -1193,6 +1266,7 @@ function summarize(level) {
     units: level.units.length,
     palette: level.palette.join(''),
     iron: (level.ironRows && level.ironRows.length) ? level.ironRows.join('/') : (level.ironRow >= 0 ? String(level.ironRow) : '-'),
+    gaps: (level.ironGaps && level.ironGaps.length) ? level.ironGaps.join(',') : '-',
     powerMatch: [...counts.keys()].every((c) => (counts.get(c) ?? 0) === (unitBy.get(c) ?? 0)),
     front: level.units.slice(0, 6).map(([c, p]) => `${c}${p}`).join(' '),
     acc,
@@ -1206,7 +1280,12 @@ function asciiFace(level) {
     let row = '';
     for (let x = 0; x < level.cols; x++) {
       const cell = level.cells[y * level.cols + x];
-      row += cell ? cell.tokens[0] : '.';
+      if (!cell) {
+        row += '.';
+        continue;
+      }
+      const ch = cell.tokens[0];
+      row += cell.locked?.[0] ? ch.toUpperCase() : ch;
     }
     lines.push(row);
   }
@@ -1215,6 +1294,21 @@ function asciiFace(level) {
 
 const fs = require('fs');
 const path = require('path');
+
+function decodeCatalogCell(raw) {
+  if (!raw) return null;
+  const tokens = [];
+  const locked = [];
+  let any = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const up = ch >= 'A' && ch <= 'Z';
+    tokens.push(up ? ch.toLowerCase() : ch);
+    locked.push(up);
+    if (up) any = true;
+  }
+  return any ? { tokens, locked } : { tokens };
+}
 
 function decodeCatalogLevel(raw) {
   const ironRows = Array.isArray(raw.ironRows) && raw.ironRows.length
@@ -1226,10 +1320,11 @@ function decodeCatalogLevel(raw) {
     rows: raw.rows,
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
+    ironGaps: Array.isArray(raw.ironGaps) ? raw.ironGaps.filter((n) => n >= 0) : [],
     brickMix: raw.brickMix ?? 0,
     palette: [...raw.palette],
     units: raw.units,
-    cells: raw.cells.map((c) => (c ? { tokens: [...c] } : null)),
+    cells: raw.cells.map((c) => decodeCatalogCell(c)),
   };
 }
 

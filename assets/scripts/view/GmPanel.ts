@@ -14,7 +14,7 @@ import {
   Widget,
 } from 'cc';
 import { LEVEL_COUNT } from '../game/LevelCatalog';
-import { uiVisibleSize } from '../game/ViewFit';
+import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
@@ -103,7 +103,16 @@ export class GmPanel extends Component {
     this.node.getChildByName('Card')?.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
     const toggle = this.node.getChildByName('Toggle');
-    if (toggle) toggle.active = false;
+    if (toggle) {
+      toggle.active = true;
+      const safe = uiSafeInsets();
+      const pad = 20;
+      toggle.setPosition(
+        vis.w * 0.5 - TOGGLE_W * 0.5 - pad,
+        vis.h * 0.5 - TOGGLE_H * 0.5 - safe.top - pad,
+        0,
+      );
+    }
   }
 
   private _setOpen(on: boolean): void {
@@ -152,7 +161,7 @@ export class GmPanel extends Component {
     this._pad(card);
 
     const toggle = this._mk('Toggle', this.node, TOGGLE_W, TOGGLE_H);
-    toggle.active = false;
+    toggle.active = true;
     this._paint(toggle, TOGGLE_BG, TOGGLE_W, TOGGLE_H);
     this._label(toggle, 'Label', 'GM', 28, BTN_TEXT, 0, 0, TOGGLE_W, TOGGLE_H);
     toggle.on(Node.EventType.TOUCH_END, (e: EventTouch) => {

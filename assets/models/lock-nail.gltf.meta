@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0316-4b02-8002-000000000006",
+  "files": [],
+  "subMetas": {
+    "227b3": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0316-4b02-8002-000000000006@227b3",
+      "displayName": "",
+      "id": "227b3",
+      "name": "LockNail.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 360
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "867de": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0316-4b02-8002-000000000006@867de",
+      "displayName": "",
+      "id": "867de",
+      "name": "lock-nail.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0316-4b02-8002-000000000006@227b3"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0316-4b02-8002-000000000006@867de"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    }
+  }
+}

@@ -462,7 +462,10 @@ function buildGrid(cells, cols, rows) {
   return { grid, remain };
 }
 
-function plateBlocks(row, ironRows, aboveBy) {
+let IRON_GAPS = [];
+
+function plateBlocks(row, col, ironRows, aboveBy) {
+  if (IRON_GAPS.includes(col)) return false;
   for (let i = 0; i < ironRows.length; i++) {
     const p = ironRows[i];
     if (row < p && (aboveBy.get(p) ?? 0) > 0) return true;
@@ -471,7 +474,7 @@ function plateBlocks(row, ironRows, aboveBy) {
 }
 
 function clearAbove(grid, col, row, layer, ironRows, aboveBy) {
-  if (plateBlocks(row, ironRows, aboveBy)) return false;
+  if (plateBlocks(row, col, ironRows, aboveBy)) return false;
   const rows = grid[col]?.length ?? 0;
   for (let y = row + 1; y < rows; y++) {
     const token = grid[col][y][layer];
@@ -600,7 +603,8 @@ function splitToMinUnits(units, minCount) {
   return raw;
 }
 
-function planSolvableUnits(cells, cols, rows, rng, ironRows) {
+function planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps = []) {
+  IRON_GAPS = ironGaps;
   const built = buildGrid(cells, cols, rows);
   const grid = built.grid;
   let remain = built.remain;
@@ -693,6 +697,7 @@ function makeClassicLevel() {
     brickMix: 0,
     ironRow: -1,
     ironRows: [],
+    ironGaps: [],
   };
 }
 
@@ -711,8 +716,111 @@ function mixBackLayers(cells, palette, rng, mix) {
   }
 }
 
+function cellsFromFace(face, depth) {
+  const rows = face.length;
+  const cols = face[0].length;
+  const cells = [];
+  for (let y = 0; y < rows; y++) {
+    const line = face[rows - 1 - y];
+    for (let x = 0; x < cols; x++) {
+      const ch = line[x];
+      if (!ch || ch === '.') {
+        cells.push(null);
+        continue;
+      }
+      const up = ch >= 'A' && ch <= 'Z';
+      const token = up ? ch.toLowerCase() : ch;
+      const tokens = [];
+      const locked = [];
+      for (let z = 0; z < depth; z++) {
+        tokens.push(token);
+        locked.push(up);
+      }
+      cells.push(up ? { tokens, locked } : { tokens });
+    }
+  }
+  return { cols, rows, cells };
+}
+
+function makeNailLevel(id) {
+  const depth = 2;
+  const spec = {
+    11: {
+      palette: ['r', 'o', 'y', 'c', 'g'],
+      face: [
+        'ooRRRRRRRoo',
+        'ooRRRRRRRoo',
+        'yyyyyyyyyyy',
+        'ccccccccccc',
+        'ccccccccccc',
+        'ggggggggggg',
+      ],
+    },
+    12: {
+      palette: ['y', 'c', 'o', 'g', 'r'],
+      face: [
+        'yyCCCCCCCyy',
+        'ooooooooooo',
+        'ooooooooooo',
+        'ggggggggggg',
+        'ggggggggggg',
+        'rrrrrrrrrrr',
+      ],
+    },
+    13: {
+      palette: ['o', 'r', 'y', 'c', 'g'],
+      face: [
+        'ooRRRRRRRoo',
+        'yyyyyyyyyyy',
+        'yyyyyyyyyyy',
+        'ccGGGGGGGcc',
+        'ggggggggggg',
+      ],
+    },
+    14: {
+      palette: ['y', 'c', 'o', 'g', 'r'],
+      face: [
+        'yyyyyyyyyyy',
+        'yyCCCCCCCyy',
+        'ooooooooooo',
+        'ooooooooooo',
+        'ggggggggggg',
+        'rrrrrrrrrrr',
+      ],
+    },
+    15: {
+      palette: ['y', 'o', 'r', 'c', 'g'],
+      face: [
+        'yyyyyyyyyyy',
+        'yyRRRRRRRyy',
+        'ooRRRRRRRoo',
+        'ccccccccccc',
+        'ggggggggggg',
+      ],
+    },
+  }[id];
+  const { cols, rows, cells } = cellsFromFace(spec.face, depth);
+  return {
+    id,
+    cols,
+    rows,
+    cells,
+    units: unitsFromCounts(spec.palette, cells),
+    palette: spec.palette,
+    brickMix: 0,
+    ironRow: -1,
+    ironRows: [],
+    ironGaps: [],
+  };
+}
+
+function makeNailTutorialLevel() {
+  return makeNailLevel(11);
+}
+
 function makeLevel(id) {
   if (id === 1) return makeClassicLevel();
+  if (id >= 11 && id <= 15) return makeNailLevel(id);
   const rng = new Rng(id * 2654435761);
   const size = sizeFor(id);
   const kind = (id - 1) % 50;
@@ -790,6 +898,7 @@ function makeLevel(id) {
     brickMix,
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
+    ironGaps: [],
   };
 }
 
@@ -811,10 +920,14 @@ function encodeLevel(level) {
     rows: level.rows,
     ironRow: level.ironRow,
     ironRows: level.ironRows ?? [],
+    ironGaps: level.ironGaps ?? [],
     brickMix: level.brickMix,
     palette: level.palette.join(''),
     units: level.units,
-    cells: level.cells.map((cell) => (cell ? cell.tokens.join('') : null)),
+    cells: level.cells.map((cell) => {
+      if (!cell) return null;
+      return cell.tokens.map((t, z) => (cell.locked?.[z] ? t.toUpperCase() : t)).join('');
+    }),
   };
 }
 
@@ -830,18 +943,25 @@ function jsonMeta(uuid) {
   };
 }
 
-const t0 = Date.now();
-const levels = [];
-for (let id = 1; id <= LEVEL_COUNT; id++) {
-  const level = makeLevel(id);
-  levels.push(encodeLevel(level));
-  const bricks = level.cells.reduce((n, cell) => n + (cell ? cell.tokens.length : 0), 0);
-  console.log(
-    `L${String(id).padStart(3)} ${level.cols}x${level.rows} iron=${(level.ironRows || []).join('/') || '-'} bricks=${bricks} units=${level.units.length}`,
-  );
+function bakeAll() {
+  const t0 = Date.now();
+  const levels = [];
+  for (let id = 1; id <= LEVEL_COUNT; id++) {
+    const level = makeLevel(id);
+    levels.push(encodeLevel(level));
+    const bricks = level.cells.reduce((n, cell) => n + (cell ? cell.tokens.length : 0), 0);
+    const gaps = (level.ironGaps || []).join(',');
+    console.log(
+      `L${String(id).padStart(3)} ${level.cols}x${level.rows} iron=${(level.ironRows || []).join('/') || '-'}${gaps ? ` gap=${gaps}` : ''} bricks=${bricks} units=${level.units.length}`,
+    );
+  }
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, `${JSON.stringify({ generatedBy: 'tools/bake-levels.js', count: levels.length, levels })}\n`);
+  fs.writeFileSync(META, `${JSON.stringify(jsonMeta(UUID), null, 2)}\n`);
+  const kb = Math.round(fs.statSync(OUT).size / 1024);
+  console.log(`wrote ${path.relative(ROOT, OUT)} (${kb} KB, ${Date.now() - t0} ms)`);
 }
-fs.mkdirSync(path.dirname(OUT), { recursive: true });
-fs.writeFileSync(OUT, `${JSON.stringify({ generatedBy: 'tools/bake-levels.js', count: levels.length, levels })}\n`);
-fs.writeFileSync(META, `${JSON.stringify(jsonMeta(UUID), null, 2)}\n`);
-const kb = Math.round(fs.statSync(OUT).size / 1024);
-console.log(`wrote ${path.relative(ROOT, OUT)} (${kb} KB, ${Date.now() - t0} ms)`);
+
+if (require.main === module) bakeAll();
+
+module.exports = { makeLevel, encodeLevel, makeNailTutorialLevel, makeNailLevel, bakeAll };

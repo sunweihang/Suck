@@ -79,6 +79,7 @@ export class BattleDirector extends Component {
   private _hint: HintHand | null = null;
   private readonly _plates: IronPlate[] = [];
   private _ironRows: number[] = [];
+  private readonly _ironGaps = new Set<number>();
   private readonly _openRows = new Set<number>();
   private _platesOpen = false;
   private _platesBreaking = false;
@@ -146,6 +147,8 @@ export class BattleDirector extends Component {
     this._debris.length = 0;
     this._plates.length = 0;
     this._ironRows = (PLAY.ironRows ?? []).slice().sort((a, b) => a - b);
+    this._ironGaps.clear();
+    for (const col of PLAY.ironGaps ?? []) this._ironGaps.add(col);
     this._openRows.clear();
     this._platesOpen = this._ironRows.length === 0;
     this._platesBreaking = false;
@@ -191,6 +194,7 @@ export class BattleDirector extends Component {
       if (u.index >= this._nextUnitIndex) this._nextUnitIndex = u.index + 1;
     }
     this._indexBlocks();
+    this._refreshLocks();
   }
 
   private _ensureWorldHint(): HintHand | null {
@@ -258,7 +262,7 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._cols; i++) this._byCol.push([]);
     this._remain = 0;
     for (const b of this._blocks) {
-      if (!b.suckable || b.col < 0 || b.col >= this._cols) continue;
+      if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
       this._remain += 1;
     }
@@ -402,6 +406,8 @@ export class BattleDirector extends Component {
         if (block) {
           this._suckBrick(u, block);
           u.suckWait += this._suckInterval(u);
+        } else {
+          this._nudgeLocked(u.colorId);
         }
       }
     }
@@ -442,6 +448,7 @@ export class BattleDirector extends Component {
     u.inflight += 1;
     gameAudio()?.playAbsorb();
     this._unindex(block);
+    this._refreshLocks();
     if (this._flyRoot) block.node.setParent(this._flyRoot, true);
     block.beginSuck(u.node, GAME.suckFlightSec, () => {
       this._remain = Math.max(0, this._remain - 1);
@@ -479,7 +486,7 @@ export class BattleDirector extends Component {
       if (!list) continue;
       for (let i = 0; i < list.length; i++) {
         const b = list[i];
-        if (b.colorId !== u.colorId || !this._clearAbove(b)) continue;
+        if (b.colorId !== u.colorId || !b.suckable || !this._clearAbove(b)) continue;
         // Same-color span: peel the top row first so one strip is not tunneled.
         const score = b.row * 1000 - b.layer * 10 - Math.abs(b.col - home) + Math.random() * 0.01;
         if (score > bestScore) {
@@ -522,14 +529,14 @@ export class BattleDirector extends Component {
     if (!list) return false;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
-      if (b.colorId === colorId && this._clearAbove(b)) return true;
+      if (b.colorId === colorId && b.suckable && this._clearAbove(b)) return true;
     }
     return false;
   }
 
   /** Same column + layer: no other color sits higher than this block. */
   private _clearAbove(block: BlockCell): boolean {
-    if (this._plateBlocks(block.row)) return false;
+    if (this._plateBlocks(block.row, block.col)) return false;
     const list = this._byCol[block.col];
     if (!list) return false;
     for (let i = 0; i < list.length; i++) {
@@ -540,7 +547,70 @@ export class BattleDirector extends Component {
     return true;
   }
 
-  private _plateBlocks(row: number): boolean {
+  private _nudgeLocked(colorId: number): void {
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (b.locked && b.alive && b.colorId === colorId) b.nudge();
+    }
+  }
+
+  /** Whole nailed blob stays shut until no member has a free neighbor on the left, right, or top. */
+  private _groupHeld(group: BlockCell[]): boolean {
+    const hold: Array<readonly [number, number]> = [[-1, 0], [1, 0], [0, 1]];
+    for (let i = 0; i < group.length; i++) {
+      const b = group[i];
+      for (let k = 0; k < hold.length; k++) {
+        const n = this._aliveAt(b.col + hold[k][0], b.row + hold[k][1], b.layer);
+        if (n && !n.locked) return true;
+      }
+    }
+    return false;
+  }
+
+  private _collectLockGroup(start: BlockCell, out: BlockCell[], seen: Set<BlockCell>): void {
+    const walk: Array<readonly [number, number]> = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+    const stack = [start];
+    while (stack.length) {
+      const b = stack.pop()!;
+      if (seen.has(b)) continue;
+      seen.add(b);
+      out.push(b);
+      for (let i = 0; i < walk.length; i++) {
+        const n = this._aliveAt(b.col + walk[i][0], b.row + walk[i][1], b.layer);
+        if (n && n.locked && !seen.has(n)) stack.push(n);
+      }
+    }
+  }
+
+  private _aliveAt(col: number, row: number, layer: number): BlockCell | null {
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (b.col === col && b.row === row && b.layer === layer && b.alive) return b;
+    }
+    return null;
+  }
+
+  private _refreshLocks(): void {
+    const seen = new Set<BlockCell>();
+    let popped = 0;
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (!b.locked || !b.alive || seen.has(b)) continue;
+      const group: BlockCell[] = [];
+      this._collectLockGroup(b, group, seen);
+      if (this._groupHeld(group)) continue;
+      const mid = group[group.length >> 1];
+      mid.node.getWorldPosition(_world);
+      playBaozhaBurst(this.node, _world, 0, 0.36);
+      for (let k = 0; k < group.length; k++) {
+        if (group[k].unlock()) popped += 1;
+      }
+    }
+    if (popped > 0) gameAudio()?.playRemove();
+  }
+
+  private _plateBlocks(row: number, col: number): boolean {
+    if (this._ironGaps.has(col)) return false;
     for (let i = 0; i < this._ironRows.length; i++) {
       const p = this._ironRows[i];
       if (row < p && !this._openRows.has(p)) return true;

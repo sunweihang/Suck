@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
 import { applyToyCaster } from './ToyBlockMesh';
+import { clearLockLook } from './LockNails';
 
 const { ccclass } = _decorator;
 
@@ -37,6 +38,8 @@ export class BlockCell extends Component {
   private _suckT = 0;
   private _suckDur = GAME.suckFlightSec;
   private _onLand: (() => void) | null = null;
+  private readonly _nudgeBase = new Vec3();
+  private _nudgeT = 0;
 
   onLoad(): void {
     applyToyCaster(this.node);
@@ -52,6 +55,7 @@ export class BlockCell extends Component {
     this._sucking = false;
     this._target = null;
     this._onLand = null;
+    this._nudgeT = 0;
     this.enabled = false;
   }
 
@@ -60,7 +64,21 @@ export class BlockCell extends Component {
   }
 
   get suckable(): boolean {
-    return this.alive;
+    return this.alive && !this.locked;
+  }
+
+  unlock(): boolean {
+    if (!this.locked) return false;
+    this.locked = false;
+    clearLockLook(this.node);
+    return true;
+  }
+
+  nudge(): void {
+    if (!this.locked || this._sucking || this._nudgeT > 0) return;
+    this.node.getPosition(this._nudgeBase);
+    this._nudgeT = 0.28;
+    this.enabled = true;
   }
 
   get inFlight(): boolean {
@@ -72,12 +90,7 @@ export class BlockCell extends Component {
   }
 
   beginSuck(target: Node, duration: number, onLand?: () => void): void {
-    if (this._sucking || !this.node.active) return;
-    if (this.locked) {
-      this.locked = false;
-      const nails = this.node.getChildByName('LockNails');
-      if (nails) nails.active = false;
-    }
+    if (this.locked || this._sucking || !this.node.active) return;
     this._sucking = true;
     this.hp = 0;
     this._target = target;
@@ -101,6 +114,21 @@ export class BlockCell extends Component {
   }
 
   update(dt: number): void {
+    if (this._nudgeT > 0 && !this._sucking) {
+      this._nudgeT -= dt;
+      if (this._nudgeT <= 0) {
+        this.node.setPosition(this._nudgeBase);
+        this.enabled = false;
+        return;
+      }
+      const amp = 0.03 * (this._nudgeT / 0.28);
+      this.node.setPosition(
+        this._nudgeBase.x + (Math.random() - 0.5) * amp,
+        this._nudgeBase.y + (Math.random() - 0.5) * amp,
+        this._nudgeBase.z,
+      );
+      return;
+    }
     if (!this._sucking) return;
     this._suckT += dt;
     const u = Math.min(1, this._suckT / this._suckDur);
