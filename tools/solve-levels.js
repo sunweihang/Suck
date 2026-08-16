@@ -453,29 +453,42 @@ function buildGrid(cells, cols, rows) {
   const grid = [];
   const lock = [];
   const bomb = [];
+  const magnet = [];
+  const paint = [];
   let remain = 0;
   for (let x = 0; x < cols; x++) {
     grid[x] = [];
     lock[x] = [];
     bomb[x] = [];
+    magnet[x] = [];
+    paint[x] = [];
     for (let y = 0; y < rows; y++) {
       const cell = cells[y * cols + x];
       const layers = cell ? cell.tokens.slice() : [];
       const locked = cell && cell.locked ? cell.locked : [];
       const marked = cell && cell.bomb ? cell.bomb : [];
+      const mags = cell && cell.magnet ? cell.magnet : [];
+      const paints = cell && cell.paint ? cell.paint : [];
       grid[x][y] = [];
       lock[x][y] = [];
       bomb[x][y] = [];
+      magnet[x][y] = [];
+      paint[x][y] = [];
       for (let z = 0; z < layers.length; z++) {
         grid[x][y][z] = layers[z];
         lock[x][y][z] = !!locked[z];
         bomb[x][y][z] = !!marked[z];
+        magnet[x][y][z] = !!mags[z];
+        paint[x][y][z] = !!paints[z];
         remain += 1;
       }
     }
   }
   grid.lock = lock;
   grid.bomb = bomb;
+  grid.magnet = magnet;
+  grid.paint = paint;
+  grid.spawns = [];
   refreshLocks(grid);
   return { grid, lock, remain };
 }
@@ -566,11 +579,33 @@ function clonePlayGrid(grid) {
   if (grid.bomb) {
     next.bomb = grid.bomb.map((col) => col.map((row) => row.slice()));
   }
+  if (grid.magnet) {
+    next.magnet = grid.magnet.map((col) => col.map((row) => row.slice()));
+  }
+  if (grid.paint) {
+    next.paint = grid.paint.map((col) => col.map((row) => row.slice()));
+  }
+  next.spawns = [];
   return next;
 }
 
 let IRON_ROWS = [];
 let IRON_GAPS = [];
+const RULES = {
+  sand: new Set(),
+  slideRow: -1,
+  slideEvery: 0,
+  slideDir: 1,
+  balloonPower: 3,
+  suckCount: 0,
+};
+
+function setPlayRules(level) {
+  setIronRows(level);
+  RULES.sand = new Set(Array.isArray(level.sandCols) ? level.sandCols : []);
+  RULES.rescuePower = level.rescuePower ?? 5;
+  RULES.suckCount = 0;
+}
 
 function setIronRows(level) {
   if (Array.isArray(level.ironRows) && level.ironRows.length) {
@@ -605,9 +640,19 @@ function plateBlocksGrid(grid, row, col) {
   return false;
 }
 
-function clearAboveGrid(grid, col, row, layer) {
+function isSandBottom(grid, col, row, layer) {
+  if (!RULES.sand.has(col)) return false;
+  for (let y = 0; y < row; y++) {
+    if (grid[col][y][layer] != null) return false;
+  }
+  return true;
+}
+
+function clearAboveGrid(grid, col, row, layer, ghost) {
   if (cellLocked(grid, col, row, layer)) return false;
   if (plateBlocksGrid(grid, row, col)) return false;
+  if (ghost) return true;
+  if (isSandBottom(grid, col, row, layer)) return true;
   const rows = grid[col]?.length ?? 0;
   for (let y = row + 1; y < rows; y++) {
     const token = grid[col][y][layer];
@@ -616,23 +661,23 @@ function clearAboveGrid(grid, col, row, layer) {
   return true;
 }
 
-function colHasMatchGrid(grid, col, color) {
+function colHasMatchGrid(grid, col, color, ghost) {
   const rows = grid[col]?.length ?? 0;
   for (let y = 0; y < rows; y++) {
     const layers = grid[col][y];
     for (let z = 0; z < layers.length; z++) {
-      if (layers[z] === color && clearAboveGrid(grid, col, y, z)) return true;
+      if (layers[z] === color && clearAboveGrid(grid, col, y, z, ghost)) return true;
     }
   }
   return false;
 }
 
-function accessibleCountGrid(grid, color) {
+function accessibleCountGrid(grid, color, ghost) {
   let n = 0;
   for (let x = 0; x < grid.length; x++) {
     for (let y = 0; y < grid[x].length; y++) {
       for (let z = 0; z < grid[x][y].length; z++) {
-        if (grid[x][y][z] === color && clearAboveGrid(grid, x, y, z)) n += 1;
+        if (grid[x][y][z] === color && clearAboveGrid(grid, x, y, z, ghost)) n += 1;
       }
     }
   }
@@ -651,14 +696,79 @@ function remainingCountGrid(grid, color) {
   return n;
 }
 
-function eatOneGrid(grid, color, homeCol) {
+function readCell(grid, x, y, z) {
+  return {
+    token: grid[x]?.[y]?.[z] ?? null,
+    lock: !!grid.lock?.[x]?.[y]?.[z],
+    bomb: !!grid.bomb?.[x]?.[y]?.[z],
+    magnet: !!grid.magnet?.[x]?.[y]?.[z],
+    paint: !!grid.paint?.[x]?.[y]?.[z],
+  };
+}
+
+function writeCell(grid, x, y, z, cell) {
+  if (!grid[x][y]) grid[x][y] = [];
+  while (grid[x][y].length <= z) grid[x][y].push(null);
+  grid[x][y][z] = cell.token;
+  const flags = [
+    ['lock', cell.lock],
+    ['bomb', cell.bomb],
+    ['magnet', cell.magnet],
+    ['paint', cell.paint],
+  ];
+  for (const [key, on] of flags) {
+    if (!grid[key]) continue;
+    if (!grid[key][x][y]) grid[key][x][y] = [];
+    while (grid[key][x][y].length <= z) grid[key][x][y].push(false);
+    grid[key][x][y][z] = !!on;
+  }
+}
+
+function paintSplash(grid, x, y, z, color) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      if (grid[x + dx]?.[y + dy]?.[z] != null) grid[x + dx][y + dy][z] = color;
+    }
+  }
+}
+
+function settleSand(grid, col, layer) {
+  if (!RULES.sand.has(col) || !grid[col]) return;
+  const rows = grid[col].length;
+  const packed = [];
+  for (let y = 0; y < rows; y++) {
+    const cell = readCell(grid, col, y, layer);
+    if (cell.token != null) packed.push(cell);
+    writeCell(grid, col, y, layer, { token: null, lock: false, bomb: false, magnet: false, paint: false });
+  }
+  for (let i = 0; i < packed.length; i++) writeCell(grid, col, i, layer, packed[i]);
+}
+
+function slideRow(grid) {
+  const row = RULES.slideRow;
+  if (row < 0) return;
+  const cols = grid.length;
+  const dir = RULES.slideDir >= 0 ? 1 : -1;
+  let maxZ = 0;
+  for (let x = 0; x < cols; x++) maxZ = Math.max(maxZ, grid[x][row]?.length ?? 0);
+  for (let z = 0; z < maxZ; z++) {
+    const cells = [];
+    for (let x = 0; x < cols; x++) cells.push(readCell(grid, x, row, z));
+    for (let x = 0; x < cols; x++) {
+      writeCell(grid, x, row, z, cells[(x - dir + cols) % cols]);
+    }
+  }
+}
+
+function eatOneGrid(grid, color, homeCol, ghost, magnet) {
   const cols = grid.length;
   let home = -1;
-  if (homeCol >= 0 && homeCol < cols && colHasMatchGrid(grid, homeCol, color)) home = homeCol;
+  if (homeCol >= 0 && homeCol < cols && colHasMatchGrid(grid, homeCol, color, ghost)) home = homeCol;
   else {
     let best = 1e9;
     for (let x = 0; x < cols; x++) {
-      if (!colHasMatchGrid(grid, x, color)) continue;
+      if (!colHasMatchGrid(grid, x, color, ghost)) continue;
       const d = (x - homeCol) * (x - homeCol);
       if (d < best) {
         best = d;
@@ -667,10 +777,12 @@ function eatOneGrid(grid, color, homeCol) {
     }
   }
   if (home < 0) return false;
-  let lo = home;
-  let hi = home;
-  while (lo > 0 && colHasMatchGrid(grid, lo - 1, color)) lo -= 1;
-  while (hi < cols - 1 && colHasMatchGrid(grid, hi + 1, color)) hi += 1;
+  let lo = magnet ? 0 : home;
+  let hi = magnet ? cols - 1 : home;
+  if (!magnet) {
+    while (lo > 0 && colHasMatchGrid(grid, lo - 1, color, ghost)) lo -= 1;
+    while (hi < cols - 1 && colHasMatchGrid(grid, hi + 1, color, ghost)) hi += 1;
+  }
   let bestCol = -1;
   let bestRow = -1;
   let bestLayer = -1;
@@ -678,8 +790,9 @@ function eatOneGrid(grid, color, homeCol) {
   for (let x = lo; x <= hi; x++) {
     for (let y = 0; y < grid[x].length; y++) {
       for (let z = 0; z < grid[x][y].length; z++) {
-        if (grid[x][y][z] !== color || !clearAboveGrid(grid, x, y, z)) continue;
-        const score = y * 1000 - z * 10 - Math.abs(x - home);
+        if (grid[x][y][z] !== color || !clearAboveGrid(grid, x, y, z, ghost)) continue;
+        const sand = RULES.sand.has(x);
+        const score = (sand ? -y : y) * 1000 - z * 10 - Math.abs(x - home);
         if (score > bestScore) {
           bestScore = score;
           bestCol = x;
@@ -691,11 +804,18 @@ function eatOneGrid(grid, color, homeCol) {
   }
   if (bestCol < 0) return false;
   const wasBomb = cellBomb(grid, bestCol, bestRow, bestLayer);
+  const wasPaint = !!grid.paint?.[bestCol]?.[bestRow]?.[bestLayer];
+  const wasMagnet = !!grid.magnet?.[bestCol]?.[bestRow]?.[bestLayer];
   grid[bestCol][bestRow][bestLayer] = null;
   if (grid.lock?.[bestCol]?.[bestRow]) grid.lock[bestCol][bestRow][bestLayer] = false;
   if (grid.bomb?.[bestCol]?.[bestRow]) grid.bomb[bestCol][bestRow][bestLayer] = false;
+  if (grid.magnet?.[bestCol]?.[bestRow]) grid.magnet[bestCol][bestRow][bestLayer] = false;
+  if (grid.paint?.[bestCol]?.[bestRow]) grid.paint[bestCol][bestRow][bestLayer] = false;
+  if (wasPaint) paintSplash(grid, bestCol, bestRow, bestLayer, color);
+  if (wasMagnet) grid.lastMagnet = true;
   let cleared = 1;
   if (wasBomb) cleared += blastPlus(grid, bestCol, bestRow, bestLayer);
+  settleSand(grid, bestCol, bestLayer);
   refreshLocks(grid);
   return cleared;
 }
@@ -988,11 +1108,74 @@ function eatOne(wall, color, homeCol) {
   return true;
 }
 
+function unitFromSpec(pair, id) {
+  return {
+    color: pair[0],
+    power: pair[1],
+    ghost: pair[2] === 'ghost',
+    magnet: false,
+    id,
+  };
+}
+
+function collectRescues(level) {
+  const list = [];
+  for (let y = 0; y < level.rows; y++) {
+    for (let x = 0; x < level.cols; x++) {
+      const cell = level.cells[y * level.cols + x];
+      if (cell?.rescue) {
+        list.push({ x, y, color: cell.rescue, power: level.rescuePower ?? 5, freed: false });
+      }
+    }
+  }
+  return list;
+}
+
+function rescueHeld(grid, r) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const layers = grid[r.x + dx]?.[r.y + dy];
+      if (!layers) continue;
+      for (let z = 0; z < layers.length; z++) {
+        if (layers[z] != null) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function flushRescues(wall, bench) {
+  for (const r of wall.rescues || []) {
+    if (r.freed || rescueHeld(wall.grid, r)) continue;
+    r.freed = true;
+    bench[0].push({ color: r.color, power: r.power, ghost: false, magnet: false });
+  }
+}
+
+function flushSpawns(wall, bench) {
+  const list = wall.grid.spawns;
+  if (!list || !list.length) return;
+  while (list.length) {
+    let best = 0;
+    let bestN = 1e9;
+    for (let c = 0; c < bench.length; c++) {
+      if (bench[c].length < bestN) {
+        bestN = bench[c].length;
+        best = c;
+      }
+    }
+    bench[best].push(list.shift());
+  }
+}
+
 function eatAll(wall, unit) {
   let ate = 0;
   while (unit.power > 0) {
-    const n = eatOneGrid(wall.grid, unit.color, unit.homeCol);
+    wall.grid.lastMagnet = false;
+    const n = eatOneGrid(wall.grid, unit.color, unit.homeCol, unit.ghost, unit.magnet);
     if (!n) break;
+    if (wall.grid.lastMagnet) unit.magnet = true;
     unit.power -= 1;
     wall.remain -= n;
     ate += 1;
@@ -1015,7 +1198,8 @@ function takeFront(bench, reserve, col) {
 function canAnySlotEat(wall, slots) {
   for (const s of slots) {
     if (!s || s.power <= 0) continue;
-    if (accessibleCount(wall, s.color) > 0) return true;
+    if (accessibleCountGrid(wall.grid, s.color, s.ghost) > 0) return true;
+    if (s.magnet && accessibleCountGrid(wall.grid, s.color, s.ghost) > 0) return true;
   }
   return false;
 }
@@ -1060,17 +1244,18 @@ function filledCount(slots) {
 }
 
 function solveInOrder(level) {
-  setIronRows(level);
+  setPlayRules(level);
   const homes = slotHomeCols(level.cols);
   const bench = Array.from({ length: BENCH.cols }, () => []);
   const shown = level.units.slice(0, UNIT_SEATS);
-  const reserve = level.units.slice(UNIT_SEATS).map(([color, power]) => ({ color, power }));
+  const reserve = level.units.slice(UNIT_SEATS).map((pair, i) => unitFromSpec(pair, shown.length + i));
   shown.forEach((pair, i) => {
-    bench[i % BENCH.cols].push({ color: pair[0], power: pair[1], id: i });
+    bench[i % BENCH.cols].push(unitFromSpec(pair, i));
   });
   let nextId = shown.length;
   for (const u of reserve) u.id = nextId++;
   const wall = cloneLevel(level);
+  wall.rescues = collectRescues(level);
   const slots = new Array(SLOT_MAX).fill(null);
   const locked = Array.from({ length: SLOT_MAX }, (_, i) => slotStartsLocked(i));
   let expect = 0;
@@ -1106,6 +1291,8 @@ function solveInOrder(level) {
     const unit = takeFront(bench, reserve, col);
     unit.homeCol = homes[slot];
     eatAll(wall, unit);
+    flushSpawns(wall, bench);
+    flushRescues(wall, bench);
     slots[slot] = unit.power > 0 ? unit : null;
     log.push(`#${expect} ${unit.color}${unit.power || 0} slot${slot}`);
     expect += 1;
@@ -1114,17 +1301,19 @@ function solveInOrder(level) {
 }
 
 function solveLevel(level, opts = {}) {
-  setIronRows(level);
+  setPlayRules(level);
   const homes = slotHomeCols(level.cols);
   const bench = Array.from({ length: BENCH.cols }, () => []);
   const shown = level.units.slice(0, UNIT_SEATS);
-  const reserve = level.units.slice(UNIT_SEATS).map(([color, power]) => ({ color, power }));
+  const reserve = level.units.slice(UNIT_SEATS).map((pair) => unitFromSpec(pair));
   shown.forEach((pair, i) => {
     const col = i % BENCH.cols;
-    bench[col].push({ color: pair[0], power: pair[1] });
+    bench[col].push(unitFromSpec(pair));
   });
+  const wall = cloneLevel(level);
+  wall.rescues = collectRescues(level);
   const state = {
-    wall: cloneLevel(level),
+    wall,
     bench,
     reserve,
     slots: new Array(SLOT_MAX).fill(null),
@@ -1138,6 +1327,8 @@ function solveLevel(level, opts = {}) {
   while (steps < maxSteps) {
     if (state.wall.remain <= 0) return { ok: true, steps, log };
     tickWaiters(state.wall, state.slots);
+    flushSpawns(state.wall, state.bench);
+    flushRescues(state.wall, state.bench);
     if (state.wall.remain <= 0) return { ok: true, steps, log };
 
     let empties = openEmptySlots(state);
@@ -1164,7 +1355,7 @@ function solveLevel(level, opts = {}) {
     for (let c = 0; c < fronts.length; c++) {
       const u = fronts[c];
       if (!u) continue;
-      const a = acc.get(u.color) ?? 0;
+      const a = accessibleCountGrid(state.wall.grid, u.color, u.ghost);
       if (a <= 0) continue;
       if (waitingColors.has(u.color) && a <= 0) continue;
       const leftover = Math.max(0, u.power - a);
@@ -1239,6 +1430,8 @@ function solveLevel(level, opts = {}) {
       const unit = takeFront(state.bench, state.reserve, dumpCol);
       unit.homeCol = homes[slot];
       eatAll(state.wall, unit);
+      flushSpawns(state.wall, state.bench);
+      flushRescues(state.wall, state.bench);
       state.slots[slot] = unit.power > 0 ? unit : null;
       log.push(`dump ${unit.color}${unit.power || 0} -> ${slot}`);
       steps += 1;
@@ -1283,6 +1476,8 @@ function solveLevel(level, opts = {}) {
     const unit = takeFront(state.bench, state.reserve, pick.col);
     unit.homeCol = homes[slot];
     eatAll(state.wall, unit);
+    flushSpawns(state.wall, state.bench);
+    flushRescues(state.wall, state.bench);
     state.slots[slot] = unit.power > 0 ? unit : null;
     log.push(`place ${unit.color} p${pick.unit.power}->${unit.power} acc${pick.acc} slot${slot}`);
     steps += 1;
@@ -1326,8 +1521,12 @@ function asciiFace(level) {
         row += '.';
         continue;
       }
+      if (cell.rescue) {
+        row += '@';
+        continue;
+      }
       const ch = cell.tokens[0];
-      row += cell.bomb?.[0] ? '*' : cell.locked?.[0] ? ch.toUpperCase() : ch;
+      row += cell.magnet?.[0] ? '^' : cell.paint?.[0] ? '!' : cell.bomb?.[0] ? '*' : cell.locked?.[0] ? ch.toUpperCase() : ch;
     }
     lines.push(row);
   }
@@ -1339,29 +1538,40 @@ const path = require('path');
 
 function decodeCatalogCell(raw) {
   if (!raw) return null;
+  if (raw[0] === '@' && raw[1]) return { tokens: [], rescue: raw[1].toLowerCase() };
   const tokens = [];
   const locked = [];
   const bomb = [];
+  const paint = [];
+  const magnet = [];
   let anyLock = false;
   let anyBomb = false;
+  let anyPaint = false;
+  let anyMagnet = false;
   for (let i = 0; i < raw.length; i++) {
-    let marked = false;
-    if (raw[i] === '*') {
-      marked = true;
+    let mark = '';
+    if (raw[i] === '*' || raw[i] === '!' || raw[i] === '^') {
+      mark = raw[i];
       i += 1;
       if (i >= raw.length) break;
     }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push(up ? ch.toLowerCase() : ch);
-    locked.push(up && !marked);
-    bomb.push(marked);
-    if (up && !marked) anyLock = true;
-    if (marked) anyBomb = true;
+    locked.push(up && !mark);
+    bomb.push(mark === '*');
+    paint.push(mark === '!');
+    magnet.push(mark === '^');
+    if (up && !mark) anyLock = true;
+    if (mark === '*') anyBomb = true;
+    if (mark === '!') anyPaint = true;
+    if (mark === '^') anyMagnet = true;
   }
   const cell = { tokens };
   if (anyLock) cell.locked = locked;
   if (anyBomb) cell.bomb = bomb;
+  if (anyPaint) cell.paint = paint;
+  if (anyMagnet) cell.magnet = magnet;
   return cell;
 }
 
@@ -1376,6 +1586,18 @@ function decodeCatalogLevel(raw) {
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
     ironGaps: Array.isArray(raw.ironGaps) ? raw.ironGaps.filter((n) => n >= 0) : [],
+    sandCols: Array.isArray(raw.sandCols) ? raw.sandCols.filter((n) => n >= 0) : [],
+    rescuePower: raw.rescuePower ?? 5,
+    raftX: raw.raftX ?? 0,
+    raftY: raw.raftY ?? 0,
+    raftW: raw.raftW ?? 0,
+    raftH: raw.raftH ?? 0,
+    raftTravel: raw.raftTravel ?? 0,
+    raftPeriod: raw.raftPeriod ?? 2.5,
+    slideRow: raw.slideRow ?? -1,
+    slideEvery: raw.slideEvery ?? 0,
+    slideDir: raw.slideDir ?? 1,
+    balloonPower: raw.balloonPower ?? 3,
     brickMix: raw.brickMix ?? 0,
     palette: [...raw.palette],
     units: raw.units,

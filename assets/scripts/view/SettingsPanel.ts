@@ -74,7 +74,7 @@ export class SettingsPanel extends Component {
     const card = this._mk('Card', this.node, 860, 720);
     paintQBoard(card.addComponent(Graphics), 860, 720);
     this._label(card, 'Title', 'SETTINGS', 56, Theme.boardNum, 0, 220, 700, 80, true);
-    this._label(card, 'Body', '拖章鱼到墙前平台开始拆墙\n同色合成，只吸本色小块', 32, Theme.subtitle, 0, 20, 760, 180, false);
+    this._label(card, 'Body', '点章鱼放到墙前平台开始拆墙\n同色合成，只吸本色小块', 32, Theme.subtitle, 0, 20, 760, 180, false);
     const close = this._mk('CloseBtn', this.node, 120, 120);
     paintQBtn(close.addComponent(Graphics), 120, 120, Theme.settingsFill, Theme.boardStroke);
     this._label(close, 'Label', 'BACK', 30, Theme.playText, 0, 0, 120, 120, false);

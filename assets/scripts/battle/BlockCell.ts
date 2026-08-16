@@ -26,6 +26,10 @@ export class BlockCell extends Component {
   layer = 0;
   locked = false;
   bombed = false;
+  paint = false;
+  magnet = false;
+  raft = false;
+  raftHomeCol = 0;
 
   private readonly _baseScale = new Vec3();
   private readonly _from = new Vec3();
@@ -43,6 +47,10 @@ export class BlockCell extends Component {
   private readonly _nudgeBase = new Vec3();
   private _nudgeT = 0;
   private _grayed = false;
+  private readonly _moveFrom = new Vec3();
+  private readonly _moveTo = new Vec3();
+  private _moveT = 0;
+  private _moveDur = 0;
 
   onLoad(): void {
     applyToyCaster(this.node);
@@ -60,7 +68,18 @@ export class BlockCell extends Component {
     this._target = null;
     this._onLand = null;
     this._nudgeT = 0;
+    this._moveDur = 0;
     this.enabled = false;
+  }
+
+  beginMove(x: number, y: number, duration = 0.22): void {
+    if (this._sucking || this._priming) return;
+    this.node.getPosition(this._moveFrom);
+    this._moveTo.set(x, y, this._moveFrom.z);
+    if (Vec3.squaredDistance(this._moveFrom, this._moveTo) < 1e-6) return;
+    this._moveT = 0;
+    this._moveDur = Math.max(0.08, duration);
+    this.enabled = true;
   }
 
   get alive(): boolean {
@@ -138,6 +157,21 @@ export class BlockCell extends Component {
   }
 
   update(dt: number): void {
+    if (this._moveDur > 0 && !this._sucking && !this._priming) {
+      this._moveT += dt;
+      const u = Math.min(1, this._moveT / this._moveDur);
+      const k = u * u * (3 - 2 * u);
+      this.node.setPosition(
+        this._moveFrom.x + (this._moveTo.x - this._moveFrom.x) * k,
+        this._moveFrom.y + (this._moveTo.y - this._moveFrom.y) * k,
+        this._moveFrom.z,
+      );
+      if (u >= 1) {
+        this._moveDur = 0;
+        if (this._nudgeT <= 0) this.enabled = false;
+      }
+      return;
+    }
     if (this._priming) {
       this._tickPrime(dt);
       return;
@@ -237,5 +271,9 @@ export class BlockCell extends Component {
     this.layer = Number(p[4]) || 0;
     this.locked = p[5] === 'L';
     this.bombed = p[5] === 'B';
+    this.paint = p[5] === 'P';
+    this.magnet = p[5] === 'M';
+    this.raft = p[5] === 'F';
+    this.raftHomeCol = this.col;
   }
 }

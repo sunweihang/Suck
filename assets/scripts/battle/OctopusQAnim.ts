@@ -124,7 +124,6 @@ export class OctopusQAnim {
     this._pupilR = bindFace(faceRoot, 'PupilR');
     this._hiL = bindFace(faceRoot, 'HighlightL');
     this._hiR = bindFace(faceRoot, 'HighlightR');
-    root.setScale(1, 1, 1);
     root.setRotationFromEuler(0, 0, 0);
     this._rig.setScale(1, 1, 1);
     this._rig.setRotationFromEuler(0, 0, 0);

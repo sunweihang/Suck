@@ -53,6 +53,14 @@ export const PLAY = {
   ironRows: [] as number[],
   /** Columns with no plate; bricks below stay suckable. */
   ironGaps: [] as number[],
+  sandCols: [] as number[],
+  rescuePower: 5,
+  raftX: 0,
+  raftY: 0,
+  raftW: 0,
+  raftH: 0,
+  raftTravel: 0,
+  raftPeriod: 2.5,
 };
 
 /** World box that stays inside the fixed play camera (15x11 @ 0.38). */
@@ -173,6 +181,25 @@ const TOKEN_TO_ID: Record<ColorToken, ColorId> = {
   a: ColorId.Magenta,
   d: ColorId.Gold,
 };
+
+export const TOKEN_RGB: Record<ColorToken, readonly [number, number, number]> = {
+  o: [255, 132, 28],
+  y: [255, 158, 72],
+  c: [24, 228, 236],
+  g: [96, 224, 48],
+  p: [255, 84, 164],
+  v: [164, 92, 255],
+  r: [255, 60, 76],
+  s: [72, 176, 255],
+  k: [255, 124, 100],
+  m: [0, 212, 128],
+  a: [240, 56, 216],
+  d: [255, 196, 44],
+};
+
+export function isColorToken(token: string): token is ColorToken {
+  return Object.prototype.hasOwnProperty.call(TOKEN_TO_ID, token);
+}
 
 export function parseColorToken(token: string): ColorId {
   return TOKEN_TO_ID[token as ColorToken] ?? ColorId.Orange;

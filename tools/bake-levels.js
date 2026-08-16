@@ -716,7 +716,7 @@ function mixBackLayers(cells, palette, rng, mix) {
   }
 }
 
-function applyBombMask(cells, cols, rows, mask) {
+function applyFlagMask(cells, cols, rows, mask, key) {
   for (let fy = 0; fy < mask.length; fy++) {
     const y = rows - 1 - fy;
     const line = mask[fy];
@@ -724,9 +724,63 @@ function applyBombMask(cells, cols, rows, mask) {
       if (line[x] !== '*') continue;
       const cell = cells[y * cols + x];
       if (!cell) continue;
-      cell.bomb = cell.tokens.map((_, z) => z === 0);
+      cell[key] = cell.tokens.map((_, z) => z === 0);
     }
   }
+}
+
+function applyBombMask(cells, cols, rows, mask) {
+  applyFlagMask(cells, cols, rows, mask, 'bomb');
+}
+
+function tutorialBase(id, palette, face, units, extra = {}) {
+  const { cols, rows, cells } = cellsFromFace(face, extra.depth ?? 1, extra);
+  if (extra.paint) applyFlagMask(cells, cols, rows, extra.paint, 'paint');
+  if (extra.magnet) applyFlagMask(cells, cols, rows, extra.magnet, 'magnet');
+  if (extra.bomb) applyBombMask(cells, cols, rows, extra.bomb);
+  return {
+    id,
+    cols,
+    rows,
+    cells,
+    units,
+    palette,
+    brickMix: 0,
+    ironRow: -1,
+    ironRows: [],
+    ironGaps: [],
+    sandCols: extra.sandCols ?? [],
+    rescuePower: extra.rescuePower ?? 5,
+    raftX: extra.raftX ?? 0,
+    raftY: extra.raftY ?? 0,
+    raftW: extra.raftW ?? 0,
+    raftH: extra.raftH ?? 0,
+    raftTravel: extra.raftTravel ?? 0,
+    raftPeriod: extra.raftPeriod ?? 2.5,
+  };
+}
+
+function makeRescueLevel() {
+  return tutorialBase(21, ['y', 'r', 'c'], [
+    'rrrrr',
+    'rrqrr',
+    'rrrrr',
+    'yyyyy',
+    'ccccc',
+  ], [['r', 14], ['c', 5]], {
+    rescue: 'y',
+    rescuePower: 5,
+  });
+}
+
+function makePaintLevel() {
+  return tutorialBase(23, ['p', 'c'], [
+    'ccpcc',
+    'ccccc',
+    'ccccc',
+  ], [['p', 1], ['p', 5], ['c', 9]], {
+    paint: ['..*..', '.....', '.....'],
+  });
 }
 
 function makeBombLevel() {
@@ -764,7 +818,7 @@ function makeBombLevel() {
   };
 }
 
-function cellsFromFace(face, depth) {
+function cellsFromFace(face, depth, extra = {}) {
   const rows = face.length;
   const cols = face[0].length;
   const cells = [];
@@ -774,6 +828,10 @@ function cellsFromFace(face, depth) {
       const ch = line[x];
       if (!ch || ch === '.') {
         cells.push(null);
+        continue;
+      }
+      if (ch === 'q' || ch === 'Q') {
+        cells.push({ tokens: [], rescue: extra.rescue ?? 'y' });
         continue;
       }
       const up = ch >= 'A' && ch <= 'Z';
@@ -870,6 +928,8 @@ function makeLevel(id) {
   if (id === 1) return makeClassicLevel();
   if (id >= 11 && id <= 15) return makeNailLevel(id);
   if (id === 16) return makeBombLevel();
+  if (id === 21) return makeRescueLevel();
+  if (id === 23) return makePaintLevel();
   const rng = new Rng(id * 2654435761);
   const size = sizeFor(id);
   const kind = (id - 1) % 50;
@@ -970,15 +1030,27 @@ function encodeLevel(level) {
     ironRow: level.ironRow,
     ironRows: level.ironRows ?? [],
     ironGaps: level.ironGaps ?? [],
+    sandCols: level.sandCols ?? [],
+    rescuePower: level.rescuePower ?? 5,
+    raftX: level.raftX ?? 0,
+    raftY: level.raftY ?? 0,
+    raftW: level.raftW ?? 0,
+    raftH: level.raftH ?? 0,
+    raftTravel: level.raftTravel ?? 0,
+    raftPeriod: level.raftPeriod ?? 2.5,
     brickMix: level.brickMix,
     palette: level.palette.join(''),
     units: level.units,
     cells: level.cells.map((cell) => {
       if (!cell) return null;
+      if (cell.rescue) return `@${cell.rescue}`;
       return cell.tokens
         .map((t, z) => {
           const ch = cell.locked?.[z] ? t.toUpperCase() : t;
-          return cell.bomb?.[z] ? `*${ch}` : ch;
+          if (cell.magnet?.[z]) return `^${ch}`;
+          if (cell.paint?.[z]) return `!${ch}`;
+          if (cell.bomb?.[z]) return `*${ch}`;
+          return ch;
         })
         .join('');
     }),

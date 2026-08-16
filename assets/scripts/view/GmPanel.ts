@@ -67,7 +67,7 @@ export class GmPanel extends Component {
   private _onFail: (() => void) | null = null;
   private _onSkip: ((level: number) => void) | null = null;
   private _level = 1;
-  private _draft = '1';
+  private _draft = '';
   private _levelLab: Label | null = null;
 
   setup(opts: { onWin: () => void; onFail: () => void; onSkip: (level: number) => void }): void {
@@ -81,10 +81,8 @@ export class GmPanel extends Component {
 
   setLevel(n: number): void {
     this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
-    this._draft = String(this._level);
     const title = this.node.getChildByName('Card')?.getChildByName('Title')?.getComponent(Label);
     if (title) title.string = `GM  第${this._level}关`;
-    this._syncDraft();
   }
 
   collapse(): void {
@@ -168,7 +166,10 @@ export class GmPanel extends Component {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
       this._open = !this._open;
-      if (this._open) this.setLevel(this._level);
+      if (this._open) {
+        this._draft = '';
+        this._syncDraft();
+      }
       this._setOpen(this._open);
     }, this);
   }
@@ -177,7 +178,7 @@ export class GmPanel extends Component {
     const n = this._mk('LevelField', parent, FIELD_W, BTN_H);
     n.setPosition(x, y, 0);
     this._paint(n, INPUT_BG, FIELD_W, BTN_H);
-    const lab = this._label(n, 'Value', this._draft, 44, INK, 0, 0, FIELD_W - 24, BTN_H);
+    const lab = this._label(n, 'Value', this._draft || '关卡号', 44, this._draft ? INK : PLACE, 0, 0, FIELD_W - 24, BTN_H);
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       this._draft = '';

@@ -11,14 +11,19 @@ export type LevelCell = {
   tokens: ColorToken[];
   locked?: boolean[];
   bomb?: boolean[];
+  paint?: boolean[];
+  magnet?: boolean[];
+  rescue?: ColorToken;
 };
+
+export type UnitSpec = readonly [ColorToken, number] | readonly [ColorToken, number, string];
 
 export type LevelDef = {
   id: number;
   cols: number;
   rows: number;
   cells: Array<LevelCell | null>;
-  units: ReadonlyArray<readonly [ColorToken, number]>;
+  units: ReadonlyArray<UnitSpec>;
   palette: readonly ColorToken[];
   brickMix: number;
   /** Highest plate row; -1 means none. */
@@ -27,6 +32,14 @@ export type LevelDef = {
   ironRows: number[];
   /** Columns with no plate on every iron row. */
   ironGaps: number[];
+  sandCols: number[];
+  rescuePower: number;
+  raftX: number;
+  raftY: number;
+  raftW: number;
+  raftH: number;
+  raftTravel: number;
+  raftPeriod: number;
 };
 
 type RawLevel = {
@@ -36,9 +49,17 @@ type RawLevel = {
   ironRow?: number;
   ironRows?: number[];
   ironGaps?: number[];
+  sandCols?: number[];
+  rescuePower?: number;
+  raftX?: number;
+  raftY?: number;
+  raftW?: number;
+  raftH?: number;
+  raftTravel?: number;
+  raftPeriod?: number;
   brickMix?: number;
   palette: string;
-  units: Array<[string, number]>;
+  units: Array<[string, number] | [string, number, string]>;
   cells: Array<string | null>;
 };
 
@@ -72,6 +93,14 @@ export function applyLevel(def: LevelDef): void {
   PLAY.ironRows = (def.ironRows ?? []).slice().sort((a, b) => a - b);
   PLAY.ironRow = PLAY.ironRows.length ? PLAY.ironRows[PLAY.ironRows.length - 1] : -1;
   PLAY.ironGaps = (def.ironGaps ?? []).slice();
+  PLAY.sandCols = (def.sandCols ?? []).slice();
+  PLAY.rescuePower = def.rescuePower ?? 5;
+  PLAY.raftX = def.raftX ?? 0;
+  PLAY.raftY = def.raftY ?? 0;
+  PLAY.raftW = def.raftW ?? 0;
+  PLAY.raftH = def.raftH ?? 0;
+  PLAY.raftTravel = def.raftTravel ?? 0;
+  PLAY.raftPeriod = def.raftPeriod ?? 2.5;
   fitPlayLayout(def.cols, def.rows, depth);
 }
 
@@ -108,11 +137,18 @@ export function isTutorialLevel(id: number): boolean {
 
 export function showsPlayHint(id: number): boolean {
   const n = id | 0;
-  return n === 1 || n === 16;
+  return n === 1 || n === 16 || n === 21 || n === 23;
 }
 
+const SPECIAL_TITLE: Record<number, string> = {
+  21: '解救章鱼',
+  23: '油漆桶',
+};
+
 export function levelTitle(id: number): string {
-  return isTutorialLevel(id) ? '新手引导' : `第 ${id} 关`;
+  if (isTutorialLevel(id)) return '新手引导';
+  const special = SPECIAL_TITLE[id | 0];
+  return special ? special : `第 ${id} 关`;
 }
 
 export function levelBadgeText(id: number): string {
@@ -121,29 +157,42 @@ export function levelBadgeText(id: number): string {
 
 function decodeCell(raw: string | null): LevelCell | null {
   if (!raw) return null;
+  if (raw[0] === '@' && raw[1]) {
+    return { tokens: [], rescue: raw[1].toLowerCase() as ColorToken };
+  }
   const tokens: ColorToken[] = [];
   const locked: boolean[] = [];
   const bomb: boolean[] = [];
+  const paint: boolean[] = [];
+  const magnet: boolean[] = [];
   let anyLock = false;
   let anyBomb = false;
+  let anyPaint = false;
+  let anyMagnet = false;
   for (let i = 0; i < raw.length; i++) {
-    let marked = false;
-    if (raw[i] === '*') {
-      marked = true;
+    let mark = '';
+    if (raw[i] === '*' || raw[i] === '!' || raw[i] === '^') {
+      mark = raw[i];
       i += 1;
       if (i >= raw.length) break;
     }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push((up ? ch.toLowerCase() : ch) as ColorToken);
-    locked.push(up && !marked);
-    bomb.push(marked);
-    if (up && !marked) anyLock = true;
-    if (marked) anyBomb = true;
+    locked.push(up && !mark);
+    bomb.push(mark === '*');
+    paint.push(mark === '!');
+    magnet.push(mark === '^');
+    if (up && !mark) anyLock = true;
+    if (mark === '*') anyBomb = true;
+    if (mark === '!') anyPaint = true;
+    if (mark === '^') anyMagnet = true;
   }
   const cell: LevelCell = { tokens };
   if (anyLock) cell.locked = locked;
   if (anyBomb) cell.bomb = bomb;
+  if (anyPaint) cell.paint = paint;
+  if (anyMagnet) cell.magnet = magnet;
   return cell;
 }
 
@@ -162,9 +211,21 @@ function decodeLevel(raw: RawLevel): LevelDef {
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
     ironGaps: (raw.ironGaps ?? []).filter((n) => n >= 0),
+    sandCols: (raw.sandCols ?? []).filter((n) => n >= 0),
+    rescuePower: raw.rescuePower ?? 5,
+    raftX: raw.raftX ?? 0,
+    raftY: raw.raftY ?? 0,
+    raftW: raw.raftW ?? 0,
+    raftH: raw.raftH ?? 0,
+    raftTravel: raw.raftTravel ?? 0,
+    raftPeriod: raw.raftPeriod ?? 2.5,
     brickMix: raw.brickMix ?? 0,
     palette: [...raw.palette] as ColorToken[],
-    units: raw.units.map(([token, n]) => [token as ColorToken, n] as const),
+    units: raw.units.map((u) => {
+      const token = u[0] as ColorToken;
+      const n = u[1];
+      return u[2] ? ([token, n, u[2]] as const) : ([token, n] as const);
+    }),
     cells: raw.cells.map(decodeCell),
   };
 }

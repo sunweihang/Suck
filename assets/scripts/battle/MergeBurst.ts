@@ -52,6 +52,9 @@ export function preloadMergeBurst(): Promise<void> {
 
 /** TripleTown ordinary 3-merge burst (xingxing), not first-building pingmu. */
 export function playMergeBurst(host: Node, world: Vec3): void {
+  const x = world.x;
+  const y = world.y;
+  const z = world.z;
   void preload().then(() => {
     if (!host?.isValid || !_prefab) return;
     const node = instantiate(_prefab);
@@ -59,7 +62,7 @@ export function playMergeBurst(host: Node, world: Vec3): void {
     node.name = 'Xingxing';
     setLayerRecursive(node, Layers.Enum.DEFAULT);
     host.addChild(node);
-    node.setWorldPosition(world.x, world.y, world.z);
+    node.setWorldPosition(x, y, z);
     node.setScale(SCALE, SCALE, SCALE);
     const systems = node.getComponentsInChildren(ParticleSystem);
     let playing = 0;

@@ -20,11 +20,6 @@ const HAND_W = 180;
 const HAND_H = 220;
 const WORLD_SCALE = 0.0035;
 
-function smooth(t: number): number {
-  const x = Math.max(0, Math.min(1, t));
-  return x * x * (3 - 2 * x);
-}
-
 function frameFromImage(img: ImageAsset): SpriteFrame {
   const tex = new Texture2D();
   tex.image = img;
@@ -67,22 +62,32 @@ export class HintHand extends Component {
   update(dt: number): void {
     if (this._hidden || !this.node.active || !this._hasPath) return;
     this._t += dt;
-    const cycle = 2.2;
+    const cycle = 2.4;
     const p = (this._t % cycle) / cycle;
-    let u = 0;
+    const same =
+      Math.abs(this._from.x - this._to.x) +
+        Math.abs(this._from.y - this._to.y) +
+        Math.abs(this._from.z - this._to.z) <
+      0.04;
+    let atTo = false;
+    let show = true;
     let bob = 0;
-    if (p < 0.28) {
+    if (same) {
       bob = (Math.sin(this._t * 14) + 1) * 0.03;
-    } else if (p < 0.82) {
-      u = smooth((p - 0.28) / 0.54);
+    } else if (p < 0.38) {
+      bob = (Math.sin(this._t * 14) + 1) * 0.03;
+    } else if (p < 0.48) {
+      show = false;
+    } else if (p < 0.86) {
+      atTo = true;
+      bob = (Math.sin(this._t * 14) + 1) * 0.03;
     } else {
-      u = 1;
+      show = false;
+      atTo = true;
     }
-    this.node.setWorldPosition(
-      this._from.x + (this._to.x - this._from.x) * u,
-      this._from.y + (this._to.y - this._from.y) * u + bob,
-      this._from.z + (this._to.z - this._from.z) * u,
-    );
+    const src = atTo ? this._to : this._from;
+    this.node.setWorldPosition(src.x, src.y + bob, src.z);
+    this.node.setScale(show ? WORLD_SCALE : 0, show ? WORLD_SCALE : 0, show ? WORLD_SCALE : 0);
     const camN = this._cam?.node;
     if (camN) this.node.setWorldRotation(camN.worldRotation);
   }

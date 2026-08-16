@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Vec3 } from 'cc';
 import { benchColOf, benchRankOf, ColorId, parseColorToken } from '../game/GameConfig';
+import { applyGhostLook } from './BrickSpecials';
 import { OctopusQAnim } from './OctopusQAnim';
 import { bindPowerMark, paintPowerMark, preloadPowerDigits } from './PowerMark';
 import { applyToyCaster } from './ToyBlockMesh';
@@ -11,6 +12,11 @@ export type UnitState = 'bench' | 'drag' | 'walk' | 'attack';
 @ccclass('UnitActor')
 export class UnitActor extends Component {
   colorId: ColorId = ColorId.Orange;
+  ghost = false;
+  magnet = false;
+  trapped = false;
+  trapCol = -1;
+  trapRow = -1;
   power = 40;
   maxPower = 40;
   index = 0;
@@ -26,8 +32,10 @@ export class UnitActor extends Component {
 
   private readonly _q = new OctopusQAnim();
   private readonly _slideFrom = new Vec3();
+  private readonly _flyFromScale = new Vec3(1, 1, 1);
   private _slideLeft = 0;
   private _slideDur = 0.22;
+  private _flying = false;
   private _prevState: UnitState = 'bench';
   private _prevPower = 40;
   private _prevInflight = 0;
@@ -60,7 +68,7 @@ export class UnitActor extends Component {
 
   refreshPowerVisible(): void {
     if (!this._powerTag) return;
-    this._powerTag.active = this._powerOn && this.usable && this._shouldShowPower();
+    this._powerTag.active = this._powerOn && (this.usable || this.trapped) && this._shouldShowPower();
   }
 
   syncPowerLabel(): void {
@@ -68,7 +76,7 @@ export class UnitActor extends Component {
   }
 
   get usable(): boolean {
-    return this.node.activeInHierarchy;
+    return this.node.activeInHierarchy && !this.trapped && !this._flying;
   }
 
   get onBench(): boolean {
@@ -79,26 +87,50 @@ export class UnitActor extends Component {
     this.state = 'bench';
     this.lockedCol = -1;
     this._slideLeft = 0;
+    this._flying = false;
     this.node.setPosition(this.homePos);
   }
 
   slideToHome(): void {
     this.node.getPosition(this._slideFrom);
+    this._flying = false;
     this._slideDur = 0.22;
     this._slideLeft = 0.22;
   }
 
+  flyToHome(): void {
+    this.node.getPosition(this._slideFrom);
+    this.node.getScale(this._flyFromScale);
+    this._flying = true;
+    this._slideDur = 0.72;
+    this._slideLeft = 0.72;
+  }
+
   update(dt: number): void {
     if (!this.node.activeInHierarchy) return;
-    if (this._slideLeft > 0 && this.state === 'bench') {
+    if (this._slideLeft > 0 && (this.state === 'bench' || this._flying)) {
       this._slideLeft = Math.max(0, this._slideLeft - dt);
       const t = this._slideDur <= 0 ? 1 : 1 - this._slideLeft / this._slideDur;
       const k = t * t * (3 - 2 * t);
+      const y = this._flying
+        ? this._slideFrom.y + (this.homePos.y - this._slideFrom.y) * k + Math.sin(t * Math.PI) * 0.95
+        : this.homePos.y;
       this.node.setPosition(
         this._slideFrom.x + (this.homePos.x - this._slideFrom.x) * k,
-        this.homePos.y,
+        y,
         this._slideFrom.z + (this.homePos.z - this._slideFrom.z) * k,
       );
+      if (this._flying) {
+        const s = this._flyFromScale.x + (1 - this._flyFromScale.x) * k;
+        this.node.setScale(s, s, s);
+        if (this._slideLeft <= 0) {
+          this._flying = false;
+          this.node.setScale(1, 1, 1);
+          this.node.setPosition(this.homePos);
+          this._q.punchLand();
+          this.refreshPowerVisible();
+        }
+      }
     }
     if (!this._armed) {
       this._armed = true;
@@ -122,6 +154,7 @@ export class UnitActor extends Component {
   }
 
   private _shouldShowPower(): boolean {
+    if (this.trapped) return false;
     if (this.state === 'drag' || this.state === 'walk' || this.state === 'attack') return true;
     return this.state === 'bench' && this.benchRank === 0;
   }
@@ -136,6 +169,11 @@ export class UnitActor extends Component {
     const pow = Number(p[3]);
     if (Number.isFinite(pow) && pow > 0) this.power = pow;
     this.maxPower = this.power;
+    this.ghost = p[4] === 'ghost';
+  }
+
+  applySpecialLook(): void {
+    if (this.ghost) applyGhostLook(this.node);
   }
 
   private _ensurePowerLabel(): void {
