@@ -295,7 +295,7 @@ function main() {
   const play = addBox(doc, 'PlayBtn', content, PLAY_W, PLAY_H, 0, PLAY_Y);
   addSprite(doc, play, UUID.btnPlay);
 
-  const setBtn = addBox(doc, 'SettingsBtn', content, 120, 120, 452, 872);
+  const setBtn = addBox(doc, 'SettingsBtn', content, 120, 120, 452, 872, false);
   addGraphics(doc, setBtn);
   const setLab = addBox(doc, 'Label', setBtn, 120, 120, 0, 0);
   addLabel(doc, setLab, '设置', 32, { r: 72, g: 36, b: 16, a: 255 });

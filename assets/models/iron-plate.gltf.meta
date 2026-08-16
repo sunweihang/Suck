@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0315-4b02-8002-000000000005",
+  "files": [],
+  "subMetas": {
+    "b2fe3": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0315-4b02-8002-000000000005@b2fe3",
+      "displayName": "",
+      "id": "b2fe3",
+      "name": "IronPlate.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 732
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4bb12": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0315-4b02-8002-000000000005@4bb12",
+      "displayName": "",
+      "id": "4bb12",
+      "name": "iron-plate.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0315-4b02-8002-000000000005@b2fe3"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0315-4b02-8002-000000000005@4bb12"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    }
+  }
+}

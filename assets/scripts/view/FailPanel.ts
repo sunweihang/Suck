@@ -59,11 +59,34 @@ export class FailPanel extends Component {
     dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     dim?.getComponent(Widget)?.updateAlignment();
     this._fillDim(dim, vis.w, vis.h);
-    this._card()?.setPosition(0, 20, 0);
+    this._placeStack('RetryBtn');
+    this._fillHit(this._card()?.getChildByName('RetryBtn'));
+  }
+
+  private _fillHit(node: Node | null | undefined): void {
+    if (!node) return;
+    const ut = node.getComponent(UITransform);
+    if (!ut) return;
+    let g = node.getComponent(Graphics);
+    if (!g) g = node.addComponent(Graphics);
+    g.clear();
+    g.fillColor = new Color(255, 255, 255, 1);
+    const w = ut.width;
+    const h = ut.height;
+    g.roundRect(-w * 0.5, -h * 0.5, w, h, Math.min(h * 0.5, 48));
+    g.fill();
   }
 
   private _card(): Node | null {
     return this.node.getChildByName('Card');
+  }
+
+  private _placeStack(btnName: string): void {
+    const card = this._card();
+    if (!card) return;
+    const btn = card.getChildByName(btnName);
+    const btnH = btn?.getComponent(UITransform)?.height ?? 0;
+    card.setPosition(0, (btnH + 20) * 0.5, 0);
   }
 
   private _fillDim(node: Node | null, w: number, h: number): void {

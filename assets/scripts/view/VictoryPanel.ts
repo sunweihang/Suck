@@ -62,12 +62,20 @@ export class VictoryPanel extends Component {
     dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     dim?.getComponent(Widget)?.updateAlignment();
     this._fillDim(dim, vis.w, vis.h);
-    this._card()?.setPosition(0, 20, 0);
+    this._placeStack('NextBtn');
     this._fillHit(this._card()?.getChildByName('NextBtn'));
   }
 
   private _card(): Node | null {
     return this.node.getChildByName('Card');
+  }
+
+  private _placeStack(btnName: string): void {
+    const card = this._card();
+    if (!card) return;
+    const btn = card.getChildByName(btnName);
+    const btnH = btn?.getComponent(UITransform)?.height ?? 0;
+    card.setPosition(0, (btnH + 20) * 0.5, 0);
   }
 
   private _fillDim(node: Node | null, w: number, h: number): void {

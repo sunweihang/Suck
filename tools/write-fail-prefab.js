@@ -15,11 +15,11 @@ const UUID = {
   retry: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e32@f9941',
 };
 
-const PANEL_W = 900;
-const PANEL_H = Math.round((PANEL_W * 1602) / 1386);
-const RETRY_W = 440;
-const RETRY_H = Math.round((RETRY_W * 374) / 1235);
-const BTN_Y = -Math.round(PANEL_H * 0.36);
+const PANEL_W = 860;
+const PANEL_H = Math.round((PANEL_W * 938) / 754);
+const RETRY_W = 460;
+const RETRY_H = 150;
+const BTN_Y = -Math.round(PANEL_H * 0.5 + RETRY_H * 0.5 + 20);
 
 function compressUuid(uuid) {
   const rest = uuid.slice(5).replace(/-/g, '');

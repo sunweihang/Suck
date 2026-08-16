@@ -1,28 +1,63 @@
 import {
   _decorator,
+  BlockInputEvents,
   Color,
   Component,
   EventTouch,
-  Graphics,
   Label,
   Layers,
   Node,
+  Sprite,
+  SpriteFrame,
+  Texture2D,
   UITransform,
   Widget,
 } from 'cc';
-import { Theme } from '../game/Theme';
-import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
-import { paintQBoard, paintQBtn, styleQCaption, styleQNum } from './QChrome';
+import { LEVEL_COUNT } from '../game/LevelCatalog';
+import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
 
-const CARD_W = 720;
-const CARD_H = 560;
-const BTN_W = 520;
-const BTN_H = 120;
-const TOGGLE_W = 110;
-const TOGGLE_H = 72;
+const CARD_W = 640;
+const CARD_H = 900;
+const BTN_W = 480;
+const BTN_H = 88;
+const FIELD_W = 480;
+const KEY_W = 140;
+const KEY_H = 76;
+const TOGGLE_W = 96;
+const TOGGLE_H = 64;
+
+const INK = new Color(56, 36, 24, 255);
+const CARD_BG = new Color(255, 248, 236, 255);
+const INPUT_BG = new Color(255, 255, 255, 255);
+const DIM = new Color(32, 20, 12, 150);
+const WIN_BG = new Color(236, 140, 48, 255);
+const FAIL_BG = new Color(220, 72, 72, 255);
+const SKIP_BG = new Color(64, 148, 220, 255);
+const KEY_BG = new Color(236, 220, 196, 255);
+const KEY_INK = new Color(56, 36, 24, 255);
+const TOGGLE_BG = new Color(236, 156, 64, 255);
+const BTN_TEXT = new Color(255, 255, 255, 255);
+const PLACE = new Color(160, 120, 88, 255);
+
+let _white: SpriteFrame | null = null;
+
+function whiteFrame(): SpriteFrame {
+  if (_white) return _white;
+  const tex = new Texture2D();
+  tex.reset({
+    width: 2,
+    height: 2,
+    format: Texture2D.PixelFormat.RGBA8888,
+  });
+  tex.uploadData(new Uint8Array(16).fill(255));
+  const sf = new SpriteFrame();
+  sf.texture = tex;
+  _white = sf;
+  return sf;
+}
 
 @ccclass('GmPanel')
 export class GmPanel extends Component {
@@ -30,13 +65,26 @@ export class GmPanel extends Component {
   private _open = false;
   private _onWin: (() => void) | null = null;
   private _onFail: (() => void) | null = null;
+  private _onSkip: ((level: number) => void) | null = null;
+  private _level = 1;
+  private _draft = '1';
+  private _levelLab: Label | null = null;
 
-  setup(opts: { onWin: () => void; onFail: () => void }): void {
+  setup(opts: { onWin: () => void; onFail: () => void; onSkip: (level: number) => void }): void {
     this._onWin = opts.onWin;
     this._onFail = opts.onFail;
+    this._onSkip = opts.onSkip;
     this._ensureTree();
     this.collapse();
     this.layoutChrome();
+  }
+
+  setLevel(n: number): void {
+    this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
+    this._draft = String(this._level);
+    const title = this.node.getChildByName('Card')?.getChildByName('Title')?.getComponent(Label);
+    if (title) title.string = `GM  第${this._level}关`;
+    this._syncDraft();
   }
 
   collapse(): void {
@@ -47,19 +95,15 @@ export class GmPanel extends Component {
   layoutChrome(): void {
     this._ensureTree();
     const vis = uiVisibleSize();
-    const safe = uiSafeInsets();
     this.node.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     this.node.getComponent(Widget)?.updateAlignment();
     const dim = this.node.getChildByName('Dim');
     dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     dim?.getComponent(Widget)?.updateAlignment();
-    this._fill(dim, Theme.veil);
+    this.node.getChildByName('Card')?.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
-    this.node.getChildByName('Toggle')?.setPosition(
-      -vis.w * 0.5 + safe.left + TOGGLE_W * 0.5 + 24,
-      vis.h * 0.5 - safe.top - TOGGLE_H * 0.5 - 24,
-      0,
-    );
+    const toggle = this.node.getChildByName('Toggle');
+    if (toggle) toggle.active = false;
   }
 
   private _setOpen(on: boolean): void {
@@ -84,8 +128,8 @@ export class GmPanel extends Component {
     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
     const dim = this._mk('Dim', this.node, vis.w, vis.h);
-    dim.addComponent(Graphics);
-    this._fill(dim, Theme.veil);
+    this._paint(dim, DIM, vis.w, vis.h);
+    dim.addComponent(BlockInputEvents);
     const dimW = dim.addComponent(Widget);
     dimW.isAlignTop = dimW.isAlignBottom = dimW.isAlignLeft = dimW.isAlignRight = true;
     dimW.top = dimW.bottom = dimW.left = dimW.right = 0;
@@ -96,23 +140,99 @@ export class GmPanel extends Component {
     }, this);
 
     const card = this._mk('Card', this.node, CARD_W, CARD_H);
-    paintQBoard(card.addComponent(Graphics), CARD_W, CARD_H);
+    this._paint(card, CARD_BG, CARD_W, CARD_H);
+    card.addComponent(BlockInputEvents);
     card.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
     }, this);
-    this._label(card, 'Title', 'GM', 52, Theme.boardNum, 0, 186, 400, 72, true);
-    this._btn(card, 'WinBtn', Theme.playFill, '一键胜利', 0, 36, () => this._onWin?.());
-    this._btn(card, 'FailBtn', Theme.red, '一键失败', 0, -116, () => this._onFail?.());
+    this._label(card, 'Title', `GM  第${this._level}关`, 42, INK, 0, 380, 520, 56);
+    this._btn(card, 'WinBtn', WIN_BG, '一键胜利', BTN_TEXT, 0, 270, () => this._onWin?.());
+    this._btn(card, 'FailBtn', FAIL_BG, '一键失败', BTN_TEXT, 0, 158, () => this._onFail?.());
+    this._levelLab = this._field(card, 0, 40);
+    this._pad(card);
 
     const toggle = this._mk('Toggle', this.node, TOGGLE_W, TOGGLE_H);
-    paintQBtn(toggle.addComponent(Graphics), TOGGLE_W, TOGGLE_H, Theme.settingsFill, Theme.boardStroke);
-    this._label(toggle, 'Label', 'GM', 30, Theme.playText, 0, 0, TOGGLE_W, TOGGLE_H, false);
+    toggle.active = false;
+    this._paint(toggle, TOGGLE_BG, TOGGLE_W, TOGGLE_H);
+    this._label(toggle, 'Label', 'GM', 28, BTN_TEXT, 0, 0, TOGGLE_W, TOGGLE_H);
     toggle.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
       this._open = !this._open;
+      if (this._open) this.setLevel(this._level);
       this._setOpen(this._open);
     }, this);
+  }
+
+  private _field(parent: Node, x: number, y: number): Label {
+    const n = this._mk('LevelField', parent, FIELD_W, BTN_H);
+    n.setPosition(x, y, 0);
+    this._paint(n, INPUT_BG, FIELD_W, BTN_H);
+    const lab = this._label(n, 'Value', this._draft, 44, INK, 0, 0, FIELD_W - 24, BTN_H);
+    n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this._draft = '';
+      this._syncDraft();
+    }, this);
+    return lab;
+  }
+
+  private _pad(card: Node): void {
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '删', '0', '跳关'];
+    const gapX = 16;
+    const gapY = 16;
+    const originX = -KEY_W - gapX;
+    const originY = -70;
+    for (let i = 0; i < keys.length; i++) {
+      const col = i % 3;
+      const row = (i / 3) | 0;
+      const key = keys[i];
+      const fill = key === '跳关' ? SKIP_BG : KEY_BG;
+      const color = key === '跳关' ? BTN_TEXT : KEY_INK;
+      this._btn(
+        card,
+        `Key_${key}`,
+        fill,
+        key,
+        color,
+        originX + col * (KEY_W + gapX),
+        originY - row * (KEY_H + gapY),
+        () => this._onKey(key),
+        KEY_W,
+        KEY_H,
+        false,
+      );
+    }
+  }
+
+  private _onKey(key: string): void {
+    if (key === '跳关') {
+      this._skip();
+      return;
+    }
+    if (key === '删') {
+      this._draft = this._draft.slice(0, -1);
+      this._syncDraft();
+      return;
+    }
+    if (this._draft.length >= 3) return;
+    this._draft += key;
+    this._syncDraft();
+  }
+
+  private _syncDraft(): void {
+    if (!this._levelLab) return;
+    this._levelLab.string = this._draft || '关卡号';
+    this._levelLab.color = this._draft ? INK : PLACE;
+  }
+
+  private _skip(): void {
+    const raw = Number(this._draft);
+    const n = Number.isFinite(raw) && this._draft
+      ? Math.max(1, Math.min(LEVEL_COUNT, raw | 0))
+      : this._level;
+    this.collapse();
+    this._onSkip?.(n);
   }
 
   private _btn(
@@ -120,18 +240,22 @@ export class GmPanel extends Component {
     name: string,
     fill: Color,
     text: string,
+    color: Color,
     x: number,
     y: number,
     onTap: () => void,
+    w = BTN_W,
+    h = BTN_H,
+    close = true,
   ): Node {
-    const n = this._mk(name, parent, BTN_W, BTN_H);
+    const n = this._mk(name, parent, w, h);
     n.setPosition(x, y, 0);
-    paintQBtn(n.addComponent(Graphics), BTN_W, BTN_H, fill, Theme.boardStroke);
-    this._label(n, 'Label', text, 40, Theme.playText, 0, 0, BTN_W, BTN_H, false);
+    this._paint(n, fill, w, h);
+    this._label(n, 'Label', text, h >= 80 ? 36 : 32, color, 0, 0, w, h);
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
-      this.collapse();
+      if (close) this.collapse();
       onTap();
     }, this);
     return n;
@@ -145,17 +269,15 @@ export class GmPanel extends Component {
     return n;
   }
 
-  private _fill(node: Node | null, color: Color): void {
-    if (!node) return;
-    const g = node.getComponent(Graphics);
-    const ut = node.getComponent(UITransform);
-    if (!g || !ut) return;
-    const w = ut.contentSize.width;
-    const h = ut.contentSize.height;
-    g.clear();
-    g.fillColor = color;
-    g.rect(-w * 0.5, -h * 0.5, w, h);
-    g.fill();
+  private _paint(node: Node, color: Color, w: number, h: number): void {
+    let sp = node.getComponent(Sprite);
+    if (!sp) sp = node.addComponent(Sprite);
+    sp.sizeMode = Sprite.SizeMode.CUSTOM;
+    sp.type = Sprite.Type.SIMPLE;
+    sp.spriteFrame = whiteFrame();
+    sp.color = color;
+    sp.enabled = true;
+    node.getComponent(UITransform)?.setContentSize(w, h);
   }
 
   private _label(
@@ -168,14 +290,22 @@ export class GmPanel extends Component {
     y: number,
     w: number,
     h: number,
-    big: boolean,
   ): Label {
     const n = this._mk(name, parent, w, h);
     n.setPosition(x, y, 0);
     const lab = n.addComponent(Label);
     lab.string = text;
-    if (big) styleQNum(lab, size, color);
-    else styleQCaption(lab, size, color);
+    lab.fontSize = size;
+    lab.lineHeight = size + 8;
+    lab.isBold = true;
+    lab.color = color;
+    lab.enableOutline = false;
+    lab.enableShadow = false;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.overflow = Label.Overflow.SHRINK;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
     return lab;
   }
 }

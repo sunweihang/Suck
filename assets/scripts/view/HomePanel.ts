@@ -14,7 +14,7 @@ import {
   tween,
 } from 'cc';
 import { DESIGN_H, DESIGN_W, Theme } from '../game/Theme';
-import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
+import { uiVisibleSize } from '../game/ViewFit';
 import { paintQBtn, styleQCaption } from './QChrome';
 import { applyArtSprite } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
@@ -79,7 +79,6 @@ export class HomePanel extends Component {
     this.node.getChildByName('Dim')?.getComponent(Widget)?.updateAlignment();
     this._paintBg();
     this._paintSettings();
-    const safe = uiSafeInsets();
     const title = content?.getChildByName('Title');
     if (title) title.active = false;
     for (const name of ['LevelBoard', 'PrevLevel', 'NextLevel', 'Footer']) {
@@ -87,11 +86,8 @@ export class HomePanel extends Component {
       if (n) n.active = false;
     }
     content?.getChildByName('PlayBtn')?.setPosition(0, -vis.h * 0.32, 0);
-    content?.getChildByName('SettingsBtn')?.setPosition(
-      vis.w * 0.5 - safe.right - 88,
-      vis.h * 0.5 - safe.top - 88,
-      0,
-    );
+    const settings = content?.getChildByName('SettingsBtn');
+    if (settings) settings.active = false;
   }
 
   private _ensureTree(): void {

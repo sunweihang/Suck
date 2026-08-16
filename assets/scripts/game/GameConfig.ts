@@ -47,8 +47,10 @@ export const PLAY = {
   blockStep: GAME.blockStep,
   blockSize: GAME.blockSize,
   wallBaseY: 0.22,
-  palette: ['o', 'y', 'c', 'g', 'p', 'v'] as ColorToken[],
+  palette: ['o', 'y', 'c', 'g', 'p', 'r'] as ColorToken[],
   brickMix: 1,
+  ironRow: -1,
+  ironRows: [] as number[],
 };
 
 /** World box that stays inside the fixed play camera (15x11 @ 0.38). */

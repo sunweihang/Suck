@@ -14,6 +14,7 @@ import {
   Vec3,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
+import { playBaozhaBurst, preloadBaozhaBurst } from './BaozhaBurst';
 import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
 import { playShuaxinBurst, preloadShuaxinBurst } from './ShuaxinBurst';
 import { bindPowerLayer } from './PowerMark';
@@ -23,6 +24,7 @@ import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
 import { HintHand } from './HintHand';
+import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
@@ -75,6 +77,13 @@ export class BattleDirector extends Component {
   private _onWin: (() => void) | null = null;
   private _onLose: (() => void) | null = null;
   private _hint: HintHand | null = null;
+  private readonly _plates: IronPlate[] = [];
+  private _ironRows: number[] = [];
+  private readonly _openRows = new Set<number>();
+  private _platesOpen = false;
+  private _platesBreaking = false;
+  private _breakingRow = -1;
+  private _plateBreakT = 0;
 
   armSpawn(
     unitPfs: Map<ColorToken, Prefab>,
@@ -100,6 +109,7 @@ export class BattleDirector extends Component {
     this.setPlaying(false);
     void preloadMergeBurst();
     void preloadShuaxinBurst();
+    void preloadBaozhaBurst();
   }
 
   setPlaying(on: boolean): void {
@@ -125,6 +135,7 @@ export class BattleDirector extends Component {
 
   update(dt: number): void {
     this._tickCombat(dt);
+    this._refreshPlates(dt);
     this._syncHint();
   }
 
@@ -133,6 +144,13 @@ export class BattleDirector extends Component {
     this._units.length = 0;
     this._slots.length = 0;
     this._debris.length = 0;
+    this._plates.length = 0;
+    this._ironRows = (PLAY.ironRows ?? []).slice().sort((a, b) => a - b);
+    this._openRows.clear();
+    this._platesOpen = this._ironRows.length === 0;
+    this._platesBreaking = false;
+    this._breakingRow = -1;
+    this._plateBreakT = 0;
     const wall = this.node.getChildByName('Wall');
     const bench = this.node.getChildByName('Bench');
     const slots = this.node.getChildByName('Slots');
@@ -155,6 +173,11 @@ export class BattleDirector extends Component {
       const c = n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
       n.active = false;
       this._debris.push(c);
+    });
+    this.node.getChildByName('Plates')?.children.forEach((n) => {
+      const p = n.getComponent(IronPlate) ?? n.addComponent(IronPlate);
+      p.syncFromName();
+      this._plates.push(p);
     });
     this._flyRoot = this.node.getChildByName('FlyRoot');
     this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
@@ -359,7 +382,9 @@ export class BattleDirector extends Component {
 
   private _tickCombat(dt: number): void {
     if (!this._playing || this._won || this._lost) return;
+    if (this._platesBreaking) return;
     if (this._remain === 0) {
+      if (!this._platesOpen && this._ironRows.length) return;
       this._won = true;
       this._onWin?.();
       return;
@@ -380,6 +405,26 @@ export class BattleDirector extends Component {
         }
       }
     }
+    this._checkStuckLose();
+  }
+
+  /** 8 slots occupied and nobody can (or is) absorbing → fail. */
+  private _checkStuckLose(): void {
+    if (this._won || this._lost || this._drag || this._platesBreaking) return;
+    let filled = 0;
+    let absorbing = false;
+    let canAbsorb = false;
+    for (const s of this._slots) {
+      if (s.empty) continue;
+      filled += 1;
+      const u = s.occupant;
+      if (!u?.usable) continue;
+      if (u.inflight > 0) absorbing = true;
+      else if (u.power > 0 && this._bestBlock(u)) canAbsorb = true;
+    }
+    if (filled < GAME.slotMax || absorbing || canAbsorb) return;
+    this._lost = true;
+    this._onLose?.();
   }
 
   private _suckInterval(u: UnitActor): number {
@@ -484,6 +529,7 @@ export class BattleDirector extends Component {
 
   /** Same column + layer: no other color sits higher than this block. */
   private _clearAbove(block: BlockCell): boolean {
+    if (this._plateBlocks(block.row)) return false;
     const list = this._byCol[block.col];
     if (!list) return false;
     for (let i = 0; i < list.length; i++) {
@@ -492,6 +538,72 @@ export class BattleDirector extends Component {
       if (o.colorId !== block.colorId) return false;
     }
     return true;
+  }
+
+  private _plateBlocks(row: number): boolean {
+    for (let i = 0; i < this._ironRows.length; i++) {
+      const p = this._ironRows[i];
+      if (row < p && !this._openRows.has(p)) return true;
+    }
+    return false;
+  }
+
+  private _rowHasBricksAtOrAbove(ironRow: number): boolean {
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (b.row >= ironRow && b.node.active) return true;
+    }
+    return false;
+  }
+
+  private _nextBreakRow(): number {
+    let next = -1;
+    for (let i = 0; i < this._ironRows.length; i++) {
+      const p = this._ironRows[i];
+      if (this._openRows.has(p)) continue;
+      if (!this._rowHasBricksAtOrAbove(p)) next = p;
+    }
+    return next;
+  }
+
+  private _refreshPlates(dt: number): void {
+    if (this._platesOpen || this._ironRows.length === 0) return;
+    if (this._platesBreaking) {
+      this._plateBreakT += dt;
+      if (this._plateBreakT >= 0.72) {
+        for (let i = 0; i < this._plates.length; i++) {
+          if (this._plates[i].row === this._breakingRow) this._plates[i].shatter();
+        }
+      }
+      if (this._plateBreakT >= 1.2) {
+        this._openRows.add(this._breakingRow);
+        this._platesBreaking = false;
+        this._breakingRow = -1;
+        this._platesOpen = this._ironRows.every((p) => this._openRows.has(p));
+      }
+      return;
+    }
+    const next = this._nextBreakRow();
+    if (next < 0) return;
+    this._platesBreaking = true;
+    this._breakingRow = next;
+    this._plateBreakT = 0;
+    for (let i = 0; i < this._plates.length; i++) {
+      if (this._plates[i].row === next) this._plates[i].beginBreak();
+    }
+    this._blastPlates(next);
+  }
+
+  private _blastPlates(row: number): void {
+    gameAudio()?.playBoom();
+    const layer: IronPlate[] = [];
+    for (let i = 0; i < this._plates.length; i++) {
+      if (this._plates[i].row === row && this._plates[i].node.active) layer.push(this._plates[i]);
+    }
+    if (layer.length <= 0) return;
+    const mid = layer[layer.length >> 1];
+    mid.node.getWorldPosition(_world);
+    playBaozhaBurst(this.node, _world);
   }
 
   private _overUi(e: PointerEvt): boolean {

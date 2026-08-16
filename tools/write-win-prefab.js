@@ -15,11 +15,11 @@ const UUID = {
   next: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e25@f9941',
 };
 
-const PANEL_W = 920;
-const PANEL_H = Math.round((PANEL_W * 2200) / 1840);
-const NEXT_W = 520;
-const NEXT_H = Math.round((NEXT_W * 400) / 1120);
-const BTN_Y = -Math.round(PANEL_H * 0.34);
+const PANEL_W = 860;
+const PANEL_H = Math.round((PANEL_W * 956) / 791);
+const NEXT_W = 460;
+const NEXT_H = 182;
+const BTN_Y = -Math.round(PANEL_H * 0.5 + NEXT_H * 0.5 + 20);
 
 function compressUuid(uuid) {
   const rest = uuid.slice(5).replace(/-/g, '');

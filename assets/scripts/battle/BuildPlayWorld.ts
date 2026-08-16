@@ -14,11 +14,12 @@ import {
   wallColAtX,
   wallStartX,
 } from '../game/GameConfig';
-import { applyLevel, getLevel, LevelDef } from '../game/LevelCatalog';
+import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
 import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
+import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { applyLockNails } from './LockNails';
@@ -49,16 +50,19 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
 
 export async function buildPlayWorld(
   scene: Node,
-  level: LevelDef = getLevel(1),
+  level?: LevelDef,
 ): Promise<{ root: Node; battle: BattleDirector }> {
+  await ensureLevels();
+  level = level ?? getLevel(1);
   applyLevel(level);
   const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
   const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
-  const [groundPf, slotPf, debrisPf, lockNailsPf, ...colorPfs] = await Promise.all([
+  const [groundPf, slotPf, debrisPf, lockNailsPf, ironPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
     loadPrefab(PREFAB_UUID.LockNails),
+    loadPrefab(PREFAB_UUID.IronPlate),
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
     preloadPowerDigits().then(() => null),
@@ -99,6 +103,32 @@ export async function buildPlayWorld(
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
         if (locked) applyLockNails(n, lockNailsPf);
+      }
+    }
+  }
+
+  const ironRows = level.ironRows?.length
+    ? level.ironRows
+    : level.ironRow >= 0
+      ? [level.ironRow]
+      : [];
+  if (ironRows.length) {
+    const plates = new Node('Plates');
+    root.addChild(plates);
+    const ironZ = frontZ - Math.max(0, PLAY.wallDepth - 1) * step * 0.5;
+    const sx = PLAY.blockSize;
+    const sy = PLAY.blockSize;
+    const sz = Math.max(PLAY.blockSize, PLAY.wallDepth * step * 0.96);
+    for (let i = 0; i < ironRows.length; i++) {
+      const ironRow = ironRows[i];
+      const ironY = baseY + ironRow * step - step * 0.5;
+      for (let x = 0; x < cols; x++) {
+        const below = ironRow > 0 ? level.cells[(ironRow - 1) * cols + x] : null;
+        const above = ironRow < rows ? level.cells[ironRow * cols + x] : null;
+        if (!below && !above) continue;
+        const n = spawn(ironPf, plates, `Iron_${x}_${ironRow}`, new Vec3(startX + x * step, ironY, ironZ));
+        n.setScale(sx, sy, sz);
+        (n.getComponent(IronPlate) ?? n.addComponent(IronPlate)).syncFromName();
       }
     }
   }

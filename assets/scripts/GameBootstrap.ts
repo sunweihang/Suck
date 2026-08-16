@@ -20,7 +20,7 @@ import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME } from './game/GameConfig';
-import { getLevel, LEVEL_COUNT, saveLevelIndex } from './game/LevelCatalog';
+import { ensureLevels, getLevel, LEVEL_COUNT, saveLevelIndex } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -85,6 +85,7 @@ export class GameBootstrap extends Component {
       this._tuneMainCamera();
       this._tuneLighting();
       this._ensureLetterboxCam();
+      await ensureLevels();
       await this._buildUi();
       this._ensureAudio();
       this._applyPortraitFrame();
@@ -207,6 +208,18 @@ export class GameBootstrap extends Component {
       return;
     }
     this._onLevelFailed();
+  }
+
+  private _gmSkip(n: number): void {
+    this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
+    saveLevelIndex(this._level);
+    this._builtLevel = 0;
+    this._gm?.setLevel(this._level);
+    this._home?.setLevel(this._level, LEVEL_COUNT);
+    this._playHud?.setLevel(this._level);
+    this._victory?.hide();
+    this._fail?.hide();
+    this._enterPlay();
   }
 
   private _tuneMainCamera(): void {
@@ -400,7 +413,9 @@ export class GameBootstrap extends Component {
     this._gm.setup({
       onWin: () => this._gmWin(),
       onFail: () => this._gmLose(),
+      onSkip: (n) => this._gmSkip(n),
     });
+    this._gm.setLevel(this._level);
 
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._playHud?.setLevel(this._level);
@@ -477,6 +492,7 @@ export class GameBootstrap extends Component {
     this._playHud?.hide();
     this._victory?.hide();
     this._fail?.hide();
+    this._gm?.setLevel(this._level);
     this._gm?.collapse();
     this._battle?.setPlaying(false);
   }
@@ -502,6 +518,7 @@ export class GameBootstrap extends Component {
       this._fail?.hide();
       this._gm?.collapse();
       this._playHud?.setLevel(this._builtLevel);
+      this._gm?.setLevel(this._builtLevel);
       this._playHud?.show();
       this._battle?.setPlaying(true);
     });
