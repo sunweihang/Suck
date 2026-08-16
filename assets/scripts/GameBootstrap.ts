@@ -16,6 +16,12 @@ import {
   instantiate,
   view,
 } from 'cc';
+import {
+  destroyGameClubButton,
+  initGameCircle,
+  relayoutGameClubButton,
+} from './ads/GameCircleService';
+import { initWxShare } from './ads/WxShareService';
 import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
@@ -74,6 +80,8 @@ export class GameBootstrap extends Component {
   private _uiJob: Promise<void> | null = null;
 
   onLoad(): void {
+    initWxShare();
+    initGameCircle();
     this._resetToFirst();
     this._stripLeftovers();
     this._uiJob = this._bootUi();
@@ -94,6 +102,7 @@ export class GameBootstrap extends Component {
       if (this.node.scene) await spawnToyBackdrop(this.node.scene);
       this._home?.applyArt();
       this._playHud?.applyArt();
+      this._settings?.applyArt();
       this._applyPortraitFrame();
       this._bindBattle();
     } catch (err) {
@@ -107,6 +116,7 @@ export class GameBootstrap extends Component {
 
   onDestroy(): void {
     view.off('canvas-resize', this._applyPortraitFrame, this);
+    destroyGameClubButton();
     setGameAudio(null);
     this._audio = null;
   }
@@ -329,6 +339,7 @@ export class GameBootstrap extends Component {
     this._victory?.layoutChrome();
     this._fail?.layoutChrome();
     this._gm?.layoutChrome();
+    relayoutGameClubButton();
   };
 
   private async _buildUi(): Promise<void> {
@@ -381,7 +392,7 @@ export class GameBootstrap extends Component {
     const settingsN = new Node('SettingsPanel');
     canvasN.addChild(settingsN);
     this._settings = settingsN.addComponent(SettingsPanel);
-    this._settings.setup({ onClose: () => this._showHome() });
+    this._settings.setup({ onClose: () => this._closeSettings() });
     this._settings.hide();
 
     const hudN = new Node('PlayHud');
@@ -390,6 +401,7 @@ export class GameBootstrap extends Component {
     this._playHud.setup({
       onHome: () => this._showHome(),
       onNext: () => void this._enterNext(),
+      onSettings: () => this._showSettings(),
     });
     this._playHud.hide();
 
@@ -499,13 +511,18 @@ export class GameBootstrap extends Component {
 
   private _showSettings(): void {
     this._unlockAudio();
-    this._home?.hide();
     this._settings?.show();
-    this._playHud?.hide();
-    this._victory?.hide();
-    this._fail?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
+  }
+
+  private _closeSettings(): void {
+    this._settings?.hide();
+    if (this._playHud?.node.active) {
+      this._battle?.setPlaying(true);
+      return;
+    }
+    this._home?.show();
   }
 
   private _enterPlay(): void {

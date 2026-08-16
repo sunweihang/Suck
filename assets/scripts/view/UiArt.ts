@@ -23,11 +23,42 @@ const KEYS = [
   'badge',
   'homeBadge',
   'prefix',
+  'settingsBg',
+  'settingsGear',
+  'settingsClose',
+  'shareBtn',
+  'clubBtn',
+  'settingsCard',
+  'settingsDim',
+  'icMusic',
+  'icSfx',
+  'volumeTrack',
+  'volumeFill',
+  'sliderThumb',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
 ] as const;
 type ArtKey = (typeof KEYS)[number];
+
+function imagePathOf(key: ArtKey): string | null {
+  if (key === 'bg') return 'ui/bg-play-q';
+  if (key === 'home') return 'ui/bg-home';
+  if (key === 'play') return 'ui/btn-play';
+  if (key === 'settingsBg') return 'ui/btn-settings-bg';
+  if (key === 'settingsGear') return 'ui/ic-gear';
+  if (key === 'settingsClose') return 'ui/btn-close';
+  if (key === 'shareBtn') return 'ui/btn-clear-next';
+  if (key === 'clubBtn') return 'ui/btn-clear-reward';
+  if (key === 'settingsCard') return 'ui/panel-clear';
+  if (key === 'settingsDim') return 'ui/dim-clear';
+  if (key === 'icMusic') return 'ui/ic-music';
+  if (key === 'icSfx') return 'ui/ic-sfx';
+  if (key === 'volumeTrack') return 'ui/volume-track';
+  if (key === 'volumeFill') return 'ui/volume-fill';
+  if (key === 'sliderThumb') return 'ui/slider-thumb';
+  return null;
+}
 
 function pathOf(key: ArtKey): string {
   if (key === 'bg') return 'ui/bg-play-q/spriteFrame';
@@ -38,6 +69,18 @@ function pathOf(key: ArtKey): string {
   if (key === 'badge') return 'ui/level-badge/spriteFrame';
   if (key === 'homeBadge') return 'ui/level-home/spriteFrame';
   if (key === 'prefix') return 'ui/lv-prefix/spriteFrame';
+  if (key === 'settingsBg') return 'ui/btn-settings-bg/spriteFrame';
+  if (key === 'settingsGear') return 'ui/ic-gear/spriteFrame';
+  if (key === 'settingsClose') return 'ui/btn-close/spriteFrame';
+  if (key === 'shareBtn') return 'ui/btn-clear-next/spriteFrame';
+  if (key === 'clubBtn') return 'ui/btn-clear-reward/spriteFrame';
+  if (key === 'settingsCard') return 'ui/panel-clear/spriteFrame';
+  if (key === 'settingsDim') return 'ui/dim-clear/spriteFrame';
+  if (key === 'icMusic') return 'ui/ic-music/spriteFrame';
+  if (key === 'icSfx') return 'ui/ic-sfx/spriteFrame';
+  if (key === 'volumeTrack') return 'ui/volume-track/spriteFrame';
+  if (key === 'volumeFill') return 'ui/volume-fill/spriteFrame';
+  if (key === 'sliderThumb') return 'ui/slider-thumb/spriteFrame';
   if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
@@ -61,11 +104,11 @@ function loadKey(key: ArtKey, done: () => void): void {
       done();
       return;
     }
-    if (key !== 'bg' && key !== 'home' && key !== 'play') {
+    const imgPath = imagePathOf(key);
+    if (!imgPath) {
       done();
       return;
     }
-    const imgPath = key === 'home' ? 'ui/bg-home' : key === 'play' ? 'ui/btn-play' : 'ui/bg-play-q';
     resources.load(imgPath, ImageAsset, (e2, img) => {
       if (!e2 && img) frames.set(key, frameFromImage(img));
       done();
@@ -90,18 +133,62 @@ export function artFrame(key: ArtKey | `d${number}`): SpriteFrame | null {
   return frames.get(key) ?? null;
 }
 
-export function applyArtSprite(node: Node | null, key: ArtKey, w: number, h: number): boolean {
-  if (!node) return false;
-  const sf = frames.get(key);
-  if (!sf) return false;
+function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: boolean, inset = 0): void {
+  if (sliced && inset > 0) {
+    sf.insetTop = Math.max(sf.insetTop, inset);
+    sf.insetBottom = Math.max(sf.insetBottom, inset);
+    sf.insetLeft = Math.max(sf.insetLeft, inset);
+    sf.insetRight = Math.max(sf.insetRight, inset);
+  }
   let sp = node.getComponent(Sprite);
   if (!sp) sp = node.addComponent(Sprite);
   sp.spriteFrame = sf;
   sp.sizeMode = Sprite.SizeMode.CUSTOM;
-  sp.type = Sprite.Type.SIMPLE;
+  sp.type = sliced ? Sprite.Type.SLICED : Sprite.Type.SIMPLE;
   sp.color = Color.WHITE;
+  sp.enabled = true;
   node.getComponent(UITransform)?.setContentSize(w, h);
+}
+
+export function applyArtSprite(
+  node: Node | null,
+  key: ArtKey,
+  w: number,
+  h: number,
+  sliced = false,
+): boolean {
+  if (!node) return false;
+  const sf = frames.get(key);
+  if (!sf) return false;
+  paintSprite(node, sf, w, h, sliced, key === 'settingsCard' ? 128 : 0);
   return true;
+}
+
+/** Load on demand if preload missed the key (new settings chrome). */
+export function applyArtSpriteSoon(
+  node: Node | null,
+  key: ArtKey,
+  w: number,
+  h: number,
+  sliced = false,
+): void {
+  if (!node) return;
+  if (applyArtSprite(node, key, w, h, sliced)) return;
+  resources.load(pathOf(key), SpriteFrame, (err, sf) => {
+    if (!err && sf?.texture && node.isValid) {
+      frames.set(key, sf);
+      paintSprite(node, sf, w, h, sliced, key === 'settingsCard' ? 128 : 0);
+      return;
+    }
+    const imgPath = imagePathOf(key);
+    if (!imgPath) return;
+    resources.load(imgPath, ImageAsset, (e2, img) => {
+      if (e2 || !img || !node.isValid) return;
+      const made = frameFromImage(img);
+      frames.set(key, made);
+      paintSprite(node, made, w, h, sliced, key === 'settingsCard' ? 128 : 0);
+    });
+  });
 }
 
 export function layoutLevelBadge(

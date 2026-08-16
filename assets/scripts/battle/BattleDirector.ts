@@ -793,8 +793,10 @@ export class BattleDirector extends Component {
     const hud = this._canvas?.getChildByName('PlayHud');
     const back = hud?.getChildByName('BackBtn');
     const next = hud?.getChildByName('NextBtn');
+    const settings = hud?.getChildByName('SettingsBtn');
     if (back?.activeInHierarchy && back.getComponent(UITransform)?.hitTest(loc)) return true;
     if (next?.activeInHierarchy && next.getComponent(UITransform)?.hitTest(loc)) return true;
+    if (settings?.activeInHierarchy && settings.getComponent(UITransform)?.hitTest(loc)) return true;
     const gm = this._canvas?.getChildByName('GmPanel');
     if (this._hitsUi(gm?.getChildByName('Toggle'), loc)) return true;
     if (this._hitsUi(gm?.getChildByName('Dim'), loc)) return true;

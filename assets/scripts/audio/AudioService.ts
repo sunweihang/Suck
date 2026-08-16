@@ -1,12 +1,14 @@
-import { AudioClip, AudioSource, Node, resources } from 'cc';
+import { AudioClip, AudioSource, Node, resources, sys } from 'cc';
 
 const BGM_PATH = 'audio/bgm/bgm';
 const ABSORB_PATH = 'audio/sfx/absorb';
 const CLICK_PATH = 'audio/sfx/ui-click';
 const BOOM_PATH = 'audio/sfx/boom';
 const REMOVE_PATH = 'audio/sfx/remove';
+const STORAGE_KEY = 'suck.audio.v1';
 
 const DEFAULT_BGM = 0.4;
+const DEFAULT_SFX = 0.85;
 /** TripleTown Merge.mp3 is quieter than most UI clips. */
 const ABSORB_GAIN = 2.2;
 /** TripleTown UIclick.mp3 — play at settings sound scale. */
@@ -31,12 +33,18 @@ export class AudioService {
   private _clickClip: AudioClip | null = null;
   private _boomClip: AudioClip | null = null;
   private _removeClip: AudioClip | null = null;
+  private _bgmGain = DEFAULT_BGM;
+  private _sfxGain = DEFAULT_SFX;
   private _bgmDesired = false;
   private _bgmRunning = false;
   private _absorbAt = -99;
   private _disposed = false;
 
   constructor(host: Node) {
+    const saved = AudioService._loadStored();
+    this._bgmGain = saved.bgm;
+    this._sfxGain = saved.sfx;
+
     let bgmNode = host.getChildByName('Bgm');
     if (bgmNode?.isValid) bgmNode.destroy();
     bgmNode = new Node('Bgm');
@@ -44,7 +52,7 @@ export class AudioService {
     this._bgm = bgmNode.addComponent(AudioSource);
     this._bgm.playOnAwake = false;
     this._bgm.loop = true;
-    this._bgm.volume = DEFAULT_BGM;
+    this._bgm.volume = this._bgmGain;
 
     const sfxNode = new Node('Sfx');
     host.addChild(sfxNode);
@@ -60,6 +68,25 @@ export class AudioService {
     this._disposed = true;
     this._bgmDesired = false;
     this._stopBgmNow();
+  }
+
+  getBgmVolume(): number {
+    return this._bgmGain;
+  }
+
+  getSfxVolume(): number {
+    return this._sfxGain;
+  }
+
+  setBgmVolume(v: number): void {
+    this._bgmGain = AudioService._clamp01(v);
+    this._bgm.volume = this._bgmGain;
+    this._persist();
+  }
+
+  setSfxVolume(v: number): void {
+    this._sfxGain = AudioService._clamp01(v);
+    this._persist();
   }
 
   /** First user gesture should call this so web autoplay can unlock. */
@@ -180,12 +207,12 @@ export class AudioService {
     if (this._disposed) return;
     if (this._bgmRunning) {
       this._bgm.loop = true;
-      this._bgm.volume = DEFAULT_BGM;
+      this._bgm.volume = this._bgmGain;
       return;
     }
     this._bgm.clip = clip;
     this._bgm.loop = true;
-    this._bgm.volume = DEFAULT_BGM;
+    this._bgm.volume = this._bgmGain;
     this._bgm.play();
     this._bgmRunning = true;
   }
@@ -201,7 +228,37 @@ export class AudioService {
 
   private _oneShot(clip: AudioClip, gain: number): void {
     if (!this._sfx.node?.isValid) return;
-    this._sfx.playOneShot(clip, gain);
+    this._sfx.playOneShot(clip, this._sfxGain * gain);
+  }
+
+  private _persist(): void {
+    try {
+      sys.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ bgm: this._bgmGain, sfx: this._sfxGain }),
+      );
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }
+
+  private static _loadStored(): { bgm: number; sfx: number } {
+    try {
+      const raw = sys.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { bgm: DEFAULT_BGM, sfx: DEFAULT_SFX };
+      const parsed = JSON.parse(raw) as { bgm?: number; sfx?: number };
+      return {
+        bgm: AudioService._clamp01(parsed.bgm ?? DEFAULT_BGM),
+        sfx: AudioService._clamp01(parsed.sfx ?? DEFAULT_SFX),
+      };
+    } catch {
+      return { bgm: DEFAULT_BGM, sfx: DEFAULT_SFX };
+    }
+  }
+
+  private static _clamp01(v: number): number {
+    if (!Number.isFinite(v)) return 0;
+    return Math.max(0, Math.min(1, v));
   }
 }
 

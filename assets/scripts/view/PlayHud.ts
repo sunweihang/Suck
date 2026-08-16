@@ -14,13 +14,18 @@ import { HintHand } from '../battle/HintHand';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
-import { layoutHomeLevel } from './UiArt';
+import { applyArtSprite, layoutHomeLevel } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
 
 const PLAY_BADGE = 360;
 const PLAY_DIGIT_H = 150;
+const SETTINGS_CIRCLE = 120;
+const SETTINGS_GEAR = 56;
+const SETTINGS_W = 140;
+const SETTINGS_H = 168;
+const SETTINGS_INK = new Color(110, 104, 168, 255);
 
 @ccclass('PlayHud')
 export class PlayHud extends Component {
@@ -28,10 +33,12 @@ export class PlayHud extends Component {
   private _level = 1;
   private _onHome: (() => void) | null = null;
   private _onNext: (() => void) | null = null;
+  private _onSettings: (() => void) | null = null;
 
-  setup(opts: { onHome: () => void; onNext?: () => void }): void {
+  setup(opts: { onHome: () => void; onNext?: () => void; onSettings?: () => void }): void {
     this._onHome = opts.onHome;
     this._onNext = opts.onNext ?? null;
+    this._onSettings = opts.onSettings ?? null;
     this._ensureTree();
     const back = this.node.getChildByName('BackBtn');
     if (back) back.active = false;
@@ -41,6 +48,13 @@ export class PlayHud extends Component {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
       this._onNext?.();
+    }, this);
+    const settings = this.node.getChildByName('SettingsBtn');
+    settings?.off(Node.EventType.TOUCH_END);
+    settings?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      gameAudio()?.playUiClick();
+      this._onSettings?.();
     }, this);
     this.layoutChrome();
   }
@@ -60,6 +74,7 @@ export class PlayHud extends Component {
   applyArt(): void {
     this._ensureTree();
     layoutHomeLevel(this.node.getChildByName('ScoreBoard'), this._level, PLAY_BADGE, PLAY_DIGIT_H);
+    this._paintSettings();
   }
 
   setLevel(n: number): void {
@@ -101,6 +116,16 @@ export class PlayHud extends Component {
     this.node.getChildByName('TipLab')?.setPosition(0, top - PLAY_BADGE - 16, 0);
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
+    const settings = this.node.getChildByName('SettingsBtn');
+    if (settings) {
+      const pad = 20;
+      settings.active = true;
+      settings.setPosition(
+        -vis.w * 0.5 + SETTINGS_W * 0.5 + safe.left + pad,
+        vis.h * 0.5 - SETTINGS_H * 0.5 - safe.top - pad,
+        0,
+      );
+    }
   }
 
   private _syncTip(): void {
@@ -126,6 +151,7 @@ export class PlayHud extends Component {
     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
 
     this._scoreBoard();
+    this._settingsBtn();
 
     const tip = this._mk('TipLab', 880, 56);
     tip.active = false;
@@ -144,6 +170,31 @@ export class PlayHud extends Component {
     const hand = this._mk('HintHand', 160, 220);
     hand.addComponent(HintHand);
     hand.active = false;
+  }
+
+  private _settingsBtn(): Node {
+    const n = this._mk('SettingsBtn', SETTINGS_W, SETTINGS_H);
+    const bg = this._mk('Bg', SETTINGS_CIRCLE, SETTINGS_CIRCLE, n);
+    bg.setPosition(0, 24, 0);
+    const gear = this._mk('Gear', SETTINGS_GEAR, SETTINGS_GEAR, n);
+    gear.setPosition(0, 24, 0);
+    const labN = this._mk('SettingsLabel', 120, 40, n);
+    labN.setPosition(0, -64, 0);
+    this._lab(labN, '设置', 28, SETTINGS_INK, 120, 40, false);
+    const lab = labN.getComponent(Label);
+    if (lab) {
+      lab.outlineColor = Color.WHITE;
+      lab.outlineWidth = 3;
+    }
+    this._paintSettings();
+    return n;
+  }
+
+  private _paintSettings(): void {
+    const n = this.node.getChildByName('SettingsBtn');
+    if (!n) return;
+    applyArtSprite(n.getChildByName('Bg'), 'settingsBg', SETTINGS_CIRCLE, SETTINGS_CIRCLE);
+    applyArtSprite(n.getChildByName('Gear'), 'settingsGear', SETTINGS_GEAR, SETTINGS_GEAR);
   }
 
   private _scoreBoard(): Node {
