@@ -14,6 +14,7 @@ export type LevelCell = {
   paint?: boolean[];
   magnet?: boolean[];
   rescue?: ColorToken;
+  chest?: boolean;
 };
 
 export type UnitSpec = readonly [ColorToken, number] | readonly [ColorToken, number, string];
@@ -150,7 +151,7 @@ export function isTutorialLevel(id: number): boolean {
 
 export function showsPlayHint(id: number): boolean {
   const n = id | 0;
-  return n === 1 || n === 11 || n === 21 || n === 31 || n === 41 || n === 51;
+  return n === 1 || n === 11 || n === 21 || n === 31 || n === 41 || n === 51 || n === 61;
 }
 
 const SPECIAL_TITLE: Record<number, string> = {
@@ -163,6 +164,7 @@ const SPECIAL_TITLE: Record<number, string> = {
   31: '拯救章鱼',
   41: '钉子锁',
   51: '炸弹',
+  61: '拯救宝箱',
 };
 
 export function levelTitle(id: number): string {
@@ -179,6 +181,9 @@ function decodeCell(raw: string | null): LevelCell | null {
   if (!raw) return null;
   if (raw[0] === '@' && raw[1]) {
     return { tokens: [], rescue: raw[1].toLowerCase() as ColorToken };
+  }
+  if (raw[0] === '$') {
+    return { tokens: [], chest: true };
   }
   const tokens: ColorToken[] = [];
   const locked: boolean[] = [];

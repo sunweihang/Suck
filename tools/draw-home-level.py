@@ -8,6 +8,7 @@ from typing import List, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from scipy import ndimage
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets/resources/ui"
@@ -178,6 +179,36 @@ def hole_mask(body: Image.Image) -> Image.Image:
     for pt in ((0, 0), (body.size[0] - 1, 0), (0, body.size[1] - 1), (body.size[0] - 1, body.size[1] - 1)):
         ImageDraw.floodfill(rgb, pt, (0, 0, 0))
     return rgb.split()[0]
+
+
+def shrink_holes(holes: Image.Image, rim: int) -> Image.Image:
+    """Erode counters by rim px. Caps so small 4/8 holes stay open."""
+    if holes.getbbox() is None or rim <= 0:
+        return holes
+    box = holes.getbbox()
+    span = min(box[2] - box[0], box[3] - box[1])
+    rim = min(int(rim), max(2, span // 4))
+    arr = np.array(holes) > 0
+    yy, xx = np.ogrid[-rim : rim + 1, -rim : rim + 1]
+    inner = ndimage.binary_erosion(arr, structure=(xx * xx + yy * yy <= rim * rim))
+    return Image.fromarray((inner.astype(np.uint8) * 255), "L")
+
+
+def hole_ring(holes: Image.Image, rim: int) -> Image.Image:
+    """White stroke that follows the inner path of 0/4/6/8/9."""
+    inner = shrink_holes(holes, rim)
+    ring = np.where((np.array(holes) > 0) & (np.array(inner) == 0), 255, 0)
+    return Image.fromarray(ring.astype(np.uint8), "L")
+
+
+def clear_hole_interior(mask: Image.Image, holes: Image.Image, rim: int) -> Image.Image:
+    """Punch counters but keep an inner rim so 0/4/6/8/9 keep a white edge."""
+    inner = shrink_holes(holes, rim)
+    if inner.getbbox() is None:
+        return mask
+    arr = np.array(mask)
+    arr[np.array(inner) > 0] = 0
+    return Image.fromarray(arr, "L")
 
 
 def edge(mask: Image.Image, dx: int, dy: int) -> Image.Image:
@@ -386,14 +417,19 @@ def bubble(ch: str, cell: int = CELL) -> Image.Image:
     fat = int(0.012 * s)
     jelly = max(0.8, s * 0.003)
 
+    outer = int(0.028 * s)
+    inner = int(0.022 * s)
     body = soft_mask(stamp_text(s, ch, font, fat), jelly)
-    halo = soft_mask(stamp_text(s, ch, font, fat + int(0.028 * s)), jelly * 1.2)
+    halo = soft_mask(stamp_text(s, ch, font, fat + outer), jelly * 1.2)
     holes = hole_mask(body.point(lambda p: 255 if p >= 80 else 0))
     if holes.getbbox():
-        cut = holes.filter(ImageFilter.MinFilter(max(3, int(0.008 * s) | 1)))
         ha = np.array(halo)
-        ha[np.array(cut) > 0] = 0
-        halo = Image.fromarray(ha, "L")
+        ha[np.array(holes) > 0] = 0
+        ring = soft_mask(hole_ring(holes, inner), max(0.5, jelly * 0.35))
+        halo = Image.fromarray(np.maximum(ha, np.array(ring)).astype(np.uint8), "L")
+        ba = np.array(body)
+        ba[np.array(holes) > 0] = 0
+        body = Image.fromarray(ba, "L")
 
     canvas = Image.new("RGBA", (s, s), (255, 255, 255, 0))
     canvas.alpha_composite(layer(halo, HALO))
@@ -403,6 +439,15 @@ def bubble(ch: str, cell: int = CELL) -> Image.Image:
     canvas.alpha_composite(layer(hi, (255, 250, 255, 160)))
     shade = edge(body, -int(0.008 * s), -int(0.01 * s)).filter(ImageFilter.GaussianBlur(radius=max(1, int(0.006 * s))))
     canvas.alpha_composite(layer(shade, (150, 118, 196, 70)))
+
+    if holes.getbbox():
+        canvas = Image.fromarray(
+            np.dstack((
+                np.array(canvas)[:, :, :3],
+                np.array(clear_hole_interior(canvas.split()[3], holes, inner)),
+            )),
+            "RGBA",
+        )
 
     return bleed_rgb(resize_rgba(canvas, (cell, cell)))
 

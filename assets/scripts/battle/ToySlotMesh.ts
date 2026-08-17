@@ -252,11 +252,11 @@ export function applyToySlot(root: Node, locked = false): void {
   }
 
   const rim = locked
-    ? glossy('rimLock', new Color(176, 182, 192, 255), 0.36, 0.1)
-    : glossy('rimOpen', new Color(255, 214, 184, 255), 0.32, 0.16);
+    ? glossy('rimLock', new Color(120, 124, 148, 255), 0.36, 0.1)
+    : glossy('rimOpen', new Color(255, 246, 232, 255), 0.28, 0.2);
   const floor = locked
-    ? glossy('floorLock', new Color(150, 156, 166, 255), 0.48, 0.08)
-    : glossy('floorOpen', new Color(232, 186, 148, 255), 0.48, 0.12);
+    ? glossy('floorLock', new Color(88, 92, 114, 255), 0.48, 0.08)
+    : glossy('floorOpen', new Color(236, 210, 186, 255), 0.42, 0.14);
   dress(part(root, 'Floor'), getFloor(), floor, 0);
   dress(part(root, 'Rim'), getRim(), rim, 0);
 

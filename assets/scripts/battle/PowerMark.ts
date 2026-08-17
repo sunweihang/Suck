@@ -41,8 +41,9 @@ function powerDepthMat(): Material | null {
 }
 
 function ensureBenchRoot(host: Node): void {
-  const bench = host.parent;
-  if (bench && !bench.getComponent(RenderRoot2D)) bench.addComponent(RenderRoot2D);
+  const parent = host.parent;
+  if (!parent || parent.name === 'Wall' || parent.name === 'Field') return;
+  if (!parent.getComponent(RenderRoot2D)) parent.addComponent(RenderRoot2D);
 }
 
 function findPower(host: Node): Node | null {

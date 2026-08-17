@@ -10,7 +10,10 @@ const META = `${OUT}.meta`;
 const UUID = '7e22bb20-0360-4b02-8002-000000000060';
 const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
-const CLUSTER_MIN = 6;
+const { occupyShape, shapeForLevel } = require('./level-shapes');
+const CLUSTER_MIN = 10;
+const UNIT_POWER_MIN = 30;
+const UNIT_POWER_MAX = 90;
 const TOKEN_HUE = {
   o: 28, y: 50, c: 182, g: 136, p: 330, v: 268,
   r: 355, s: 210, k: 10, m: 156, a: 312, d: 45,
@@ -33,226 +36,6 @@ class Rng {
   }
   int(n) {
     return (this.next() * n) | 0;
-  }
-}
-
-function hypot2(x, y) {
-  return Math.hypot(x, y);
-}
-function inRoundRect(x, y, hx, hy, r) {
-  const ax = Math.abs(x) - hx;
-  const ay = Math.abs(y) - hy;
-  return hypot2(Math.max(ax, 0), Math.max(ay, 0)) + Math.min(Math.max(ax, ay), 0) <= r;
-}
-function inStar(x, y, spikes, inner, outer) {
-  const ang = Math.atan2(y, x);
-  const r = hypot2(x, y);
-  const a = ((ang + Math.PI) / (Math.PI * 2)) * spikes;
-  const f = Math.abs(a - Math.floor(a) - 0.5) * 2;
-  return r <= inner + (outer - inner) * (1 - f);
-}
-function inHeart(x, y) {
-  const sx = x * 1.18;
-  const sy = -y * 1.08 + 0.08;
-  const a = sx * sx + sy * sy - 0.34;
-  return a * a * a - sx * sx * sy * sy * sy < 0;
-}
-
-function occupied(kind, x, y, alt, id) {
-  const fx = alt ? -x : x;
-  const fy = y;
-  const wob = Math.sin(id * 0.37) * 0.04;
-  switch (kind) {
-    case 0: return Math.abs(fx) < 0.94 && Math.abs(fy) < 0.92;
-    case 1: return inRoundRect(fx, fy, 0.7, 0.68, 0.24);
-    case 2: return fy > -0.96 && Math.abs(fx) < (1.02 - fy) * 0.7;
-    case 3: return fy < 0.96 && Math.abs(fx) < (1.02 + fy) * 0.7;
-    case 4: return Math.abs(fx) + Math.abs(fy) < 1.08;
-    case 5: return hypot2(fx, fy) < 0.92;
-    case 6: return hypot2(fx * 0.72, fy) < 0.88;
-    case 7: return inHeart(fx, fy);
-    case 8: return inStar(fx, fy, 5, 0.36, 0.96);
-    case 9: return hypot2(fx, fy) < 0.9 && hypot2(fx - 0.32, fy - 0.06) > 0.68;
-    case 10: return hypot2(fx, fy) < 0.94 && hypot2(fx, fy) > 0.42;
-    case 11: return Math.abs(fx) < 0.28 || Math.abs(fy) < 0.28;
-    case 12: return Math.abs(Math.abs(fx) - Math.abs(fy)) < 0.26 && hypot2(fx, fy) < 1.02;
-    case 13: return Math.abs(fx) < 0.3 || (fy > 0.42 && Math.abs(fx) < 0.88);
-    case 14: return fy < -0.28 || (Math.abs(fx) > 0.52 && Math.abs(fy) < 0.92);
-    case 15: return Math.abs(fx) > 0.48 || Math.abs(fy) < 0.26;
-    case 16: {
-      const s = Math.sin(fy * 2.4) * 0.42;
-      return Math.abs(fx - s) < 0.38 && Math.abs(fy) < 0.94;
-    }
-    case 17: {
-      const step = Math.floor((fy + 1) * 3);
-      return fx > -0.9 && fx < -0.15 + step * 0.28 && fy > -0.95;
-    }
-    case 18: {
-      const merlon = Math.abs(((fx + 1) * 4) % 2 - 1) < 0.55;
-      return (fy < 0.42 && Math.abs(fx) < 0.92) || (fy >= 0.42 && fy < 0.92 && merlon && Math.abs(fx) < 0.92);
-    }
-    case 19: {
-      const hole = hypot2(fx, fy + 0.12) < 0.42;
-      return inRoundRect(fx, fy, 0.78, 0.72, 0.12) && (fy > 0.05 || !hole);
-    }
-    case 20: {
-      const left = hypot2(fx + 0.52, Math.max(0, fy + 0.15)) < 0.38 && fy > -0.9;
-      const right = hypot2(fx - 0.52, Math.max(0, fy + 0.15)) < 0.38 && fy > -0.9;
-      const base = Math.abs(fy + 0.78) < 0.2 && Math.abs(fx) < 0.88;
-      return left || right || base;
-    }
-    case 21: return Math.abs(fx) < 0.22 + Math.abs(fy) * 0.62 && Math.abs(fy) < 0.94;
-    case 22: {
-      const bolt = Math.abs(fx - fy * 0.35 + (fy > 0 ? 0.18 : -0.18)) < 0.22;
-      return bolt && Math.abs(fy) < 0.95 && Math.abs(fx) < 0.82;
-    }
-    case 23: {
-      const shaft = fy < 0.18 && Math.abs(fx) < 0.22;
-      const head = fy >= 0.18 && fy < 0.92 && Math.abs(fx) < (0.92 - fy) * 1.15;
-      return shaft || head;
-    }
-    case 24: {
-      const trunk = Math.abs(fx) < 0.16 && fy < 0.1;
-      const crown = hypot2(fx, fy - 0.28) < 0.52 || hypot2(fx * 0.8, fy - 0.55) < 0.38;
-      return trunk || crown;
-    }
-    case 25: {
-      const band = fy > -0.15 && fy < 0.18 && Math.abs(fx) < 0.82;
-      const point = fy >= 0.18 && Math.abs(fx) < 0.82 && (Math.abs(((fx + 1) * 3.5) % 2 - 1) < 0.55 || fy < 0.42);
-      return band || point;
-    }
-    case 26: {
-      const body = hypot2(fx * 1.15, fy) < 0.32;
-      const wingL = hypot2(fx + 0.48, fy - 0.08) < 0.42 && fx < 0.05;
-      const wingR = hypot2(fx - 0.48, fy - 0.08) < 0.42 && fx > -0.05;
-      return body || wingL || wingR;
-    }
-    case 27: {
-      const cap = fy > 0.05 && hypot2(fx, fy - 0.22) < 0.62;
-      const stem = fy <= 0.12 && Math.abs(fx) < 0.2 && fy > -0.92;
-      return cap || stem;
-    }
-    case 28: {
-      const body = Math.abs(fx) < 0.28 && fy > -0.72 && fy < 0.42;
-      const nose = fy >= 0.42 && Math.abs(fx) < (0.95 - fy) * 0.7;
-      const fin = fy < -0.35 && fy > -0.92 && Math.abs(fx) < 0.55;
-      return body || nose || fin;
-    }
-    case 29: {
-      const wall = Math.abs(fx) < 0.7 && fy > -0.85 && fy < 0.22;
-      const roof = fy >= 0.18 && fy < 0.88 && Math.abs(fx) < (0.95 - fy) * 1.2;
-      const door = Math.abs(fx) < 0.16 && fy < -0.28;
-      return (wall || roof) && !door;
-    }
-    case 30: {
-      const hull = fy < 0.05 && fy > -0.55 && Math.abs(fx) < 0.82 + fy * 0.4;
-      const sail = fy >= 0.0 && fy < 0.88 && fx > -0.08 && fx < 0.42;
-      const mast = Math.abs(fx + 0.02) < 0.08 && fy > -0.2 && fy < 0.9;
-      return hull || sail || mast;
-    }
-    case 31: {
-      const body = hypot2(fx * 0.7, fy) < 0.55;
-      const tail = fx < -0.2 && Math.abs(fy - 0.15) < 0.35 + (fx + 0.2) * 0.4;
-      const fin = fy > 0.2 && Math.abs(fx - 0.1) < 0.22;
-      return body || tail || fin;
-    }
-    case 32: {
-      const head = hypot2(fx, fy + 0.08) < 0.55;
-      const earL = hypot2(fx + 0.38, fy - 0.48) < 0.22;
-      const earR = hypot2(fx - 0.38, fy - 0.48) < 0.22;
-      return head || earL || earR;
-    }
-    case 33: {
-      const face = hypot2(fx, fy) < 0.88;
-      const eyeL = hypot2(fx + 0.28, fy - 0.22) < 0.12;
-      const eyeR = hypot2(fx - 0.28, fy - 0.22) < 0.12;
-      const smile = fy < -0.08 && fy > -0.42 && hypot2(fx, fy + 0.05) < 0.48 && hypot2(fx, fy + 0.22) > 0.32;
-      return face && !eyeL && !eyeR && !smile;
-    }
-    case 34: {
-      const core = hypot2(fx, fy) < 0.28;
-      let petal = false;
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + wob;
-        petal = petal || hypot2(fx - Math.cos(a) * 0.52, fy - Math.sin(a) * 0.52) < 0.3;
-      }
-      return core || petal;
-    }
-    case 35: {
-      return hypot2(fx + 0.28, fy + 0.08) < 0.42
-        || hypot2(fx - 0.22, fy + 0.12) < 0.38
-        || hypot2(fx, fy - 0.18) < 0.4
-        || hypot2(fx + 0.02, fy + 0.28) < 0.34;
-    }
-    case 36: {
-      const m0 = fy < 0.15 - Math.abs(fx) * 0.55 && fy > -0.85;
-      const m1 = hypot2(fx + 0.42, fy + 0.15) < 0.38 && fy > -0.2;
-      const m2 = hypot2(fx - 0.08, fy + 0.05) < 0.46 && fy > -0.15;
-      return m0 || m1 || m2;
-    }
-    case 37: {
-      const z = Math.abs(((fx + 1) * 3.2 + fy * 1.4) % 2 - 1);
-      return z < 0.42 && Math.abs(fy) < 0.92;
-    }
-    case 38: {
-      const frame = Math.abs(fx) > 0.62 || Math.abs(fy) > 0.62;
-      return Math.abs(fx) < 0.94 && Math.abs(fy) < 0.92 && frame;
-    }
-    case 39: {
-      return hypot2(fx + 0.55, fy + 0.35) < 0.32
-        || hypot2(fx - 0.5, fy + 0.28) < 0.3
-        || hypot2(fx + 0.08, fy - 0.42) < 0.36
-        || hypot2(fx - 0.15, fy + 0.55) < 0.22;
-    }
-    case 40: {
-      const ang = Math.atan2(fy, fx);
-      const r = hypot2(fx, fy);
-      const spiral = (ang + Math.PI) / (Math.PI * 2) + Math.floor(r * 2.4);
-      return Math.abs((spiral % 1) - 0.5) < 0.22 && r < 0.96;
-    }
-    case 41: return ((Math.floor((fx + 1) * 4) + Math.floor((fy + 1) * 4)) & 1) === 0 && hypot2(fx, fy) < 1.02;
-    case 42: {
-      const wave = Math.sin((fx + 1) * 3.4) * 0.28;
-      return Math.abs(fy - wave) < 0.42;
-    }
-    case 43: {
-      const base = fy < -0.15 && Math.abs(fx) < 0.9;
-      const spike = fy >= -0.2 && Math.abs(((fx + 1) * 5) % 2 - 1) < 0.42 && fy < 0.92 - Math.abs(((fx + 1) * 5) % 2 - 1) * 0.5;
-      return base || spike;
-    }
-    case 44: {
-      const mid = Math.abs(fy) < 0.22 && Math.abs(fx) < 0.72;
-      const top = fy > 0.15 && hypot2(fx + 0.28, fy - 0.42) < 0.38;
-      const bot = fy < -0.15 && hypot2(fx - 0.28, fy + 0.42) < 0.38;
-      return mid || top || bot;
-    }
-    case 45: return Math.abs(fx) > 0.42 && Math.abs(fx) < 0.88 && Math.abs(fy) < 0.92;
-    case 46: {
-      const ring = hypot2(fx + 0.12, fy) < 0.78 && hypot2(fx + 0.12, fy) > 0.42;
-      const gap = fx > 0.15 && Math.abs(fy) < 0.28;
-      return ring && !gap;
-    }
-    case 47: {
-      const stem = Math.abs(fx + 0.35) < 0.18 && fy < 0.55;
-      const arm = fy > 0.15 && fy < 0.55 && fx > -0.4 && fx < 0.55;
-      const leg = fy < -0.05 && fx > 0.05 && fx < 0.42 && fy > -0.92;
-      return stem || arm || leg;
-    }
-    case 48: {
-      const skull = hypot2(fx, fy - 0.15) < 0.62;
-      const jaw = Math.abs(fx) < 0.38 && fy < 0.05 && fy > -0.62;
-      const eyeL = hypot2(fx + 0.22, fy - 0.22) < 0.14;
-      const eyeR = hypot2(fx - 0.22, fy - 0.22) < 0.14;
-      return (skull || jaw) && !eyeL && !eyeR;
-    }
-    default: {
-      const head = hypot2(fx, fy - 0.28) < 0.42;
-      const body = Math.abs(fx) < 0.34 && fy < 0.2 && fy > -0.55;
-      const antL = hypot2(fx + 0.28, fy - 0.72) < 0.12;
-      const antR = hypot2(fx - 0.28, fy - 0.72) < 0.12;
-      const arm = Math.abs(fy + 0.05) < 0.12 && Math.abs(fx) < 0.72;
-      return head || body || antL || antR || arm;
-    }
   }
 }
 
@@ -364,7 +147,7 @@ function colorFar(seeds, alive, palette) {
 function paintFace(spots, cols, rows, palette, rng, clusterMin = CLUSTER_MIN) {
   const out = new Array(cols * rows).fill(null);
   if (spots.length === 0) return out;
-  const target = Math.max(clusterMin, Math.round(spots.length / Math.max(4, palette.length + 2)));
+  const target = Math.max(18, Math.round(spots.length / Math.max(3, palette.length)));
   const want = Math.max(palette.length, Math.round(spots.length / target));
   const seeds = pickSeeds(spots, want, rng);
   const assign = new Array(spots.length);
@@ -435,16 +218,16 @@ function isTeachLevel(id) {
 function sizeFor(id) {
   const d = decadeOf(id);
   const t = (id - 1) % 10;
-  const cols = Math.min(16, 12 + Math.floor(d * 0.45) + Math.floor(t * 0.3));
-  const rows = Math.min(12, 9 + Math.floor(d * 0.35) + Math.floor(t * 0.2));
-  const depth = Math.min(10, 5 + d);
-  const colors = Math.min(6, 3 + Math.floor(d * 0.35) + (t >= 5 ? 1 : 0));
+  const cols = Math.min(32, 24 + Math.floor(d * 0.8) + Math.floor(t * 0.4));
+  const rows = Math.min(24, 18 + Math.floor(d * 0.55) + Math.floor(t * 0.25));
+  const depth = Math.min(12, 7 + d);
+  const colors = 6;
   return { cols, rows, depth, colors };
 }
 
 function minUnitsFor(id) {
-  if (isTeachLevel(id)) return id <= 2 ? 1 : 3;
-  return 36 + decadeOf(id) * 2 + Math.floor(((id - 1) % 10) * 0.6);
+  if (isTeachLevel(id)) return id <= 2 ? 2 : 3;
+  return 8;
 }
 
 function countBricks(cells) {
@@ -585,13 +368,13 @@ function chooseIronRows(cells, cols, rows, count) {
   if (count <= 0) return [];
   const { minY, maxY } = occupiedYRange(cells, cols, rows);
   const span = maxY - minY;
-  if (span < 4) return [];
+  if (span < 8) return [];
   if (count === 1) {
-    const row = Math.max(minY + 2, Math.min(maxY - 1, minY + Math.floor(span * 0.55)));
+    const row = Math.max(minY + 4, Math.min(maxY - 2, minY + Math.floor(span * 0.55)));
     return row > minY && row <= maxY ? [row] : [];
   }
-  let top = maxY - 2;
-  let bot = minY + 2;
+  let top = maxY - 4;
+  let bot = minY + 4;
   if (top - bot < 2) {
     top = minY + Math.floor(span * 0.66);
     bot = minY + Math.floor(span * 0.33);
@@ -609,78 +392,70 @@ function chooseIronGaps(cols, count) {
   return gaps.slice(0, count);
 }
 
-function splitToMinUnits(units, minCount) {
-  const raw = units.map((u) => [u[0], u[1]]);
-  while (raw.length < minCount) {
-    let best = -1;
-    let bestN = 1;
-    for (let i = 0; i < raw.length; i++) {
-      if (raw[i][1] > bestN) {
-        bestN = raw[i][1];
-        best = i;
-      }
-    }
-    if (best < 0) break;
-    const [color, n] = raw[best];
-    const a = n >> 1;
-    raw.splice(best, 1, [color, a], [color, n - a]);
+function packPower(n, minP = UNIT_POWER_MIN, maxP = UNIT_POWER_MAX) {
+  if (n <= 0) return [];
+  if (n <= maxP) return [n];
+  const count = Math.ceil(n / maxP);
+  const parts = [];
+  let left = n;
+  for (let i = 0; i < count; i++) {
+    const take = i === count - 1 ? left : Math.round(left / (count - i));
+    parts.push(take);
+    left -= take;
   }
-  return raw;
+  return parts;
+}
+
+function splitToMinUnits(units, _minCount) {
+  const out = [];
+  for (const [color, n] of units) {
+    if (!n) continue;
+    for (const part of packPower(n)) out.push([color, part]);
+  }
+  return out;
+}
+
+function padUnitPowers(units) {
+  return units.map((u) => {
+    const n = Math.max(UNIT_POWER_MIN, u[1]);
+    return u[2] ? [u[0], n, u[2]] : [u[0], n];
+  });
+}
+
+function clampUnitPower(n) {
+  return Math.min(UNIT_POWER_MAX, Math.max(UNIT_POWER_MIN, Math.round(n) || UNIT_POWER_MIN));
+}
+
+/** Rescue octopus is a normal bite, not the whole color pile. Leftover stays on the bench. */
+function applyRescueUnits(units, cells, rescueToken, preferred) {
+  const bricks = countBricks(cells).get(rescueToken) ?? 0;
+  let power = clampUnitPower(preferred ?? UNIT_POWER_MIN);
+  let rest = Math.max(0, bricks - power);
+  if (rest > 0 && rest < UNIT_POWER_MIN) {
+    if (bricks <= UNIT_POWER_MAX) {
+      power = clampUnitPower(bricks);
+      rest = 0;
+    } else {
+      rest = UNIT_POWER_MIN;
+    }
+  }
+  const kept = (units || []).filter((u) => u[0] !== rescueToken);
+  return {
+    units: rest > 0 ? kept.concat(splitToMinUnits([[rescueToken, rest]])) : kept,
+    rescuePower: power,
+  };
 }
 
 function planSolvableUnits(cells, cols, rows, rng, ironRows, ironGaps = [], minUnits = 12) {
-  IRON_GAPS = ironGaps;
-  const built = buildGrid(cells, cols, rows);
-  const grid = built.grid;
-  let remain = built.remain;
-  if (remain <= 0) return [];
-  const remainBy = new Map();
-  const aboveBy = new Map();
-  for (let i = 0; i < ironRows.length; i++) aboveBy.set(ironRows[i], 0);
-  for (let x = 0; x < cols; x++) {
-    for (let y = 0; y < rows; y++) {
-      for (let z = 0; z < grid[x][y].length; z++) {
-        const token = grid[x][y][z];
-        if (token == null) continue;
-        remainBy.set(token, (remainBy.get(token) ?? 0) + 1);
-        for (let i = 0; i < ironRows.length; i++) {
-          if (y >= ironRows[i]) aboveBy.set(ironRows[i], (aboveBy.get(ironRows[i]) ?? 0) + 1);
-        }
-      }
-    }
-  }
-  const homeCol = (cols - 1) >> 1;
-  const units = [];
-  while (remain > 0) {
-    const options = [];
-    const finish = [];
-    for (const token of ALL_COLOR_TOKENS) {
-      if ((remainBy.get(token) ?? 0) <= 0) continue;
-      const acc = accessibleCount(grid, token, ironRows, aboveBy);
-      if (acc <= 0) continue;
-      options.push(token);
-      if (acc === remainBy.get(token)) finish.push(token);
-    }
-    if (options.length === 0) break;
-    const color = finish.length > 0 && rng.next() < 0.45
-      ? finish[rng.int(finish.length)]
-      : options[rng.int(options.length)];
-    const bite = accessibleCount(grid, color, ironRows, aboveBy);
-    let ate = 0;
-    while (ate < bite) {
-      const row = eatOne(grid, color, homeCol, ironRows, aboveBy);
-      if (row == null) break;
-      for (let i = 0; i < ironRows.length; i++) {
-        if (row >= ironRows[i]) aboveBy.set(ironRows[i], Math.max(0, (aboveBy.get(ironRows[i]) ?? 1) - 1));
-      }
-      remainBy.set(color, (remainBy.get(color) ?? 1) - 1);
-      ate += 1;
-      remain -= 1;
-    }
-    if (ate <= 0) break;
-    units.push([color, ate]);
-  }
-  return splitToMinUnits(units, minUnits);
+  const { planUnitsForCells } = require('./solve-levels');
+  return planUnitsForCells({
+    cells,
+    cols,
+    rows,
+    ironRows,
+    ironGaps,
+    ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
+  }, rng, minUnits);
 }
 
 function makeCell(tokens) {
@@ -749,25 +524,81 @@ function applyBombMask(cells, cols, rows, mask) {
   applyFlagMask(cells, cols, rows, mask, 'bomb');
 }
 
+function scaleFace(face, sx = 2, sy = sx) {
+  const out = [];
+  for (const line of face) {
+    const wide = [...line].map((ch) => ch.repeat(sx)).join('');
+    for (let i = 0; i < sy; i++) out.push(wide);
+  }
+  return out;
+}
+
+function embedFace(face, cols, rows) {
+  const h = face.length;
+  const w = face[0].length;
+  const ox = Math.max(0, Math.floor((cols - w) / 2));
+  const oy = Math.max(0, Math.floor((rows - h) / 2));
+  const out = Array.from({ length: rows }, () => '.'.repeat(cols));
+  for (let y = 0; y < h && y + oy < rows; y++) {
+    const src = face[y];
+    const dst = out[y + oy].split('');
+    for (let x = 0; x < w && x + ox < cols; x++) dst[ox + x] = src[x] || '.';
+    out[y + oy] = dst.join('');
+  }
+  return out;
+}
+
+function unitsFromCells(cells, palette) {
+  const counts = countBricks(cells);
+  const units = [];
+  for (const token of palette) {
+    const n = counts.get(token) ?? 0;
+    if (!n) continue;
+    for (const part of packPower(n)) units.push([token, part]);
+  }
+  return units;
+}
+
+function teachCanvas(id) {
+  const size = sizeFor(id);
+  return { cols: size.cols, rows: size.rows };
+}
+
 function tutorialBase(id, palette, face, units, extra = {}) {
-  const { cols, rows, cells } = cellsFromFace(face, extra.depth ?? 1, extra);
-  if (extra.paint) applyFlagMask(cells, cols, rows, extra.paint, 'paint');
-  if (extra.magnet) applyFlagMask(cells, cols, rows, extra.magnet, 'magnet');
-  if (extra.bomb) applyBombMask(cells, cols, rows, extra.bomb);
-  const ironRows = extra.ironRows ?? [];
+  const canvas = extra.canvas ?? teachCanvas(id);
+  const topPad = Math.max(0, Math.floor((canvas.rows - face.length) / 2));
+  const bottomPad = Math.max(0, canvas.rows - face.length - topPad);
+  const laid = embedFace(face, canvas.cols, canvas.rows);
+  const { cols, rows, cells } = cellsFromFace(laid, extra.depth ?? 1, extra);
+  if (extra.paint) applyFlagMask(cells, cols, rows, embedFace(extra.paint, cols, rows), 'paint');
+  if (extra.magnet) applyFlagMask(cells, cols, rows, embedFace(extra.magnet, cols, rows), 'magnet');
+  if (extra.bomb) applyBombMask(cells, cols, rows, embedFace(extra.bomb, cols, rows));
+  expandSpecials(cells, cols, rows);
+  const ironRows = (extra.ironRows ?? []).map((r) => r + bottomPad);
+  let finalUnits = units?.length ? units : unitsFromCells(cells, palette);
+  let rescuePower = extra.rescuePower ?? 5;
+  if (extra.rescue) {
+    const applied = applyRescueUnits(finalUnits, cells, extra.rescue, extra.rescuePower ?? UNIT_POWER_MIN);
+    finalUnits = applied.units;
+    rescuePower = applied.rescuePower;
+  }
+  if (extra.paint) {
+    const paintColor = cells.find((c) => c?.paint?.[0])?.tokens?.[0];
+    if (paintColor) finalUnits = finalUnits.concat([[paintColor, UNIT_POWER_MIN]]);
+  }
   return {
     id,
     cols,
     rows,
     cells,
-    units,
+    units: finalUnits,
     palette,
     ...emptyLevelExtras(),
     ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
     ironRows,
     ironGaps: extra.ironGaps ?? [],
     sandCols: extra.sandCols ?? [],
-    rescuePower: extra.rescuePower ?? 5,
+    rescuePower,
     raftX: extra.raftX ?? 0,
     raftY: extra.raftY ?? 0,
     raftW: extra.raftW ?? 0,
@@ -778,70 +609,122 @@ function tutorialBase(id, palette, face, units, extra = {}) {
 }
 
 function makeAbsorbTutorial() {
-  return tutorialBase(1, ['o'], [
-    'ooooo',
-    'ooooo',
-    'ooooo',
-  ], [['o', 15]]);
+  const face = scaleFace([
+    'oooooooo',
+    'oooooooo',
+    'oooooooo',
+    'oooooooo',
+  ], 2);
+  return tutorialBase(1, ['o'], face);
 }
 
 function makeAbsorbTwo() {
-  return tutorialBase(2, ['o', 'c'], [
-    'oooooccccc',
-    'oooooccccc',
-    'oooooccccc',
-  ], [['o', 15], ['c', 15]]);
+  const face = scaleFace([
+    'oooooooccccccc',
+    'oooooooccccccc',
+    'oooooooccccccc',
+    'oooooooccccccc',
+  ], 2);
+  return tutorialBase(2, ['o', 'c'], face);
 }
 
 function makeIronTutorial() {
-  return tutorialBase(11, ['y', 'c'], [
-    'yyyyy',
-    'yyyyy',
-    'ccccc',
-    'ccccc',
-  ], [['y', 10], ['c', 10]], { ironRows: [2] });
+  const face = scaleFace([
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'cccccccc',
+    'cccccccc',
+    'cccccccc',
+  ], 2);
+  return tutorialBase(11, ['y', 'c'], face, null, { ironRows: [6] });
 }
 
 function makePaintTutorial() {
-  return tutorialBase(21, ['p', 'c'], [
-    'ccpcc',
-    'ccccc',
-    'ccccc',
-  ], [['p', 1], ['p', 5], ['c', 9]], {
-    paint: ['..*..', '.....', '.....'],
-  });
+  const face = scaleFace([
+    'cccccccc',
+    'ccppppcc',
+    'ccppppcc',
+    'ccppppcc',
+    'ccppppcc',
+    'cccccccc',
+  ], 2);
+  const paint = scaleFace([
+    '........',
+    '..*.....',
+    '........',
+    '........',
+    '........',
+    '........',
+  ], 2);
+  return tutorialBase(21, ['p', 'c'], face, null, { paint });
 }
 
 function makeRescueTutorial() {
-  return tutorialBase(31, ['y', 'r', 'c'], [
-    'rrrrr',
-    'rrqrr',
-    'rrrrr',
-    'yyyyy',
-    'ccccc',
-  ], [['r', 14], ['c', 5]], {
+  const face = scaleFace([
+    'rrrrrrrr',
+    'rrqqqrrr',
+    'rrqqqrrr',
+    'rrqqqrrr',
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'cccccccc',
+    'cccccccc',
+  ], 2);
+  return tutorialBase(31, ['y', 'r', 'c'], face, null, {
     rescue: 'y',
-    rescuePower: 5,
+    rescuePower: 32,
   });
+}
+
+function makeChestTutorial() {
+  const face = scaleFace([
+    'rrrrrrrr',
+    'rr$$$rrr',
+    'rr$$$rrr',
+    'rr$$$rrr',
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'cccccccc',
+    'cccccccc',
+  ], 2);
+  return tutorialBase(61, ['y', 'r', 'c'], face);
 }
 
 function makeNailTutorial() {
-  return tutorialBase(41, ['o', 'r', 'c'], [
-    'ooooooo',
-    'ooRRRoo',
-    'ccccccc',
-  ], [['o', 11], ['r', 3], ['c', 7]]);
+  const face = scaleFace([
+    'oooooooo',
+    'oooooooo',
+    'ooRRRRoo',
+    'ooRRRRoo',
+    'cccccccc',
+    'cccccccc',
+  ], 2);
+  return tutorialBase(41, ['o', 'r', 'c'], face);
 }
 
 function makeBombTutorial() {
-  return tutorialBase(51, ['y', 'p', 'r', 'c'], [
-    '.pyp.',
-    '.ppp.',
-    'rrrrr',
-    'ccccc',
-  ], [['y', 1], ['r', 5], ['c', 5]], {
-    bomb: ['..*..', '.....', '.....', '.....'],
-  });
+  const face = scaleFace([
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'yyyyyyyy',
+    'rrrrrrrr',
+    'rrrrrrrr',
+    'cccccccc',
+    'cccccccc',
+  ], 2);
+  const bomb = scaleFace([
+    '........',
+    '........',
+    '...*....',
+    '........',
+    '........',
+    '........',
+    '........',
+    '........',
+  ], 2);
+  return tutorialBase(51, ['y', 'r', 'c'], face, null, { bomb });
 }
 
 function cellsFromFace(face, depth, extra = {}) {
@@ -860,6 +743,10 @@ function cellsFromFace(face, depth, extra = {}) {
         cells.push({ tokens: [], rescue: extra.rescue ?? 'y' });
         continue;
       }
+      if (ch === '$') {
+        cells.push({ tokens: [], chest: true });
+        continue;
+      }
       const up = ch >= 'A' && ch <= 'Z';
       const token = up ? ch.toLowerCase() : ch;
       const tokens = [];
@@ -876,6 +763,71 @@ function cellsFromFace(face, depth, extra = {}) {
 
 function markFront(cell, key) {
   cell[key] = cell.tokens.map((_, z) => z === 0);
+}
+
+const SPECIAL_SPAN = 4;
+
+function canFitSpan(cols, rows, x, y, span = SPECIAL_SPAN) {
+  return x >= 0 && y >= 0 && x + span <= cols && y + span <= rows;
+}
+
+function clearSpan(cells, cols, x, y, span = SPECIAL_SPAN) {
+  for (let dy = 0; dy < span; dy++) {
+    for (let dx = 0; dx < span; dx++) {
+      if (!dx && !dy) continue;
+      cells[(y + dy) * cols + (x + dx)] = null;
+    }
+  }
+}
+
+function isSpecialOrigin(cell) {
+  return !!(cell?.rescue || cell?.chest || cell?.bomb?.[0] || cell?.paint?.[0]);
+}
+
+function sameSpecial(a, b) {
+  if (!a || !b) return false;
+  if (a.rescue && b.rescue) return true;
+  if (a.chest && b.chest) return true;
+  if (a.bomb?.[0] && b.bomb?.[0]) return true;
+  if (a.paint?.[0] && b.paint?.[0]) return true;
+  return false;
+}
+
+function collapseSpecialMarks(cells, cols, rows) {
+  for (let y = rows - 1; y >= 0; y--) {
+    for (let x = cols - 1; x >= 0; x--) {
+      const cell = cells[y * cols + x];
+      if (!isSpecialOrigin(cell)) continue;
+      const left = x > 0 ? cells[y * cols + x - 1] : null;
+      const down = y > 0 ? cells[(y - 1) * cols + x] : null;
+      if (sameSpecial(cell, left) || sameSpecial(cell, down)) cells[y * cols + x] = null;
+    }
+  }
+}
+
+function expandSpecials(cells, cols, rows, span = SPECIAL_SPAN) {
+  collapseSpecialMarks(cells, cols, rows);
+  const found = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = cells[y * cols + x];
+      if (isSpecialOrigin(cell)) found.push({ x, y, cell });
+    }
+  }
+  for (const s of found) {
+    let { x, y } = s;
+    if (!canFitSpan(cols, rows, x, y, span)) {
+      const nx = Math.max(0, Math.min(x, cols - span));
+      const ny = Math.max(0, Math.min(y, rows - span));
+      if (nx !== x || ny !== y) {
+        cells[ny * cols + nx] = s.cell;
+        cells[y * cols + x] = null;
+        x = nx;
+        y = ny;
+      }
+    }
+    clearSpan(cells, cols, x, y, span);
+  }
 }
 
 function occupiedCells(cells, cols, rows) {
@@ -901,14 +853,32 @@ function neighborCount(cells, cols, rows, x, y) {
   return n;
 }
 
+function footprintFree(cells, cols, rows, x, y, span = SPECIAL_SPAN) {
+  if (!canFitSpan(cols, rows, x, y, span)) return false;
+  for (let dy = 0; dy < span; dy++) {
+    for (let dx = 0; dx < span; dx++) {
+      const cell = cells[(y + dy) * cols + (x + dx)];
+      if (dx || dy) {
+        if (isSpecialOrigin(cell)) return false;
+      } else if (cell?.rescue || cell?.chest) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 function placePaints(cells, cols, rows, count, rng) {
   const spots = occupiedCells(cells, cols, rows)
     .filter((s) => !s.cell.paint && !s.cell.bomb && !s.cell.magnet && !s.cell.locked)
+    .filter((s) => footprintFree(cells, cols, rows, s.x, s.y))
     .sort((a, b) => neighborCount(cells, cols, rows, b.x, b.y) - neighborCount(cells, cols, rows, a.x, a.y));
   const picked = [];
   for (let i = 0; i < spots.length && picked.length < count; i++) {
     if (rng.next() > 0.7 && i + 1 < spots.length) continue;
+    if (!footprintFree(cells, cols, rows, spots[i].x, spots[i].y)) continue;
     markFront(spots[i].cell, 'paint');
+    clearSpan(cells, cols, spots[i].x, spots[i].y);
     picked.push(spots[i]);
   }
   return picked;
@@ -916,11 +886,14 @@ function placePaints(cells, cols, rows, count, rng) {
 
 function placeBombs(cells, cols, rows, count, rng) {
   const spots = occupiedCells(cells, cols, rows)
-    .filter((s) => !s.cell.paint && !s.cell.bomb && neighborCount(cells, cols, rows, s.x, s.y) >= 3);
+    .filter((s) => !s.cell.paint && !s.cell.bomb && neighborCount(cells, cols, rows, s.x, s.y) >= 3)
+    .filter((s) => footprintFree(cells, cols, rows, s.x, s.y));
   shuffleIn(spots, rng);
   const picked = [];
   for (let i = 0; i < spots.length && picked.length < count; i++) {
+    if (!footprintFree(cells, cols, rows, spots[i].x, spots[i].y)) continue;
     markFront(spots[i].cell, 'bomb');
+    clearSpan(cells, cols, spots[i].x, spots[i].y);
     picked.push(spots[i]);
   }
   return picked;
@@ -961,7 +934,9 @@ function placeLocks(cells, cols, rows, clusters, rng) {
 
 function placeRescues(cells, cols, rows, count, palette, rng) {
   const spots = occupiedCells(cells, cols, rows)
-    .filter((s) => s.x > 0 && s.x < cols - 1 && s.y > 0 && s.y < rows - 1)
+    .filter((s) => canFitSpan(cols, rows, s.x, s.y))
+    .filter((s) => s.x > 1 && s.x < cols - SPECIAL_SPAN - 1 && s.y > 1 && s.y < rows - SPECIAL_SPAN - 1)
+    .filter((s) => !s.cell.bomb && !s.cell.paint && !s.cell.rescue && !s.cell.chest)
     .filter((s) => neighborCount(cells, cols, rows, s.x, s.y) >= 5);
   shuffleIn(spots, rng);
   const placed = [];
@@ -976,12 +951,29 @@ function placeRescues(cells, cols, rows, count, palette, rng) {
       }
     }
     const token = placed[0]
-      || palette.find((t) => !around.has(t) && (counts.get(t) ?? 0) >= 4)
+      || palette.find((t) => !around.has(t) && (counts.get(t) ?? 0) >= UNIT_POWER_MIN)
       || palette.find((t) => !around.has(t))
       || null;
     if (!token) continue;
     cells[spots[i].y * cols + spots[i].x] = { tokens: [], rescue: token };
+    clearSpan(cells, cols, spots[i].x, spots[i].y);
     placed.push(token);
+  }
+  return placed;
+}
+
+function placeChests(cells, cols, rows, count, rng) {
+  const spots = occupiedCells(cells, cols, rows)
+    .filter((s) => canFitSpan(cols, rows, s.x, s.y))
+    .filter((s) => s.x > 1 && s.x < cols - SPECIAL_SPAN - 1 && s.y > 1 && s.y < rows - SPECIAL_SPAN - 1)
+    .filter((s) => !s.cell.rescue && !s.cell.chest && !s.cell.bomb && !s.cell.paint)
+    .filter((s) => neighborCount(cells, cols, rows, s.x, s.y) >= 5);
+  shuffleIn(spots, rng);
+  const placed = [];
+  for (let i = 0; i < spots.length && placed.length < count; i++) {
+    cells[spots[i].y * cols + spots[i].x] = { tokens: [], chest: true };
+    clearSpan(cells, cols, spots[i].x, spots[i].y);
+    placed.push(spots[i]);
   }
   return placed;
 }
@@ -996,6 +988,7 @@ function specFor(id) {
     bombs: 0,
     lockClusters: 0,
     rescues: 0,
+    chests: 0,
   };
   if (d === 1) {
     spec.iron = t <= 6 ? 1 : 2;
@@ -1012,6 +1005,7 @@ function specFor(id) {
     spec.iron = t <= 4 ? 1 : 2;
     spec.lockClusters = t >= 3 ? 1 : 0;
     spec.ironGaps = t >= 7 ? 1 : 0;
+    spec.chests = t >= 1 ? 1 : 0;
   } else if (d === 7) {
     spec.paints = 1;
     spec.bombs = t >= 4 ? 1 : 0;
@@ -1021,64 +1015,100 @@ function specFor(id) {
     spec.lockClusters = t >= 6 ? 1 : 0;
   } else if (d === 9) {
     const mix = [
-      { iron: 1, paints: 1 },
+      { iron: 1, paints: 1, chests: 1 },
       { iron: 1, lockClusters: 1 },
-      { bombs: 1, paints: 1 },
+      { bombs: 1, paints: 1, chests: 1 },
       { iron: 2, bombs: 1 },
       { rescues: 1, iron: 1 },
-      { lockClusters: 1, paints: 1 },
+      { lockClusters: 1, paints: 1, chests: 1 },
       { bombs: 1, lockClusters: 1 },
       { iron: 1, lockClusters: 1, bombs: 1 },
       { paints: 1, rescues: 1 },
-      { iron: 1, bombs: 1, lockClusters: 1 },
+      { iron: 1, bombs: 1, lockClusters: 1, chests: 1 },
     ][t];
     Object.assign(spec, mix);
   }
   return spec;
 }
 
+function isSilhouetteEdge(occ, cols, rows, x, y, ring = 1) {
+  for (let dy = -ring; dy <= ring; dy++) {
+    for (let dx = -ring; dx <= ring; dx++) {
+      if (!dx && !dy) continue;
+      if (Math.abs(dx) + Math.abs(dy) > ring) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) return true;
+      if (!occ[ny * cols + nx]) return true;
+    }
+  }
+  return false;
+}
+
+function nextToken(token, palette) {
+  const i = palette.indexOf(token);
+  if (i < 0) return palette[0];
+  return palette[(i + 1) % palette.length];
+}
+
+function peelBandCount(depth) {
+  if (depth <= 1) return 1;
+  return Math.min(7, depth);
+}
+
+function peelBandOf(z, depth, bands) {
+  if (z <= 0 || bands <= 1) return 0;
+  const inner = bands - 1;
+  return 1 + Math.min(inner - 1, Math.floor(((z - 1) * inner) / Math.max(1, depth - 1)));
+}
+
+function peelSequence(palette, count) {
+  const seq = [];
+  if (!palette.length || count <= 0) return seq;
+  for (let i = 0; i < count; i++) {
+    let token = palette[i % palette.length];
+    if (seq.length && token === seq[seq.length - 1] && palette.length > 1) {
+      token = palette[(i + 1) % palette.length];
+    }
+    if (seq.length && token === seq[seq.length - 1] && palette.length > 1) {
+      token = nextToken(token, palette);
+    }
+    seq.push(token);
+  }
+  return seq;
+}
+
+function paintOuterFace(spots, occ, cols, rows, facePal, rng) {
+  const rim = facePal[0];
+  const fill = facePal[1] || facePal[0];
+  for (const ring of [2, 1]) {
+    const edges = [];
+    const interiors = [];
+    for (const [x, y] of spots) {
+      if (isSilhouetteEdge(occ, cols, rows, x, y, ring)) edges.push([x, y]);
+      else interiors.push([x, y]);
+    }
+    if (interiors.length >= 24 && edges.length < spots.length * 0.62 && facePal.length >= 2) {
+      const out = new Array(cols * rows).fill(null);
+      for (const [x, y] of interiors) out[y * cols + x] = fill;
+      for (const [x, y] of edges) out[y * cols + x] = rim;
+      return out;
+    }
+  }
+  return paintFace(spots, cols, rows, facePal, rng, 20);
+}
+
 function buildShapedCells(id, size, palette, rng) {
-  const kind = (id - 1) % 50;
-  const alt = Math.floor((id - 1) / 50);
-  const fat = 0.74;
-  const occ = new Array(size.cols * size.rows).fill(false);
-  let filled = 0;
-  for (let y = 0; y < size.rows; y++) {
-    for (let x = 0; x < size.cols; x++) {
-      const u = size.cols <= 1 ? 0 : (x / (size.cols - 1)) * 2 - 1;
-      const v = size.rows <= 1 ? 0 : (y / (size.rows - 1)) * 2 - 1;
-      if (occupied(kind, u * fat, v * fat, alt, id)) {
-        occ[y * size.cols + x] = true;
-        filled += 1;
-      }
-    }
-  }
-  const minFill = Math.floor(size.cols * size.rows * (size.depth >= 2 ? 0.72 : 0.62));
-  if (filled < minFill) {
-    for (let y = 0; y < size.rows; y++) {
-      for (let x = 0; x < size.cols; x++) {
-        const i = y * size.cols + x;
-        if (occ[i]) continue;
-        const u = size.cols <= 1 ? 0 : (x / (size.cols - 1)) * 2 - 1;
-        const v = size.rows <= 1 ? 0 : (y / (size.rows - 1)) * 2 - 1;
-        if (Math.abs(u) < 0.92 && Math.abs(v) < 0.88) {
-          occ[i] = true;
-          filled += 1;
-        }
-      }
-    }
-  }
+  const { occ } = occupyShape(id, size.cols, size.rows);
   const spots = [];
   for (let y = 0; y < size.rows; y++) {
     for (let x = 0; x < size.cols; x++) {
       if (occ[y * size.cols + x]) spots.push([x, y]);
     }
   }
-  const clusterMin = 3;
-  const layerFaces = [];
-  for (let z = 0; z < size.depth; z++) {
-    layerFaces.push(paintFace(spots, size.cols, size.rows, palette, rng, clusterMin));
-  }
+  const bands = peelBandCount(size.depth);
+  const seq = peelSequence(palette, Math.max(2, bands + 1));
+  const face = paintOuterFace(spots, occ, size.cols, size.rows, seq.slice(0, 2), rng);
   const cells = [];
   for (let y = 0; y < size.rows; y++) {
     for (let x = 0; x < size.cols; x++) {
@@ -1089,7 +1119,11 @@ function buildShapedCells(id, size, palette, rng) {
       }
       const tokens = [];
       for (let z = 0; z < size.depth; z++) {
-        tokens.push(layerFaces[z][i] ?? palette[z % palette.length]);
+        const band = peelBandOf(z, size.depth, bands);
+        const token = band === 0
+          ? (face[i] ?? seq[0])
+          : (seq[Math.min(seq.length - 1, band + 1)] ?? palette[z % palette.length]);
+        tokens.push(token);
       }
       cells.push(makeCell(tokens));
     }
@@ -1110,12 +1144,54 @@ function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits)
   return { units, ironRows };
 }
 
+function growSparseColors(cells, minP = UNIT_POWER_MIN) {
+  const counts = countBricks(cells);
+  let biggest = null;
+  let biggestN = 0;
+  for (const [token, n] of counts) {
+    if (n > biggestN) {
+      biggest = token;
+      biggestN = n;
+    }
+  }
+  if (!biggest) return;
+  for (const [token, n] of counts) {
+    if (n >= minP || n === 0 || token === biggest) continue;
+    let need = minP - n;
+    for (const cell of cells) {
+      if (need <= 0) break;
+      if (!cell?.tokens?.length) continue;
+      for (let z = 0; z < cell.tokens.length; z++) {
+        if (need <= 0) break;
+        if (cell.tokens[z] !== biggest) continue;
+        if (cell.locked?.[z] || cell.bomb?.[z] || cell.paint?.[z]) continue;
+        const sameLayer = cells.some((other) => other?.tokens?.[z] === token);
+        if (!sameLayer) continue;
+        cell.tokens[z] = token;
+        need -= 1;
+      }
+    }
+  }
+}
+
 function makeDecadeLevel(id) {
-  const rng = new Rng(id * 2654435761);
+  const { isWinnable } = require('./solve-levels');
+  let best = null;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const rng = new Rng((id * 2654435761 + attempt * 9973) >>> 0);
+    const level = buildDecadeLevel(id, rng);
+    level.units = padUnitPowers(level.units);
+    if (isWinnable(level)) return level;
+    best = level;
+  }
+  return best;
+}
+
+function buildDecadeLevel(id, rng) {
   const size = sizeFor(id);
-  if (id <= 10) size.colors = id <= 4 ? 3 : 4;
   const palette = paletteFor(id, size.colors, rng);
   const cells = buildShapedCells(id, size, palette, rng);
+  growSparseColors(cells);
   const spec = specFor(id);
   const extra = emptyLevelExtras();
   extra.brickMix = 0;
@@ -1123,6 +1199,7 @@ function makeDecadeLevel(id) {
   if (spec.bombs) placeBombs(cells, size.cols, size.rows, spec.bombs, rng);
   if (spec.lockClusters) placeLocks(cells, size.cols, size.rows, spec.lockClusters, rng);
   if (spec.rescues) placeRescues(cells, size.cols, size.rows, spec.rescues, palette, rng);
+  if (spec.chests) placeChests(cells, size.cols, size.rows, spec.chests, rng);
 
   let ironRows = chooseIronRows(cells, size.cols, size.rows, spec.iron);
   const ironGaps = chooseIronGaps(size.cols, spec.ironGaps);
@@ -1141,23 +1218,11 @@ function makeDecadeLevel(id) {
   extra.ironRow = ironRows.length ? ironRows[ironRows.length - 1] : -1;
   let units = planned.units;
   if (spec.rescues) {
-    const counts = countBricks(cells);
     const rescueTokens = new Set();
     for (const cell of cells) {
       if (cell?.rescue) rescueTokens.add(cell.rescue);
     }
-    const dropColor = spec.iron === 0 && spec.paints === 0 && spec.bombs === 0;
-    if (rescueTokens.size && dropColor) {
-      units = splitToMinUnits(
-        units.filter((u) => !rescueTokens.has(u[0])),
-        minUnitsFor(id),
-      );
-      let power = 5;
-      for (const token of rescueTokens) power = counts.get(token) ?? 5;
-      extra.rescuePower = power;
-    } else if (rescueTokens.size) {
-      extra.rescuePower = 5;
-    }
+    if (rescueTokens.size) extra.rescuePower = UNIT_POWER_MIN;
   }
   return {
     id,
@@ -1171,14 +1236,18 @@ function makeDecadeLevel(id) {
 }
 
 function makeLevel(id) {
-  if (id === 1) return makeAbsorbTutorial();
-  if (id === 2) return makeAbsorbTwo();
-  if (id === 11) return makeIronTutorial();
-  if (id === 21) return makePaintTutorial();
-  if (id === 31) return makeRescueTutorial();
-  if (id === 41) return makeNailTutorial();
-  if (id === 51) return makeBombTutorial();
-  return makeDecadeLevel(id);
+  let level;
+  if (id === 1) level = makeAbsorbTutorial();
+  else if (id === 2) level = makeAbsorbTwo();
+  else if (id === 11) level = makeIronTutorial();
+  else if (id === 21) level = makePaintTutorial();
+  else if (id === 31) level = makeRescueTutorial();
+  else if (id === 41) level = makeNailTutorial();
+  else if (id === 51) level = makeBombTutorial();
+  else if (id === 61) level = makeChestTutorial();
+  else level = makeDecadeLevel(id);
+  level.units = padUnitPowers(level.units);
+  return level;
 }
 
 function unitsCover(cells, units) {
@@ -1214,6 +1283,7 @@ function encodeLevel(level) {
     cells: level.cells.map((cell) => {
       if (!cell) return null;
       if (cell.rescue) return `@${cell.rescue}`;
+      if (cell.chest) return '$';
       return cell.tokens
         .map((t, z) => {
           const ch = cell.locked?.[z] ? t.toUpperCase() : t;
@@ -1254,6 +1324,20 @@ function bakeAll() {
       }
     }
     const bricks = level.cells.reduce((n, cell) => n + (cell ? cell.tokens.length : 0), 0);
+    const powers = level.units.map((u) => u[1]);
+    const pmin = powers.length ? Math.min(...powers) : 0;
+    const pmax = powers.length ? Math.max(...powers) : 0;
+    const pavg = powers.length ? powers.reduce((a, b) => a + b, 0) / powers.length : 0;
+    if (pmin < UNIT_POWER_MIN) {
+      throw new Error(`L${id} unit power ${pmin} < ${UNIT_POWER_MIN}`);
+    }
+    if (level.cells.some((c) => c?.rescue)) {
+      const rp = level.rescuePower ?? 0;
+      if (rp < UNIT_POWER_MIN || rp > UNIT_POWER_MAX) {
+        throw new Error(`L${id} rescuePower ${rp} outside ${UNIT_POWER_MIN}-${UNIT_POWER_MAX}`);
+      }
+    }
+    const shape = shapeForLevel(id);
     const tags = [];
     if ((level.ironRows || []).length) tags.push(`iron=${level.ironRows.join('/')}`);
     if ((level.ironGaps || []).length) tags.push(`gap=${level.ironGaps.join(',')}`);
@@ -1264,9 +1348,26 @@ function bakeAll() {
     if (level.cells.some((c) => c?.magnet?.some(Boolean))) tags.push('magnet');
     if (level.cells.some((c) => c?.locked?.some(Boolean))) tags.push('nail');
     if (level.cells.some((c) => c?.rescue)) tags.push('rescue');
+    if (level.cells.some((c) => c?.chest)) tags.push('chest');
     const depth = level.cells.reduce((n, cell) => Math.max(n, cell ? cell.tokens.length : 0), 0);
+    let stacked = 0;
+    let uniqSum = 0;
+    let steps = 0;
+    let flips = 0;
+    for (const cell of level.cells) {
+      if (!cell?.tokens || cell.tokens.length < 2) continue;
+      stacked += 1;
+      uniqSum += new Set(cell.tokens).size;
+      for (let z = 1; z < cell.tokens.length; z++) {
+        steps += 1;
+        if (cell.tokens[z] !== cell.tokens[z - 1]) flips += 1;
+      }
+    }
+    const peel = stacked
+      ? ` layers=${(uniqSum / stacked).toFixed(1)} flips=${Math.round((100 * flips) / steps)}%`
+      : '';
     console.log(
-      `L${String(id).padStart(3)} ${level.cols}x${level.rows}x${depth} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length}`,
+      `L${String(id).padStart(3)} ${shape.name} ${level.cols}x${level.rows}x${depth} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length} power=${pmin}-${pmax} avg=${pavg.toFixed(1)}${peel}`,
     );
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });

@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, PLAY, parseColorToken } from '../game/GameConfig';
-import { applyBrickGray, applyToyCaster } from './ToyBlockMesh';
+import { ColorId, GAME, PLAY, SPECIAL_SPAN, parseColorToken } from '../game/GameConfig';
+import { applyBrickGray, applyBrickPlastic } from './ToyBlockMesh';
 import { clearLockLook } from './LockNails';
 
 const { ccclass } = _decorator;
@@ -40,6 +40,7 @@ export class BlockCell extends Component {
   private _grain = 1;
   private _target: Node | null = null;
   private _sucking = false;
+  private _claimed = false;
   private _priming = false;
   private _suckT = 0;
   private _suckDur = GAME.suckFlightSec;
@@ -53,17 +54,19 @@ export class BlockCell extends Component {
   private _moveDur = 0;
 
   onLoad(): void {
-    applyToyCaster(this.node);
+    applyBrickPlastic(this.node);
     this.syncFromName();
   }
 
   syncFromName(): void {
     this._parseName();
-    this.node.setScale(PLAY.blockSize, PLAY.blockSize, PLAY.blockSize);
+    const s = PLAY.blockSize * (this.bombed || this.paint ? SPECIAL_SPAN * 0.98 : 1);
+    this.node.setScale(s, s, s);
     this.node.setRotationFromEuler(0, 0, 0);
     this._baseScale.set(this.node.scale);
     this.hp = this.maxHp = GAME.blockHp;
     this._sucking = false;
+    this._claimed = false;
     this._priming = false;
     this._target = null;
     this._onLand = null;
@@ -73,7 +76,7 @@ export class BlockCell extends Component {
   }
 
   beginMove(x: number, y: number, duration = 0.22): void {
-    if (this._sucking || this._priming) return;
+    if (this._sucking || this._priming || this._claimed) return;
     this.node.getPosition(this._moveFrom);
     this._moveTo.set(x, y, this._moveFrom.z);
     if (Vec3.squaredDistance(this._moveFrom, this._moveTo) < 1e-6) return;
@@ -83,7 +86,7 @@ export class BlockCell extends Component {
   }
 
   get alive(): boolean {
-    return this.node.active && this.hp > 0 && !this._sucking;
+    return this.node.active && this.hp > 0 && !this._sucking && !this._claimed;
   }
 
   get suckable(): boolean {
@@ -111,16 +114,35 @@ export class BlockCell extends Component {
   }
 
   get inFlight(): boolean {
-    return this._sucking;
+    return this._sucking || this._claimed;
   }
 
   worldPos(out: Vec3): Vec3 {
     return this.node.getWorldPosition(out);
   }
 
+  /** Claimed by a shot: stay put, no longer a target. */
+  beginIncoming(): void {
+    if (this.locked || this._sucking || this._priming || this._claimed || !this.node.active) return;
+    this._claimed = true;
+  }
+
+  shatter(onDone?: () => void): void {
+    this.hp = 0;
+    this._claimed = false;
+    this._sucking = false;
+    this._priming = false;
+    this._target = null;
+    this._onLand = null;
+    this.enabled = false;
+    this.node.active = false;
+    onDone?.();
+  }
+
   /** Stay put: swell, shake, then boom. */
   beginPrimeBoom(_target: Node, duration: number, onBoom?: () => void): void {
     if (this.locked || this._sucking || !this.node.active) return;
+    this._claimed = false;
     this._sucking = true;
     this._priming = true;
     this._target = null;

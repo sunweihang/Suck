@@ -12,7 +12,11 @@ import {
   resources,
 } from 'cc';
 import { levelBadgeText } from '../game/LevelCatalog';
-import { paintLevelBadge, styleLevelBadge } from './QChrome';
+import { paintCapsuleBtn, paintLevelBadge, styleLevelBadge } from './QChrome';
+
+/** Native pixel size of the volcano button PNGs. Do not stretch. */
+export const VOLCANO_BTN_W = 374;
+export const VOLCANO_BTN_H = 145;
 
 const KEYS = [
   'bg',
@@ -41,6 +45,18 @@ const KEYS = [
   'icMerge',
   'icHook',
   'icShovel',
+  'goldIcon',
+  'goldBg',
+  'icAd',
+  'winAction',
+  'winDouble',
+  'winNext',
+  'chest',
+  'itemGetPanel',
+  'itemGetBox',
+  'itemGetClose',
+  'panelMain',
+  'lockSeal',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
@@ -69,6 +85,15 @@ function imagePathOf(key: ArtKey): string | null {
   if (key === 'icMerge') return 'ui/ic-item-merge';
   if (key === 'icHook') return 'ui/ic-item-hook';
   if (key === 'icShovel') return 'ui/ic-item-shovel';
+  if (key === 'goldIcon') return 'ui/ui-gold-icon';
+  if (key === 'goldBg') return 'ui/ui-gold-bg';
+  if (key === 'icAd') return 'ui/ic-ad-video';
+  if (key === 'chest') return 'ui/chest';
+  if (key === 'itemGetPanel') return 'ui/panel-item-get';
+  if (key === 'panelMain') return 'ui/panel-main';
+  if (key === 'itemGetBox') return 'ui/item-get-box';
+  if (key === 'itemGetClose') return 'ui/btn-item-close';
+  if (key === 'lockSeal') return 'ui/lock-seal';
   return null;
 }
 
@@ -99,6 +124,18 @@ function pathOf(key: ArtKey): string {
   if (key === 'icMerge') return 'ui/ic-item-merge/spriteFrame';
   if (key === 'icHook') return 'ui/ic-item-hook/spriteFrame';
   if (key === 'icShovel') return 'ui/ic-item-shovel/spriteFrame';
+  if (key === 'goldIcon') return 'ui/ui-gold-icon/spriteFrame';
+  if (key === 'goldBg') return 'ui/ui-gold-bg/spriteFrame';
+  if (key === 'icAd') return 'ui/ic-ad-video/spriteFrame';
+  if (key === 'winAction') return 'ui/btn-win-action/spriteFrame';
+  if (key === 'winDouble') return 'ui/btn-win-double/spriteFrame';
+  if (key === 'winNext') return 'ui/btn-win-next/spriteFrame';
+  if (key === 'chest') return 'ui/chest/spriteFrame';
+  if (key === 'itemGetPanel') return 'ui/panel-item-get/spriteFrame';
+  if (key === 'panelMain') return 'ui/panel-main/spriteFrame';
+  if (key === 'itemGetBox') return 'ui/item-get-box/spriteFrame';
+  if (key === 'itemGetClose') return 'ui/btn-item-close/spriteFrame';
+  if (key === 'lockSeal') return 'ui/lock-seal/spriteFrame';
   if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
@@ -110,7 +147,7 @@ let boot: Promise<void> | null = null;
 function sharpenUiTex(tex: Texture2D | null | undefined): void {
   if (!tex) return;
   tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
-  tex.setMipFilter(Texture2D.Filter.LINEAR);
+  tex.setMipFilter(Texture2D.Filter.NONE);
 }
 
 function frameFromImage(img: ImageAsset): SpriteFrame {
@@ -123,21 +160,24 @@ function frameFromImage(img: ImageAsset): SpriteFrame {
 }
 
 function loadKey(key: ArtKey, done: () => void): void {
-  resources.load(pathOf(key), SpriteFrame, (err, sf) => {
-    if (!err && sf?.texture) {
-      frames.set(key, sf);
-      done();
-      return;
-    }
-    const imgPath = imagePathOf(key);
-    if (!imgPath) {
-      done();
-      return;
-    }
+  const imgPath = imagePathOf(key);
+  if (imgPath) {
     resources.load(imgPath, ImageAsset, (e2, img) => {
-      if (!e2 && img) frames.set(key, frameFromImage(img));
-      done();
+      if (!e2 && img) {
+        frames.set(key, frameFromImage(img));
+        done();
+        return;
+      }
+      resources.load(pathOf(key), SpriteFrame, (err, sf) => {
+        if (!err && sf?.texture) frames.set(key, sf);
+        done();
+      });
     });
+    return;
+  }
+  resources.load(pathOf(key), SpriteFrame, (err, sf) => {
+    if (!err && sf?.texture) frames.set(key, sf);
+    done();
   });
 }
 
@@ -160,8 +200,16 @@ export function artFrame(key: ArtKey | `d${number}`): SpriteFrame | null {
 
 function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number } | null {
   if (key === 'settingsCard') return { t: 128, b: 128, l: 128, r: 128 };
-  if (key === 'itemTray') return { t: 73, b: 73, l: 110, r: 110 };
+  if (key === 'itemTray') return { t: 72, b: 72, l: 120, r: 120 };
+  if (key === 'goldBg') return { t: 0, b: 0, l: 20, r: 20 };
   return null;
+}
+
+function clearNodeGraphics(node: Node): void {
+  const g = node.getComponent(Graphics);
+  if (!g) return;
+  g.clear();
+  g.enabled = false;
 }
 
 function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: boolean, key?: ArtKey): void {
@@ -172,17 +220,114 @@ function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: 
     sf.insetLeft = Math.max(sf.insetLeft, inset.l);
     sf.insetRight = Math.max(sf.insetRight, inset.r);
   }
+  clearNodeGraphics(node);
   let sp = node.getComponent(Sprite);
   if (!sp) sp = node.addComponent(Sprite);
   sp.spriteFrame = sf;
-  sp.sizeMode = Sprite.SizeMode.CUSTOM;
-  sp.type = sliced ? Sprite.Type.SLICED : Sprite.Type.SIMPLE;
   sp.color = Color.WHITE;
   sp.enabled = true;
-  if (key === 'icShuffle' || key === 'icMerge' || key === 'icHook' || key === 'icShovel') {
-    sharpenUiTex(sf.texture as Texture2D);
+  const rawBtn = key === 'winAction' || key === 'winDouble' || key === 'winNext';
+  if (rawBtn) {
+    sp.sizeMode = Sprite.SizeMode.RAW;
+    sp.type = Sprite.Type.SIMPLE;
+    node.getComponent(UITransform)?.setContentSize(sf.rect.width, sf.rect.height);
+    return;
   }
+  sp.sizeMode = Sprite.SizeMode.CUSTOM;
+  sp.type = sliced ? Sprite.Type.SLICED : Sprite.Type.SIMPLE;
+  sharpenUiTex(sf.texture as Texture2D);
   node.getComponent(UITransform)?.setContentSize(w, h);
+}
+
+function mkUiChild(parent: Node, name: string, index: number, w: number, h: number): Node {
+  let n = parent.getChildByName(name);
+  if (!n) {
+    n = new Node(name);
+    parent.addChild(n);
+    n.layer = Layers.Enum.UI_2D;
+    n.addComponent(UITransform);
+  }
+  n.setSiblingIndex(index);
+  n.setPosition(0, 0, 0);
+  n.getComponent(UITransform)?.setContentSize(w, h);
+  return n;
+}
+
+function hideFaceGraphics(face: Node): void {
+  const leftover = face.getComponent(Sprite);
+  if (leftover) {
+    leftover.spriteFrame = null;
+    leftover.enabled = false;
+  }
+  const g = face.getComponent(Graphics);
+  if (!g) return;
+  g.clear();
+  g.enabled = false;
+}
+
+function paintFaceCapsule(face: Node, w: number, h: number, fill: Color, stroke: Color): void {
+  hideFaceGraphics(face);
+  let g = face.getComponent(Graphics);
+  if (!g) g = face.addComponent(Graphics);
+  g.enabled = true;
+  paintCapsuleBtn(g, w, h, fill, stroke);
+}
+
+/** PNG skin when present. Graphics capsule is fallback only — it has no AA. */
+export function ensureBtnChrome(
+  btn: Node | null | undefined,
+  w: number,
+  h: number,
+  fill: Color,
+  stroke: Color,
+  artKey?: 'winDouble' | 'winAction' | 'winNext' | 'clubBtn' | 'shareBtn',
+): void {
+  if (!btn) return;
+  const rootSp = btn.getComponent(Sprite);
+  if (rootSp) {
+    rootSp.spriteFrame = null;
+    rootSp.enabled = false;
+  }
+  clearNodeGraphics(btn);
+  const rawBtn = artKey === 'winDouble' || artKey === 'winAction' || artKey === 'winNext';
+  const bw = rawBtn ? VOLCANO_BTN_W : w;
+  const bh = rawBtn ? VOLCANO_BTN_H : h;
+  btn.getComponent(UITransform)?.setContentSize(bw, bh);
+  const face = btn.getChildByName('Face');
+  if (artKey) {
+    if (face) {
+      hideFaceGraphics(face);
+      face.active = false;
+    }
+    const skin = mkUiChild(btn, 'Skin', 1, bw, bh);
+    if (!applyArtSprite(skin, artKey, bw, bh)) applyArtSpriteSoon(skin, artKey, bw, bh);
+  } else {
+    const faceN = face ?? mkUiChild(btn, 'Face', 0, bw, bh);
+    faceN.active = true;
+    faceN.getComponent(UITransform)?.setContentSize(bw, bh);
+    paintFaceCapsule(faceN, bw, bh, fill, stroke);
+  }
+  const content = btn.getChildByName('Content') ?? btn.getChildByName('Label');
+  if (content) content.setSiblingIndex(btn.children.length - 1);
+}
+
+/** Invisible hit pad. Skip when a sprite already owns this node — Sprite+Graphics cannot share a node. */
+export function fillInvisibleHit(node: Node | null | undefined): void {
+  if (!node) return;
+  const sp = node.getComponent(Sprite);
+  if (sp?.enabled && sp.spriteFrame) {
+    clearNodeGraphics(node);
+    return;
+  }
+  const ut = node.getComponent(UITransform);
+  if (!ut) return;
+  let g = node.getComponent(Graphics);
+  if (!g) g = node.addComponent(Graphics);
+  g.enabled = true;
+  g.clear();
+  g.fillColor = new Color(255, 255, 255, 1);
+  g.roundRect(-ut.width * 0.5, -ut.height * 0.5, ut.width, ut.height, Math.min(ut.height * 0.5, 48));
+  g.fill();
 }
 
 export function applyArtSprite(
@@ -209,20 +354,29 @@ export function applyArtSpriteSoon(
 ): void {
   if (!node) return;
   if (applyArtSprite(node, key, w, h, sliced)) return;
+  const imgPath = imagePathOf(key);
+  if (imgPath) {
+    resources.load(imgPath, ImageAsset, (e2, img) => {
+      if (!e2 && img && node.isValid) {
+        const made = frameFromImage(img);
+        frames.set(key, made);
+        paintSprite(node, made, w, h, sliced, key);
+        return;
+      }
+      resources.load(pathOf(key), SpriteFrame, (err, sf) => {
+        if (!err && sf?.texture && node.isValid) {
+          frames.set(key, sf);
+          paintSprite(node, sf, w, h, sliced, key);
+        }
+      });
+    });
+    return;
+  }
   resources.load(pathOf(key), SpriteFrame, (err, sf) => {
     if (!err && sf?.texture && node.isValid) {
       frames.set(key, sf);
       paintSprite(node, sf, w, h, sliced, key);
-      return;
     }
-    const imgPath = imagePathOf(key);
-    if (!imgPath) return;
-    resources.load(imgPath, ImageAsset, (e2, img) => {
-      if (e2 || !img || !node.isValid) return;
-      const made = frameFromImage(img);
-      frames.set(key, made);
-      paintSprite(node, made, w, h, sliced, key);
-    });
   });
 }
 
@@ -286,28 +440,12 @@ export function layoutHomeLevel(board: Node | null, level: number, size: number,
   if (!board) return;
   board.getComponent(UITransform)?.setContentSize(size, size);
   const face = board.getChildByName('Board');
-  const word = frames.get('homeBadge');
-  if (face && word) {
-    const oh = Math.max(1, word.originalSize.height);
-    const ow = Math.max(1, word.originalSize.width);
-    const wh = Math.round(size * 0.22);
-    const ww = Math.round(wh * (ow / oh));
-    applyArtSprite(face, 'homeBadge', ww, wh);
-    face.setPosition(0, -Math.round(size * 0.24), 0);
-    face.active = true;
-  } else if (face) {
-    const sp = face.getComponent(Sprite);
-    if (sp) {
-      sp.spriteFrame = null;
-      sp.enabled = false;
-    }
-    face.active = false;
-  }
+  if (face) face.active = false;
   const title = board.getChildByName('Title');
   if (!title) return;
   title.active = true;
-  title.setPosition(0, Math.round(size * 0.10), 0);
-  title.getComponent(UITransform)?.setContentSize(Math.round(size * 0.78), Math.round(size * 0.52));
+  title.setPosition(0, Math.round(size * 0.30), 0);
+  title.getComponent(UITransform)?.setContentSize(Math.round(size * 0.56), Math.round(size * 0.32));
   paintHomeLevelDigits(title, level, glyphH);
 }
 

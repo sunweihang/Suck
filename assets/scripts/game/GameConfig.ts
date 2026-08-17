@@ -18,15 +18,24 @@ export const GAME = {
   unitSpeed: 3.4,
   attackRange: 0.95,
   dragPickPx: 72,
-  suckRefPower: 40,
+  suckRefPower: 60,
   suckRefInterval: 0.08,
   suckFlightSec: 0.34,
   suckArc: 0.62,
   suckMaxFlight: 12,
-  suckMinInterval: 0.022,
+  suckMinInterval: 0.04,
+  suckMaxInterval: 0.14,
+  shotSpeed: 8,
+  shotMinSec: 0.16,
+  shotMaxSec: 0.4,
+  shotArc: 0.1,
+  wallSpinPeriod: 16,
+  /** Swipe: degrees of field yaw/pitch per screen pixel. */
+  wallSpinDragDeg: 0.38,
+  wallSpinPitchMax: 56,
 
-  wallCols: 15,
-  wallRows: 11,
+  wallCols: 28,
+  wallRows: 20,
   wallDepth: 4,
   blockStep: 0.38,
   blockSize: 0.374,
@@ -46,7 +55,7 @@ export const PLAY = {
   wallDepth: GAME.wallDepth,
   blockStep: GAME.blockStep,
   blockSize: GAME.blockSize,
-  wallBaseY: 0.22,
+  wallBaseY: 1.48,
   palette: ['o', 'y', 'c', 'g', 'p', 'r'] as ColorToken[],
   brickMix: 1,
   ironRow: -1,
@@ -63,9 +72,12 @@ export const PLAY = {
   raftPeriod: 2.5,
 };
 
-/** World box that stays inside the fixed play camera (15x11 @ 0.38). */
+/** World box that stays inside the fixed play camera (28x20 @ ~0.19). */
 const WALL_SAFE_HALF_W = 2.85;
 const WALL_SAFE_H = 4.18;
+/** World Y the play camera can still see; a peeking brick still counts. */
+export const VIEW_Y_MIN = 0.95;
+export const VIEW_Y_MAX = 1.48 + WALL_SAFE_H + 0.08;
 const BLOCK_SIZE_RATIO = GAME.blockSize / GAME.blockStep;
 
 /** Shrink step/size so this grid stays inside the current camera frustum. */
@@ -107,6 +119,79 @@ export function slotLocked(index: number): boolean {
   const col = slotColOf(index);
   const side = (GAME.slotMax - GAME.slotStart) >> 1;
   return col < side || col >= GAME.slotMax - side;
+}
+
+/** Rescue / chest / bomb / paint occupy this many cells on each side. */
+export const SPECIAL_SPAN = 4;
+
+export type SpecialMark = {
+  rescue?: unknown;
+  chest?: unknown;
+  bomb?: boolean[];
+  paint?: boolean[];
+};
+
+export function specialCenterX(col: number, startX: number, step: number, span = SPECIAL_SPAN): number {
+  return startX + (col + (span - 1) * 0.5) * step;
+}
+
+export function specialCenterY(row: number, baseY: number, step: number, span = SPECIAL_SPAN): number {
+  return baseY + (row + (span - 1) * 0.5) * step;
+}
+
+export function inSpecialFoot(col: number, row: number, x: number, y: number, span = SPECIAL_SPAN): boolean {
+  return x >= col && x < col + span && y >= row && y < row + span;
+}
+
+export function isSpecialOrigin(cell: SpecialMark | null | undefined): boolean {
+  return !!(cell?.rescue || cell?.chest || cell?.bomb?.[0] || cell?.paint?.[0]);
+}
+
+/** True when (x, y) sits in another special's 2×2 hole and is not the origin. */
+export function coveredBySpecial(
+  cells: Array<SpecialMark | null>,
+  cols: number,
+  x: number,
+  y: number,
+  span = SPECIAL_SPAN,
+): boolean {
+  for (let oy = Math.max(0, y - span + 1); oy <= y; oy++) {
+    for (let ox = Math.max(0, x - span + 1); ox <= x; ox++) {
+      if (ox === x && oy === y) continue;
+      if (!isSpecialOrigin(cells[oy * cols + ox])) continue;
+      if (inSpecialFoot(ox, oy, x, y, span)) return true;
+    }
+  }
+  return false;
+}
+
+export function forSpecialRing(
+  col: number,
+  row: number,
+  visit: (x: number, y: number) => void,
+  span = SPECIAL_SPAN,
+): void {
+  for (let y = row - 1; y <= row + span; y++) {
+    for (let x = col - 1; x <= col + span; x++) {
+      if (inSpecialFoot(col, row, x, y, span)) continue;
+      visit(x, y);
+    }
+  }
+}
+
+/** Inner edges of a holder brick that touch the special footprint. */
+export const HOLD_R = 1;
+export const HOLD_L = 2;
+export const HOLD_U = 4;
+export const HOLD_D = 8;
+
+export function holdGlowMask(hx: number, hy: number, col: number, row: number, span = SPECIAL_SPAN): number {
+  let m = 0;
+  if (inSpecialFoot(col, row, hx + 1, hy, span)) m |= HOLD_R;
+  if (inSpecialFoot(col, row, hx - 1, hy, span)) m |= HOLD_L;
+  if (inSpecialFoot(col, row, hx, hy + 1, span)) m |= HOLD_U;
+  if (inSpecialFoot(col, row, hx, hy - 1, span)) m |= HOLD_D;
+  return m;
 }
 
 export function wallStartX(cols: number = PLAY.wallCols): number {

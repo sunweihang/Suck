@@ -18,14 +18,14 @@ import { shareToFriend } from '../ads/WxShareService';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { styleQCaption, styleQNum } from './QChrome';
-import { applyArtSpriteSoon } from './UiArt';
+import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
 
 const { ccclass } = _decorator;
 
 const CARD_W = 860;
-const CARD_H = 1030;
-const BTN_W = 660;
-const BTN_H = 140;
+const CARD_H = Math.round((CARD_W * 1386) / 959);
+const BTN_W = VOLCANO_BTN_W;
+const BTN_H = VOLCANO_BTN_H;
 const CLOSE = 72;
 const ICON = 56;
 const TRACK_W = 620;
@@ -35,14 +35,16 @@ const THUMB = 48;
 const FILL_INSET = 6;
 const ROW_W = CARD_W - 100;
 const ROW_H = ICON + 18 + TRACK_H + 24;
-const TITLE_Y = 371;
-const BGM_Y = 218;
-const SFX_Y = 52;
-const SHARE_Y = -175;
-const CLUB_Y = -343;
+const TITLE_Y = Math.round(CARD_H * 0.5 - 150);
+const BGM_Y = 260;
+const SFX_Y = 70;
+const SHARE_Y = -200;
+const CLUB_Y = -440;
 const TITLE_INK = new Color(74, 68, 128, 255);
 const BTN_INK = new Color(255, 255, 255, 255);
 const BTN_OUTLINE = new Color(74, 68, 128, 255);
+const SHARE_OUTLINE = new Color(88, 48, 16, 255);
+const CLUB_OUTLINE = new Color(20, 64, 32, 255);
 
 @ccclass('SettingsPanel')
 export class SettingsPanel extends Component {
@@ -80,8 +82,12 @@ export class SettingsPanel extends Component {
     applyArtSpriteSoon(close, 'settingsClose', CLOSE, CLOSE);
     const lab = close?.getChildByName('Label');
     if (lab) lab.active = false;
-    applyArtSpriteSoon(card?.getChildByName('ShareButton') ?? null, 'shareBtn', BTN_W, BTN_H);
-    applyArtSpriteSoon(card?.getChildByName('ClubButton') ?? null, 'clubBtn', BTN_W, BTN_H);
+    ensureBtnChrome(card?.getChildByName('ShareButton'), BTN_W, BTN_H, Color.WHITE, SHARE_OUTLINE, 'winDouble');
+    ensureBtnChrome(card?.getChildByName('ClubButton'), BTN_W, BTN_H, Color.WHITE, CLUB_OUTLINE, 'winAction');
+    const shareLab = card?.getChildByName('ShareButton')?.getChildByName('Label')?.getComponent(Label);
+    if (shareLab) shareLab.outlineColor = SHARE_OUTLINE;
+    const clubLab = card?.getChildByName('ClubButton')?.getChildByName('Label')?.getComponent(Label);
+    if (clubLab) clubLab.outlineColor = CLUB_OUTLINE;
     this._paintVolumeRow(card?.getChildByName('BgmRow') ?? null, 'icMusic');
     this._paintVolumeRow(card?.getChildByName('SfxRow') ?? null, 'icSfx');
   }
@@ -93,9 +99,10 @@ export class SettingsPanel extends Component {
     this.node.getComponent(Widget)?.updateAlignment();
     this.node.getChildByName('Dim')?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
+    this.node.getChildByName('Card')?.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
     this.node.getChildByName('Card')?.getChildByName('CloseBtn')?.setPosition(
-      CARD_W * 0.5 - 48 - CLOSE * 0.5,
-      CARD_H * 0.5 - 48 - CLOSE * 0.5,
+      CARD_W * 0.5 - 56 - CLOSE * 0.5,
+      CARD_H * 0.5 - 56 - CLOSE * 0.5,
       0,
     );
     this._applyChrome();
@@ -118,7 +125,7 @@ export class SettingsPanel extends Component {
       frameG.clear();
       frameG.enabled = false;
     }
-    applyArtSpriteSoon(frame, 'settingsCard', CARD_W, CARD_H, true);
+    applyArtSpriteSoon(frame, 'panelMain', CARD_W, CARD_H);
   }
 
   private _ensureTree(): void {
@@ -148,7 +155,7 @@ export class SettingsPanel extends Component {
     if (!card.getComponent(BlockInputEvents)) card.addComponent(BlockInputEvents);
     const frame = this._mk('Frame', card, CARD_W, CARD_H);
     frame.setSiblingIndex(0);
-    applyArtSpriteSoon(frame, 'settingsCard', CARD_W, CARD_H, true);
+    applyArtSpriteSoon(frame, 'panelMain', CARD_W, CARD_H);
     const title = this._label(card, 'Title', '设置', 64, TITLE_INK, 0, TITLE_Y, CARD_W - 160, 88, true);
     title.outlineColor = TITLE_INK;
     title.outlineWidth = 0;

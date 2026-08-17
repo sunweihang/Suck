@@ -1,5 +1,5 @@
-import { _decorator, Component, Node, Vec3 } from 'cc';
-import { benchColOf, benchRankOf, ColorId, parseColorToken } from '../game/GameConfig';
+import { _decorator, Component, Node, Tween, Vec3, tween } from 'cc';
+import { benchColOf, benchRankOf, ColorId, SPECIAL_SPAN, parseColorToken } from '../game/GameConfig';
 import { applyGhostLook } from './BrickSpecials';
 import { OctopusQAnim } from './OctopusQAnim';
 import { bindPowerMark, paintPowerMark, preloadPowerDigits } from './PowerMark';
@@ -11,14 +11,17 @@ export type UnitState = 'bench' | 'drag' | 'walk' | 'attack';
 
 @ccclass('UnitActor')
 export class UnitActor extends Component {
+  static animLive = true;
   colorId: ColorId = ColorId.Orange;
   ghost = false;
   magnet = false;
   trapped = false;
+  freeing = false;
   trapCol = -1;
   trapRow = -1;
-  power = 40;
-  maxPower = 40;
+  trapSpan = SPECIAL_SPAN;
+  power = 60;
+  maxPower = 60;
   index = 0;
   benchCol = 0;
   benchRank = 0;
@@ -45,7 +48,7 @@ export class UnitActor extends Component {
   private _powerOn = false;
 
   onLoad(): void {
-    applyToyCaster(this.node, true);
+    applyToyCaster(this.node, false);
     this.syncFromName();
   }
 
@@ -73,6 +76,17 @@ export class UnitActor extends Component {
 
   syncPowerLabel(): void {
     this._syncPowerText();
+  }
+
+  rebindPower(): void {
+    if (this._powerTag?.isValid) {
+      this._powerTag.removeFromParent();
+      this._powerTag.destroy();
+    }
+    this._powerTag = null;
+    this._shownPower = -1;
+    this._ensurePowerLabel();
+    this.refreshPowerVisible();
   }
 
   get usable(): boolean {
@@ -106,6 +120,20 @@ export class UnitActor extends Component {
     this._slideLeft = 0.72;
   }
 
+  flashFree(): void {
+    this._q.punchMerge();
+    Tween.stopAllByTarget(this.node);
+    const x = this.node.scale.x;
+    const y = this.node.scale.y;
+    const z = this.node.scale.z;
+    tween(this.node)
+      .to(0.07, { scale: new Vec3(x * 1.14, y * 1.14, z * 1.14) }, { easing: 'quadOut' })
+      .to(0.07, { scale: new Vec3(x * 0.9, y * 0.9, z * 0.9) }, { easing: 'quadIn' })
+      .to(0.07, { scale: new Vec3(x * 1.1, y * 1.1, z * 1.1) }, { easing: 'quadOut' })
+      .to(0.09, { scale: new Vec3(x, y, z) }, { easing: 'quadIn' })
+      .start();
+  }
+
   update(dt: number): void {
     if (!this.node.activeInHierarchy) return;
     if (this._slideLeft > 0 && (this.state === 'bench' || this._flying)) {
@@ -126,6 +154,7 @@ export class UnitActor extends Component {
         if (this._slideLeft <= 0) {
           this._flying = false;
           this.node.setScale(1, 1, 1);
+          this.node.setRotationFromEuler(0, 0, 0);
           this.node.setPosition(this.homePos);
           this._q.punchLand();
           this.refreshPowerVisible();
@@ -144,13 +173,15 @@ export class UnitActor extends Component {
         this._prevState = this.state;
         this.refreshPowerVisible();
       }
-      if (this.inflight > this._prevInflight) this._q.punchInhale();
+      if (this.inflight > this._prevInflight) this._q.punchSpit();
       if (this.power < this._prevPower) this._q.punchEat();
       else if (this.power > this._prevPower && this.state === 'bench') this._q.punchMerge();
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     }
-    this._q.tick(dt, this.state, this.inflight);
+    if (UnitActor.animLive || this._slideLeft > 0 || this.state === 'drag') {
+      this._q.tick(dt, this.state, this.inflight);
+    }
   }
 
   private _shouldShowPower(): boolean {
@@ -162,6 +193,16 @@ export class UnitActor extends Component {
   private _parseName(): void {
     const p = this.node.name.split('_');
     if (p.length < 3) return;
+    if (p[0] === 'Rescue' && p.length >= 5) {
+      this.colorId = parseColorToken(p[1]);
+      this.trapCol = Number(p[2]) || 0;
+      this.trapRow = Number(p[3]) || 0;
+      const pow = Number(p[4]);
+      if (Number.isFinite(pow) && pow > 0) this.power = pow;
+      this.maxPower = this.power;
+      this.trapped = true;
+      return;
+    }
     this.index = Number(p[1]) || 0;
     this.benchCol = benchColOf(this.index);
     this.benchRank = benchRankOf(this.index);

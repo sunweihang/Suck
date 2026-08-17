@@ -5,7 +5,10 @@ import {
   Color,
   Component,
   DirectionalLight,
+  EventKeyboard,
   Graphics,
+  Input,
+  KeyCode,
   Layers,
   Node,
   Prefab,
@@ -13,6 +16,7 @@ import {
   Vec3,
   Widget,
   assetManager,
+  input,
   instantiate,
   view,
 } from 'cc';
@@ -21,12 +25,13 @@ import {
   initGameCircle,
   relayoutGameClubButton,
 } from './ads/GameCircleService';
+import { initRewardedAd, showRewardedVideoAd } from './ads/RewardedAdService';
 import { initWxShare } from './ads/WxShareService';
 import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME } from './game/GameConfig';
-import { ensureLevels, getLevel, LEVEL_COUNT, saveLevelIndex } from './game/LevelCatalog';
+import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, saveLevelIndex, type ItemId } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -34,15 +39,24 @@ import {
   portraitVisibleSize,
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
+import { rollChestReward, type ChestReward } from './game/ChestLoot';
+import { GOLD, itemGoldCost, PlayerWallet, slotGoldCost } from './game/PlayerWallet';
+import { ChestActor } from './battle/ChestActor';
+import { SlotPad } from './battle/SlotPad';
+import { ChestPanel } from './view/ChestPanel';
+import { ItemShopPanel, type ShopKind } from './view/ItemShopPanel';
 import { FailPanel } from './view/FailPanel';
 import { GmPanel } from './view/GmPanel';
+import { GoldHud } from './view/GoldHud';
 import { HomePanel } from './view/HomePanel';
 import { PlayHud } from './view/PlayHud';
 import { SettingsPanel } from './view/SettingsPanel';
 import { VictoryPanel } from './view/VictoryPanel';
 import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
-import { preloadUiArt } from './view/UiArt';
+import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinFlyFx';
+import { playItemGrantFly } from './view/ItemFlyFx';
+import { artFrame, preloadUiArt } from './view/UiArt';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
   return new Promise((resolve, reject) => {
@@ -72,18 +86,30 @@ export class GameBootstrap extends Component {
   private _victory: VictoryPanel | null = null;
   private _fail: FailPanel | null = null;
   private _gm: GmPanel | null = null;
+  private _gold: GoldHud | null = null;
+  private _chest: ChestPanel | null = null;
+  private _itemShop: ItemShopPanel | null = null;
+  private _chestActor: ChestActor | null = null;
+  private _pendingSlot: SlotPad | null = null;
+  private _chestBusy = false;
+  private _itemShopBusy = false;
+  private _wallet = new PlayerWallet();
   private _battle: BattleDirector | null = null;
   private _audio: AudioService | null = null;
   private _level = 1;
   private _builtLevel = 0;
   private _bootJob: Promise<void> | null = null;
   private _uiJob: Promise<void> | null = null;
+  private _clearGold = 0;
+  private _doubleBusy = false;
 
   onLoad(): void {
     initWxShare();
     initGameCircle();
+    initRewardedAd();
     this._resetToFirst();
     this._stripLeftovers();
+    input.on(Input.EventType.KEY_DOWN, this._onKeyDown, this);
     this._uiJob = this._bootUi();
   }
 
@@ -94,6 +120,7 @@ export class GameBootstrap extends Component {
       this._tuneLighting();
       this._ensureLetterboxCam();
       await ensureLevels();
+      this._wallet.load();
       await this._buildUi();
       this._ensureAudio();
       this._applyPortraitFrame();
@@ -102,7 +129,10 @@ export class GameBootstrap extends Component {
       if (this.node.scene) await spawnToyBackdrop(this.node.scene);
       this._home?.applyArt();
       this._playHud?.applyArt();
+      this._gold?.applyArt();
       this._settings?.applyArt();
+      this._chest?.applyArt();
+      this._itemShop?.applyArt();
       this._applyPortraitFrame();
       this._bindBattle();
     } catch (err) {
@@ -115,10 +145,21 @@ export class GameBootstrap extends Component {
   }
 
   onDestroy(): void {
+    input.off(Input.EventType.KEY_DOWN, this._onKeyDown, this);
     view.off('canvas-resize', this._applyPortraitFrame, this);
     destroyGameClubButton();
     setGameAudio(null);
     this._audio = null;
+  }
+
+  private _onKeyDown(e: EventKeyboard): void {
+    if (e.keyCode === KeyCode.KEY_N || e.keyCode === KeyCode.ARROW_RIGHT || e.keyCode === KeyCode.BRACKET_RIGHT) {
+      this._gmSkip(this._level + 1);
+      return;
+    }
+    if (e.keyCode === KeyCode.KEY_P || e.keyCode === KeyCode.ARROW_LEFT || e.keyCode === KeyCode.BRACKET_LEFT) {
+      this._gmSkip(this._level - 1);
+    }
   }
 
   private _stripLeftovers(): void {
@@ -158,6 +199,7 @@ export class GameBootstrap extends Component {
       this._bindBattle();
       this._home?.setLevel(this._level, LEVEL_COUNT);
       this._playHud?.setLevel(this._level);
+      if (this._home?.node.active) this._setWorldLive(false);
     } catch (err) {
       console.error('[Suck] boot world failed', err);
     }
@@ -171,8 +213,13 @@ export class GameBootstrap extends Component {
       onWin: () => this._onLevelCleared(),
       onLose: () => this._onLevelFailed(),
       onItems: (state) => this._playHud?.setItems(state),
+      onGoldDenied: () => this._gold?.deny(),
+      onChest: (chest) => this._onChestReady(chest),
+      onUnlockSlot: (slot) => this._showSlotShop(slot),
+      wallet: this._wallet,
     });
     this._playHud?.setItems(this._battle.itemState());
+    this._gold?.setCoins(this._wallet.coins);
   }
 
   private async _ensureWorld(): Promise<void> {
@@ -185,25 +232,247 @@ export class GameBootstrap extends Component {
     const cleared = this._level;
     if (this._level < LEVEL_COUNT) this._level += 1;
     saveLevelIndex(this._level);
+    this._clearGold = GOLD.win;
     this._playHud?.showCleared(cleared, this._level > cleared);
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.hide();
     this._settings?.hide();
     this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
+    this._setGoldVisible(true);
     this._victory?.show({
       hasNext: this._level > cleared,
+      gold: GOLD.win,
+      canDouble: true,
     });
+    if (this._canvas) {
+      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
+    }
+  }
+
+  private _claimNext(): void {
+    if (this._doubleBusy) return;
+    const amount = this._clearGold > 0 ? this._clearGold : GOLD.win;
+    this._clearGold = 0;
+    void this._flyGoldThenNext(amount);
+  }
+
+  private async _claimDouble(): Promise<void> {
+    if (this._doubleBusy) return;
+    this._doubleBusy = true;
+    this._victory?.lock();
+    const result = await showRewardedVideoAd();
+    const base = this._clearGold > 0 ? this._clearGold : GOLD.win;
+    const amount = result === 'rewarded' ? base * 2 : base;
+    this._clearGold = 0;
+    this._doubleBusy = false;
+    void this._flyGoldThenNext(amount);
+  }
+
+  private async _flyGoldThenNext(amount: number): Promise<void> {
+    if (this._doubleBusy) return;
+    this._doubleBusy = true;
+    this._victory?.lock();
+    const canvas = this._canvas;
+    if (!canvas?.isValid || amount <= 0) {
+      if (amount > 0) this._wallet.add(amount);
+      this._doubleBusy = false;
+      void this._enterNext();
+      return;
+    }
+    const fx = ensureCoinFxRoot(canvas);
+    this._gold?.node.setSiblingIndex(canvas.children.length - 1);
+    fx.setSiblingIndex(canvas.children.length - 1);
+    const start = new Vec3();
+    const end = new Vec3();
+    this._victory?.goldStartWorld(start);
+    if (this._gold) this._gold.iconWorldPos(end);
+    else end.set(start.x + 360, start.y + 720, 0);
+    worldToFxLocal(fx, start, start);
+    worldToFxLocal(fx, end, end);
+    await new Promise<void>((resolve) => {
+      playCoinFlyBurst({
+        fxRoot: fx,
+        start,
+        end,
+        amount,
+        frame: this._victory?.goldIconFrame() ?? artFrame('goldIcon'),
+        onCredit: (n) => this._wallet.add(n),
+        onDone: () => resolve(),
+      });
+    });
+    this._doubleBusy = false;
+    void this._enterNext();
   }
 
   private _onLevelFailed(): void {
     this._home?.hide();
     this._settings?.hide();
     this._victory?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
     this._fail?.show();
+  }
+
+  private _onChestReady(chest: ChestActor): void {
+    this._chestActor = chest;
+    this._home?.hide();
+    this._settings?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._itemShop?.hide();
+    this._gm?.collapse();
+    this._chest?.show();
+  }
+
+  private async _watchChest(): Promise<void> {
+    if (this._chestBusy) return;
+    this._chestBusy = true;
+    this._chest?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._chestBusy = false;
+    this._chest?.setBusy(false);
+    if (result !== 'rewarded') return;
+    this._chestActor?.playOpen();
+    this._chest?.reveal(rollChestReward(this._builtLevel || this._level));
+  }
+
+  private _claimChest(reward: ChestReward): void {
+    this._wallet.add(reward.gold);
+    for (const id of reward.items) this._wallet.addItem(id, 1);
+    const actor = this._chestActor;
+    this._chestActor = null;
+    this._chest?.hide();
+    if (actor) this._battle?.claimChest(actor);
+    this._flyGrantedItems(reward.items);
+  }
+
+  private _onPlayItem(id: ItemId): void {
+    if (!itemUnlocked(id, this._builtLevel || this._level)) return;
+    if (this._wallet.itemCount(id) > 0) {
+      this._battle?.useItem(id);
+      return;
+    }
+    this._showItemShop(id);
+  }
+
+  private _showSlotShop(slot: SlotPad): void {
+    if (!slot.locked) return;
+    this._pendingSlot = slot;
+    this._showItemShop('slot');
+  }
+
+  private _showItemShop(kind: ShopKind): void {
+    this._unlockAudio();
+    this._itemShopBusy = false;
+    this._itemShop?.show(kind);
+    if (this._canvas) {
+      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
+    }
+    this._gm?.collapse();
+    this._battle?.setPlaying(false);
+  }
+
+  private _closeItemShop(): void {
+    this._itemShopBusy = false;
+    this._pendingSlot = null;
+    this._itemShop?.hide();
+    if (this._chest?.node.active || this._settings?.node.active) return;
+    if (this._playHud?.node.active) this._battle?.setPlaying(true);
+  }
+
+  private _buyShop(kind: ShopKind): void {
+    if (kind === 'slot') this._buySlot();
+    else this._buyItem(kind);
+  }
+
+  private _watchShop(kind: ShopKind): Promise<void> {
+    return kind === 'slot' ? this._watchSlot() : this._watchItem(kind);
+  }
+
+  private _buyItem(id: ItemId): void {
+    if (this._itemShopBusy) return;
+    const cost = itemGoldCost(id);
+    if (!this._wallet.spend(cost)) {
+      this._gold?.deny();
+      return;
+    }
+    this._wallet.addItem(id, 1);
+    this._closeItemShop();
+    this._flyGrantedItems([id]);
+  }
+
+  private async _watchItem(id: ItemId): Promise<void> {
+    if (this._itemShopBusy) return;
+    this._itemShopBusy = true;
+    this._itemShop?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._itemShopBusy = false;
+    this._itemShop?.setBusy(false);
+    if (result !== 'rewarded') return;
+    this._wallet.addItem(id, 1);
+    this._closeItemShop();
+    this._flyGrantedItems([id]);
+  }
+
+  private _buySlot(): void {
+    if (this._itemShopBusy) return;
+    if (!this._wallet.spend(slotGoldCost())) {
+      this._gold?.deny();
+      return;
+    }
+    this._finishSlotUnlock();
+  }
+
+  private async _watchSlot(): Promise<void> {
+    if (this._itemShopBusy) return;
+    this._itemShopBusy = true;
+    this._itemShop?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._itemShopBusy = false;
+    this._itemShop?.setBusy(false);
+    if (result !== 'rewarded') return;
+    this._finishSlotUnlock();
+  }
+
+  private _finishSlotUnlock(): void {
+    const slot = this._pendingSlot;
+    this._pendingSlot = null;
+    this._closeItemShop();
+    if (slot) this._battle?.unlockSlot(slot);
+  }
+
+  private _playItemState() {
+    return this._battle?.itemState() ?? {
+      coins: this._wallet.coins,
+      shuffle: this._wallet.itemCount('shuffle'),
+      merge: this._wallet.itemCount('merge'),
+      hook: this._wallet.itemCount('hook'),
+      shovel: this._wallet.itemCount('shovel'),
+      hookPick: false,
+      shovelPick: false,
+    };
+  }
+
+  private _flyGrantedItems(ids: readonly ItemId[]): void {
+    const canvas = this._canvas;
+    this._playHud?.show();
+    this._playHud?.setItems(this._playItemState());
+    this._playHud?.layoutChrome();
+    if (!canvas?.isValid || ids.length <= 0) return;
+    playItemGrantFly({
+      canvas,
+      ids,
+      slotWorldPos: (id, out) => this._playHud?.itemIconWorldPos(id, out) ?? false,
+      onLand: (id) => this._playHud?.pulseItem(id),
+    });
   }
 
   private _gmWin(): void {
@@ -231,6 +500,8 @@ export class GameBootstrap extends Component {
     this._playHud?.setLevel(this._level);
     this._victory?.hide();
     this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
     this._enterPlay();
   }
 
@@ -268,7 +539,7 @@ export class GameBootstrap extends Component {
     if (shadows) {
       shadows.enabled = true;
       shadows.type = 1;
-      shadows.shadowMapSize = 1024;
+      shadows.shadowMapSize = 512;
       shadows.shadowColor = new Color(32, 48, 68, 200);
     }
     const ambient = scene.globals?.ambient;
@@ -285,7 +556,7 @@ export class GameBootstrap extends Component {
       light.color = new Color(255, 232, 204, 255);
       light.illuminance = 215000;
       light.shadowEnabled = true;
-      light.shadowPcf = 2;
+      light.shadowPcf = 1;
       light.shadowBias = 0.0006;
       light.shadowNormalBias = 0.16;
       light.shadowSaturation = 0.64;
@@ -338,8 +609,11 @@ export class GameBootstrap extends Component {
     this._home?.layoutChrome();
     this._settings?.layoutChrome();
     this._playHud?.layoutChrome();
+    this._gold?.layoutChrome();
     this._victory?.layoutChrome();
     this._fail?.layoutChrome();
+    this._chest?.layoutChrome();
+    this._itemShop?.layoutChrome();
     this._gm?.layoutChrome();
     relayoutGameClubButton();
   };
@@ -404,14 +678,15 @@ export class GameBootstrap extends Component {
       onHome: () => this._showHome(),
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
-      onItem: (id) => this._battle?.useItem(id),
+      onItem: (id) => this._onPlayItem(id),
     });
     this._playHud.hide();
 
     const winN = await this._spawnVictory(canvasN);
     this._victory = winN.getComponent(VictoryPanel) ?? winN.addComponent(VictoryPanel);
     this._victory.setup({
-      onNext: () => void this._enterNext(),
+      onNext: () => this._claimNext(),
+      onDouble: () => void this._claimDouble(),
     });
     this._victory.hide();
 
@@ -422,6 +697,42 @@ export class GameBootstrap extends Component {
     });
     this._fail.hide();
 
+    const chestN = new Node('ChestPanel');
+    canvasN.addChild(chestN);
+    this._chest = chestN.addComponent(ChestPanel);
+    this._chest.setup({
+      onWatch: () => void this._watchChest(),
+      onClaim: (reward) => this._claimChest(reward),
+    });
+    this._chest.hide();
+
+    const shopN = await this._spawnItemShop(canvasN);
+    this._itemShop = shopN.getComponent(ItemShopPanel) ?? shopN.addComponent(ItemShopPanel);
+    this._itemShop.setup({
+      onBuy: (kind) => this._buyShop(kind),
+      onWatch: (kind) => void this._watchShop(kind),
+    });
+    this._itemShop.hide();
+
+    const goldN = new Node('GoldHud');
+    canvasN.addChild(goldN);
+    this._gold = goldN.addComponent(GoldHud);
+    this._gold.setup();
+    this._gold.setCoins(this._wallet.coins);
+    this._setGoldVisible(false);
+    this._wallet.watch((coins, animate) => {
+      this._gold?.setCoins(coins, animate);
+      this._playHud?.setItems(this._battle?.itemState() ?? {
+        coins,
+        shuffle: this._wallet.itemCount('shuffle'),
+        merge: this._wallet.itemCount('merge'),
+        hook: this._wallet.itemCount('hook'),
+        shovel: this._wallet.itemCount('shovel'),
+        hookPick: false,
+        shovelPick: false,
+      });
+    });
+
     const gmN = new Node('GmPanel');
     canvasN.addChild(gmN);
     this._gm = gmN.addComponent(GmPanel);
@@ -429,6 +740,8 @@ export class GameBootstrap extends Component {
       onWin: () => this._gmWin(),
       onFail: () => this._gmLose(),
       onSkip: (n) => this._gmSkip(n),
+      onAddGold: (delta) => this._wallet.add(delta),
+      onSetGold: (n) => this._wallet.setCoins(n),
     });
     this._gm.setLevel(this._level);
 
@@ -466,6 +779,21 @@ export class GameBootstrap extends Component {
     }
   }
 
+  private async _spawnItemShop(canvasN: Node): Promise<Node> {
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.ItemShopPanel);
+      const n = instantiate(pf);
+      n.name = 'ItemShopPanel';
+      canvasN.addChild(n);
+      return n;
+    } catch (err) {
+      console.warn('[Suck] ItemShopPanel prefab missing, fallback node', err);
+      const n = new Node('ItemShopPanel');
+      canvasN.addChild(n);
+      return n;
+    }
+  }
+
   private async _spawnHome(canvasN: Node): Promise<Node> {
     try {
       const pf = await loadPrefab(PREFAB_UUID.HomePanel);
@@ -498,6 +826,20 @@ export class GameBootstrap extends Component {
     saveLevelIndex(1);
   }
 
+  private _setGoldVisible(on: boolean): void {
+    if (this._gold?.node) this._gold.node.active = on;
+    this._gm?.layoutChrome();
+  }
+
+  /** Home covers the 3D field; keep the world and shadow pass off until play. */
+  private _setWorldLive(on: boolean): void {
+    const world = this._battle?.node;
+    if (world?.isValid) world.active = on;
+    if (this._mainCam?.isValid) this._mainCam.enabled = on;
+    const shadows = this.node.scene?.globals?.shadows;
+    if (shadows) shadows.enabled = on;
+  }
+
   private _showHome(): void {
     this._unlockAudio();
     this._resetToFirst();
@@ -507,13 +849,18 @@ export class GameBootstrap extends Component {
     this._playHud?.hide();
     this._victory?.hide();
     this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
+    this._setGoldVisible(false);
     this._gm?.setLevel(this._level);
     this._gm?.collapse();
     this._battle?.setPlaying(false);
+    this._setWorldLive(false);
   }
 
   private _showSettings(): void {
     this._unlockAudio();
+    this._itemShop?.hide();
     this._settings?.show();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
@@ -521,25 +868,32 @@ export class GameBootstrap extends Component {
 
   private _closeSettings(): void {
     this._settings?.hide();
+    if (this._chest?.node.active) return;
+    if (this._itemShop?.node.active) return;
     if (this._playHud?.node.active) {
       this._battle?.setPlaying(true);
       return;
     }
     this._home?.show();
+    this._setWorldLive(false);
   }
 
   private _enterPlay(): void {
     this._unlockAudio();
     void this._ensureWorld().then(() => {
+      this._setWorldLive(true);
       this._bindBattle();
       this._home?.hide();
       this._settings?.hide();
       this._victory?.hide();
       this._fail?.hide();
+      this._chest?.hide();
+      this._itemShop?.hide();
       this._gm?.collapse();
       this._playHud?.setLevel(this._builtLevel);
       this._gm?.setLevel(this._builtLevel);
       this._playHud?.show();
+      this._setGoldVisible(true);
       this._battle?.setPlaying(true);
     });
   }
@@ -555,6 +909,7 @@ export class GameBootstrap extends Component {
   }
 
   private async _enterNext(): Promise<void> {
+    this._clearGold = 0;
     await this._ensureWorld();
     this._enterPlay();
   }

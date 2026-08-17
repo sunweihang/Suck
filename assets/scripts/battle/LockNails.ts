@@ -3,6 +3,8 @@ import {
   ImageAsset,
   Layers,
   Material,
+  Mesh,
+  MeshRenderer,
   Node,
   RenderRoot2D,
   Sprite,
@@ -14,11 +16,19 @@ import {
   gfx,
   resources,
   tween,
+  utils,
 } from 'cc';
+import { PLAY, SPECIAL_SPAN } from '../game/GameConfig';
+
 const NAIL_PX = 256;
 const NAIL_SCALE = 0.00305;
 
-let _sf: SpriteFrame | null = null;
+export type LockLookKind = 'block' | 'octopus' | 'chest';
+
+let _nailSf: SpriteFrame | null = null;
+let _chainSf: SpriteFrame | null = null;
+let _chainMat: Material | null = null;
+let _chainQuad: Mesh | null = null;
 let _depthMat: Material | null = null;
 
 function frameFromImage(img: ImageAsset): SpriteFrame {
@@ -29,15 +39,28 @@ function frameFromImage(img: ImageAsset): SpriteFrame {
   return sf;
 }
 
-function depthMat(): Material | null {
-  if (_depthMat) return _depthMat;
+function loadFrame(path: string): Promise<SpriteFrame | null> {
+  return new Promise((resolve) => {
+    resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
+      if (!err && sf) {
+        resolve(sf);
+        return;
+      }
+      resources.load(path, ImageAsset, (e2, img) => {
+        resolve(!e2 && img ? frameFromImage(img) : null);
+      });
+    });
+  });
+}
+
+function spriteMat(depthTest: boolean): Material | null {
   try {
     const mat = new Material();
     mat.initialize({
       effectName: 'builtin-sprite',
       states: {
         depthStencilState: {
-          depthTest: true,
+          depthTest,
           depthWrite: false,
           depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
         },
@@ -46,69 +69,256 @@ function depthMat(): Material | null {
         },
       },
     });
-    if (mat.passes?.length) {
-      _depthMat = mat;
-      return mat;
-    }
+    if (mat.passes?.length) return mat;
   } catch {
     /* keep default */
   }
   return null;
 }
 
-export function preloadLockNails(): Promise<void> {
-  if (_sf) return Promise.resolve();
-  return new Promise((resolve) => {
-    resources.load('ui/lock-nail/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!err && sf) {
-        _sf = sf;
-        resolve();
-        return;
-      }
-      resources.load('ui/lock-nail', ImageAsset, (e2, img) => {
-        if (!e2 && img) _sf = frameFromImage(img);
-        resolve();
-      });
-    });
-  });
+function depthMat(): Material | null {
+  if (_depthMat) return _depthMat;
+  _depthMat = spriteMat(true);
+  return _depthMat;
 }
 
-export function clearLockLook(root: Node): void {
-  const nails = root.getChildByName('LockNails');
-  if (!nails || !nails.active) return;
-  Tween.stopAllByTarget(nails);
-  tween(nails)
-    .to(0.22, { scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
-    .call(() => {
-      if (nails.isValid) nails.active = false;
-    })
-    .start();
-}
-
-export function applyLockNails(root: Node): void {
-  if (root.getChildByName('LockNails')) return;
-  const sf = _sf;
-  if (!sf) return;
+function ensureUiHost(root: Node): void {
   const host = root.parent;
-  if (host && !host.getComponent(RenderRoot2D)) host.addComponent(RenderRoot2D);
-  const n = new Node('LockNails');
-  n.layer = Layers.Enum.UI_3D;
-  root.addChild(n);
-  n.setPosition(0, 0, 0);
-  n.setScale(1, 1, 1);
-  const mat = depthMat();
-  const nail = new Node('Nail');
-  nail.layer = Layers.Enum.UI_3D;
-  n.addChild(nail);
-  nail.setPosition(0, 0.02, 0.56);
-  nail.setScale(NAIL_SCALE, NAIL_SCALE, NAIL_SCALE);
-  const ut = nail.addComponent(UITransform);
-  ut.setContentSize(NAIL_PX, NAIL_PX);
+  if (!host || host.name === 'Wall' || host.name === 'Field') return;
+  if (!host.getComponent(RenderRoot2D)) host.addComponent(RenderRoot2D);
+}
+
+function bindSprite(
+  node: Node,
+  sf: SpriteFrame,
+  px: number,
+  scale: number,
+  x: number,
+  y: number,
+  z: number,
+): Sprite {
+  node.layer = Layers.Enum.UI_3D;
+  node.setPosition(x, y, z);
+  node.setScale(scale, scale, scale);
+  node.setRotationFromEuler(0, 0, 0);
+  const ut = node.getComponent(UITransform) ?? node.addComponent(UITransform);
+  ut.setContentSize(px, px);
   ut.hitTest = () => false;
-  const sp = nail.addComponent(Sprite);
+  const sp = node.getComponent(Sprite) ?? node.addComponent(Sprite);
   sp.sizeMode = Sprite.SizeMode.CUSTOM;
   sp.type = Sprite.Type.SIMPLE;
   sp.spriteFrame = sf;
   sp.color = Color.WHITE;
+  const mat = depthMat();
   if (mat) sp.customMaterial = mat;
+  return sp;
+}
+
+const _fading = new WeakSet<Node>();
+
+function fadeOff(node: Node | null): void {
+  if (!node || !node.active || _fading.has(node)) return;
+  _fading.add(node);
+  const chain = node.getChildByName('Chain');
+  if (chain) {
+    Tween.stopAllByTarget(chain);
+    _pulsing.delete(chain);
+  }
+  Tween.stopAllByTarget(node);
+  tween(node)
+    .to(0.2, { scale: new Vec3(0, 0, 0) }, { easing: 'backIn' })
+    .call(() => {
+      _fading.delete(node);
+      if (node.isValid) node.active = false;
+    })
+    .start();
+}
+
+function dropOldRim(root: Node): void {
+  const rim = root.getChildByName('HoldRim');
+  if (!rim) return;
+  Tween.stopAllByTarget(rim);
+  rim.destroy();
+}
+
+function isMeshLock(n: Node): boolean {
+  return !!n.getChildByName('LockLink0') || !!n.getChildByName('LockChain');
+}
+
+function chainQuad(): Mesh | null {
+  if (_chainQuad) return _chainQuad;
+  _chainQuad = utils.MeshUtils.createMesh({
+    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    uvs: [0, 1, 1, 1, 0, 0, 1, 0],
+    indices: [0, 1, 2, 1, 3, 2],
+    minPos: new Vec3(-0.5, -0.5, 0),
+    maxPos: new Vec3(0.5, 0.5, 0),
+    boundingRadius: 0.75,
+  });
+  return _chainQuad;
+}
+
+function chainMat(sf: SpriteFrame): Material | null {
+  if (_chainMat) return _chainMat;
+  const tex = sf.texture;
+  if (!tex) return null;
+  const mat = new Material();
+  mat.initialize({
+    effectName: 'builtin-unlit',
+    technique: 0,
+    defines: { USE_TEXTURE: true, USE_ALPHA_TEST: true },
+    states: {
+      rasterizerState: { cullMode: gfx.CullMode.NONE },
+      depthStencilState: {
+        depthTest: true,
+        depthWrite: false,
+        depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
+      },
+    },
+  });
+  mat.setProperty('mainTexture', tex);
+  mat.setProperty('mainColor', Color.WHITE);
+  try {
+    mat.setProperty('alphaThreshold', 0.2);
+  } catch {
+    /* older unlit */
+  }
+  _chainMat = mat;
+  return mat;
+}
+
+function chainLocalSize(host: Node): number {
+  const world = PLAY.blockStep * SPECIAL_SPAN * 1.36;
+  const parent = host.parent;
+  const parentScale = parent ? Math.max(0.001, Math.abs(parent.scale.x)) : 1;
+  return world / parentScale;
+}
+
+const _pulsing = new WeakSet<Node>();
+
+function pulseChain(chain: Node, size: number): void {
+  if (_pulsing.has(chain)) return;
+  _pulsing.add(chain);
+  const beat = () => {
+    if (!chain.isValid || !chain.active) {
+      _pulsing.delete(chain);
+      return;
+    }
+    tween(chain)
+      .to(0.48, { scale: new Vec3(size * 1.1, size * 1.1, 1) }, { easing: 'sineOut' })
+      .to(0.48, { scale: new Vec3(size, size, 1) }, { easing: 'sineIn' })
+      .call(beat)
+      .start();
+  };
+  beat();
+}
+
+function mountFlatChain(host: Node, kind: 'octopus' | 'chest'): void {
+  if (!_chainSf) return;
+  const existing = host.getChildByName('Chain');
+  if (existing?.active && _pulsing.has(existing)) return;
+  const mesh = chainQuad();
+  const mat = chainMat(_chainSf);
+  if (!mesh || !mat) return;
+  for (const child of [...host.children]) {
+    if (child.name !== 'Chain') child.destroy();
+  }
+  host.layer = host.parent?.layer ?? Layers.Enum.DEFAULT;
+  host.setPosition(0, 0, 0);
+  host.setRotationFromEuler(0, 0, 0);
+  host.setScale(1, 1, 1);
+  let chain = host.getChildByName('Chain');
+  if (!chain) {
+    chain = new Node('Chain');
+    host.addChild(chain);
+    chain.addComponent(MeshRenderer);
+  }
+  const size = chainLocalSize(host);
+  const y = kind === 'chest' ? 0.02 : 0.14;
+  chain.layer = host.layer;
+  chain.active = true;
+  chain.setPosition(0, y, 0.08);
+  chain.setRotationFromEuler(0, 0, 0);
+  const mr = chain.getComponent(MeshRenderer);
+  if (!mr) return;
+  mr.enabled = true;
+  mr.mesh = mesh;
+  mr.setSharedMaterial(mat, 0);
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  if (!_pulsing.has(chain)) {
+    chain.setScale(size, size, 1);
+    pulseChain(chain, size);
+  }
+}
+
+export function preloadLockNails(): Promise<void> {
+  return Promise.all([
+    loadFrame('ui/lock-nail'),
+    loadFrame('ui/lock-chain-metal'),
+  ]).then(([nail, chain]) => {
+    if (nail) _nailSf = nail;
+    if (chain) {
+      _chainSf = chain;
+      _chainMat = null;
+    }
+  });
+}
+
+export function clearLockLook(root: Node): void {
+  fadeOff(root.getChildByName('LockNails'));
+}
+
+export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
+  let n = root.getChildByName('LockNails');
+  if (n && (kind === 'octopus' || kind === 'chest') && !isMeshLock(n) && !_fading.has(n)) {
+    const chain = n.getChildByName('Chain');
+    if (chain?.active && _pulsing.has(chain)) return;
+  }
+  if (n && (kind === 'octopus' || kind === 'chest') && isMeshLock(n)) {
+    n.destroy();
+    n = null;
+  }
+  if (n) {
+    if (!n.active || _fading.has(n)) {
+      _fading.delete(n);
+      Tween.stopAllByTarget(n);
+      n.active = true;
+    }
+  } else {
+    n = new Node('LockNails');
+    n.layer = root.layer;
+    root.addChild(n);
+  }
+  if (kind === 'octopus' || kind === 'chest') {
+    mountFlatChain(n, kind);
+    return;
+  }
+  if (!_nailSf) return;
+  ensureUiHost(root);
+  n.setPosition(0, 0, 0);
+  n.setScale(1, 1, 1);
+  n.layer = Layers.Enum.UI_3D;
+  let nail = n.getChildByName('Nail');
+  if (!nail) {
+    nail = new Node('Nail');
+    n.addChild(nail);
+  }
+  bindSprite(nail, _nailSf, NAIL_PX, NAIL_SCALE, 0, 0.02, 0.56);
+}
+
+export function clearHoldGlow(root: Node): void {
+  const n = root.getChildByName('HoldGlow');
+  const rim = root.getChildByName('HoldRim');
+  if (!n && !rim) return;
+  if (n) {
+    Tween.stopAllByTarget(n);
+    n.destroy();
+  }
+  dropOldRim(root);
+}
+
+export function applyHoldGlow(_root: Node, _sides: number): void {
+  /* glow art retired; keep the hook so holder tracking stays cheap */
 }

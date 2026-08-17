@@ -87,7 +87,8 @@ export class HintHand extends Component {
     }
     const src = atTo ? this._to : this._from;
     this.node.setWorldPosition(src.x, src.y + bob, src.z);
-    this.node.setScale(show ? WORLD_SCALE : 0, show ? WORLD_SCALE : 0, show ? WORLD_SCALE : 0);
+    // Flip Y so the finger points up from below instead of covering the target.
+    this.node.setScale(show ? WORLD_SCALE : 0, show ? -WORLD_SCALE : 0, show ? WORLD_SCALE : 0);
     const camN = this._cam?.node;
     if (camN) this.node.setWorldRotation(camN.worldRotation);
   }
@@ -99,7 +100,7 @@ export class HintHand extends Component {
     if (!ut) ut = this.node.addComponent(UITransform);
     ut.setContentSize(HAND_W, HAND_H);
     ut.setAnchorPoint(0.5, 0.1);
-    this.node.setScale(WORLD_SCALE, WORLD_SCALE, WORLD_SCALE);
+    this.node.setScale(WORLD_SCALE, -WORLD_SCALE, WORLD_SCALE);
     if (!this.node.getComponent(Sprite)) this.node.addComponent(Sprite);
   }
 

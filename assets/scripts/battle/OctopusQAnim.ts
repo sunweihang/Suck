@@ -46,7 +46,7 @@ function spring(x: number, v: number, dt: number): [number, number] {
   return [x, v];
 }
 
-const KEEP_OFF_RIG = new Set(['Power', 'Rig']);
+const KEEP_OFF_RIG = new Set(['Power', 'Rig', 'LockNails']);
 
 function ensureRig(root: Node): Node {
   let rig = root.getChildByName('Rig');
@@ -138,7 +138,11 @@ export class OctopusQAnim {
   }
 
   punchInhale(): void {
-    this._impulse(-0.42, 0.95, 0.28, -4, 0, 0);
+    this.punchSpit();
+  }
+
+  punchSpit(): void {
+    this._impulse(0.22, -0.62, -0.48, 7, (Math.random() - 0.5) * 3, 0);
   }
 
   punchEat(): void {
@@ -168,19 +172,19 @@ export class OctopusQAnim {
     this._ry = clamp(this._ry, -ROT_LIM, ROT_LIM);
     this._rz = clamp(this._rz, -ROT_LIM, ROT_LIM);
 
-    const sucking = state === 'attack' && inflight > 0;
-    const excited = state === 'drag' || sucking;
-    const freq = state === 'drag' ? 5.2 : sucking ? 7.2 : state === 'attack' ? 2.8 : 2.15;
-    const amp = state === 'drag' ? 0.055 : sucking ? 0.07 : 0.04;
+    const firing = state === 'attack' && inflight > 0;
+    const excited = state === 'drag' || firing;
+    const freq = state === 'drag' ? 5.2 : firing ? 8.4 : state === 'attack' ? 2.8 : 2.15;
+    const amp = state === 'drag' ? 0.055 : firing ? 0.055 : 0.04;
     const breath = Math.sin(this._t * freq + this._phase);
     const side = Math.sin(this._t * (freq * 0.62) + this._phase * 1.37);
-    const gulp = sucking ? 0.5 + 0.5 * Math.sin(this._t * 9.4 + this._phase) : 0;
+    const spit = firing ? 0.5 + 0.5 * Math.sin(this._t * 12.6 + this._phase) : 0;
 
-    const sx = clamp(1 + breath * amp + side * amp * 0.22 + this._sx - gulp * 0.045, SCALE_MIN, SCALE_MAX);
-    const sy = clamp(1 - breath * amp * 1.05 + this._sy + gulp * 0.08, SCALE_MIN, SCALE_MAX);
-    const sz = clamp(1 + breath * amp * 0.7 - side * amp * 0.16 + this._sz + gulp * 0.06, SCALE_MIN, SCALE_MAX);
-    const sway = state === 'drag' ? 7.5 : sucking ? 3.2 : 3.6;
-    const lean = sucking ? 6 + gulp * 5 : state === 'attack' ? 4.5 : state === 'drag' ? -4.5 : 1.4;
+    const sx = clamp(1 + breath * amp + side * amp * 0.22 + this._sx + spit * 0.03, SCALE_MIN, SCALE_MAX);
+    const sy = clamp(1 - breath * amp * 1.05 + this._sy - spit * 0.04, SCALE_MIN, SCALE_MAX);
+    const sz = clamp(1 + breath * amp * 0.7 - side * amp * 0.16 + this._sz + spit * 0.09, SCALE_MIN, SCALE_MAX);
+    const sway = state === 'drag' ? 7.5 : firing ? 2.4 : 3.6;
+    const lean = firing ? 9 + spit * 5 : state === 'attack' ? 4.5 : state === 'drag' ? -4.5 : 1.4;
     const pitch = clamp(lean + Math.sin(this._t * 1.15 + this._phase) * (excited ? 2.4 : 1.8) + this._rx, -16, 16);
     const yaw = clamp(Math.sin(this._t * 1.28 + this._phase * 0.7) * sway + this._ry, -16, 16);
     const roll = clamp(Math.sin(this._t * 0.92 + this._phase * 1.8) * sway * 0.55 + this._rz, -12, 12);
@@ -188,7 +192,7 @@ export class OctopusQAnim {
     rig.setScale(sx, sy, sz);
     rig.setRotationFromEuler(pitch, yaw, roll);
 
-    this._tickIdleJiggle(step, state, sucking);
+    this._tickIdleJiggle(step, state, firing);
     this._tickLook(step, state);
     this._tickBlink(step);
   }
@@ -221,8 +225,8 @@ export class OctopusQAnim {
     this._lookWait -= dt;
     if (this._lookWait <= 0) {
       if (state === 'attack') {
-        this._lookTX = (Math.random() - 0.5) * 0.55;
-        this._lookTY = -0.15 + Math.random() * 0.35;
+        this._lookTX = (Math.random() - 0.5) * 0.4;
+        this._lookTY = 0.22 + Math.random() * 0.4;
       } else if (state === 'drag') {
         this._lookTX = (Math.random() - 0.5) * 0.9;
         this._lookTY = 0.15 + Math.random() * 0.45;

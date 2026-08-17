@@ -16,7 +16,7 @@ import {
 import { DESIGN_H, DESIGN_W, Theme } from '../game/Theme';
 import { uiVisibleSize } from '../game/ViewFit';
 import { paintQBtn, styleQCaption } from './QChrome';
-import { applyArtSprite } from './UiArt';
+import { applyArtSprite, artFrame } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
@@ -194,7 +194,10 @@ export class HomePanel extends Component {
 
   private _playSize(): { w: number; h: number } {
     const w = Math.round(740 * PLAY_SCALE);
-    return { w, h: Math.round((w * 423) / 1069) };
+    const sf = artFrame('play');
+    const ow = sf?.originalSize.width || 1069;
+    const oh = sf?.originalSize.height || 423;
+    return { w, h: Math.round((w * oh) / ow) };
   }
 
   private _playBtn(parent: Node): Node {

@@ -69,6 +69,31 @@ export function paintQChip(g: Graphics, w: number, h: number, fill = Theme.board
   g.stroke();
 }
 
+export function paintCapsuleBtn(g: Graphics, w: number, h: number, fill: Color, stroke: Color): void {
+  const r = Math.min(h * 0.5, w * 0.5);
+  const rim = Math.max(7, Math.round(h * 0.08));
+  g.clear();
+  g.fillColor = new Color(48, 32, 56, 46);
+  g.roundRect(-w * 0.5 + 4, -h * 0.5 - 6, w, h, r);
+  g.fill();
+  g.fillColor = new Color(255, 255, 255, 255);
+  g.roundRect(-w * 0.5, -h * 0.5, w, h, r);
+  g.fill();
+  const iw = w - rim * 2;
+  const ih = h - rim * 2;
+  const ir = Math.max(10, r - rim);
+  g.fillColor = fill;
+  g.roundRect(-iw * 0.5, -ih * 0.5, iw, ih, ir);
+  g.fill();
+  g.fillColor = new Color(255, 255, 255, 96);
+  g.roundRect(-iw * 0.5 + 10, ih * 0.06, iw - 20, ih * 0.30, ir * 0.42);
+  g.fill();
+  g.strokeColor = stroke;
+  g.lineWidth = Math.max(3, Math.round(h * 0.036));
+  g.roundRect(-iw * 0.5, -ih * 0.5, iw, ih, ir);
+  g.stroke();
+}
+
 export function paintQBtn(g: Graphics, w: number, h: number, fill: Color, stroke: Color): void {
   const r = Math.min(h * 0.46, w * 0.28);
   g.clear();

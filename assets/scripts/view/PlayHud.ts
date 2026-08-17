@@ -8,8 +8,11 @@ import {
   Layers,
   Node,
   Sprite,
+  Tween,
   UITransform,
+  Vec3,
   Widget,
+  tween,
 } from 'cc';
 import { HintHand } from '../battle/HintHand';
 import { Theme } from '../game/Theme';
@@ -23,7 +26,7 @@ import { itemUnlocked } from '../game/LevelCatalog';
 const { ccclass } = _decorator;
 
 const PLAY_BADGE = 360;
-const PLAY_DIGIT_H = 150;
+const PLAY_DIGIT_H = 92;
 const SETTINGS_CIRCLE = 120;
 const SETTINGS_GEAR = 56;
 const SETTINGS_W = 140;
@@ -42,7 +45,6 @@ const ITEM_ICON_KEY = {
   hook: 'icHook',
   shovel: 'icShovel',
 } as const;
-const ITEM_GRAY = new Color(180, 176, 188, 255);
 const BADGE_INK = new Color(255, 255, 255, 255);
 
 @ccclass('PlayHud')
@@ -54,6 +56,7 @@ export class PlayHud extends Component {
   private _onSettings: (() => void) | null = null;
   private _onItem: ((id: ItemId) => void) | null = null;
   private _items: ItemHudState = {
+    coins: 0,
     shuffle: 1,
     merge: 1,
     hook: 1,
@@ -242,8 +245,31 @@ export class PlayHud extends Component {
     this._paintItems();
   }
 
+  itemIconWorldPos(id: ItemId, out: Vec3): boolean {
+    const n = this.node.getChildByName('Powers')?.getChildByName(`Item_${id}`);
+    if (!n?.isValid || !n.active) return false;
+    const icon = n.getChildByName('Icon');
+    const anchor = icon?.isValid ? icon : n;
+    const wasActive = icon?.isValid ? icon.active : true;
+    if (icon?.isValid) icon.active = true;
+    anchor.getWorldPosition(out);
+    if (icon?.isValid) icon.active = wasActive;
+    return true;
+  }
+
+  pulseItem(id: ItemId): void {
+    const n = this.node.getChildByName('Powers')?.getChildByName(`Item_${id}`);
+    if (!n?.isValid) return;
+    Tween.stopAllByTarget(n);
+    n.setScale(1, 1, 1);
+    tween(n)
+      .to(0.12, { scale: new Vec3(1.14, 1.14, 1) }, { easing: 'sineOut' })
+      .to(0.16, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+      .start();
+  }
+
   private _visibleIds(): ItemId[] {
-    return ITEM_IDS.filter((id) => itemUnlocked(id, this._level));
+    return ITEM_IDS.slice();
   }
 
   private _itemSpan(): number {
@@ -267,6 +293,7 @@ export class PlayHud extends Component {
     root.active = true;
     this._ensureTray(root, tray.w, tray.h);
     this._ensureItemBtns(root);
+    this._raiseItems(root);
     this._paintItems();
     return root;
   }
@@ -284,17 +311,24 @@ export class PlayHud extends Component {
     n.setPosition(pos.x, pos.y, 0);
     n.getChildByName('Icon')?.getComponent(UITransform)?.setContentSize(ITEM_ICON, ITEM_ICON);
     n.getChildByName('Ring')?.getComponent(UITransform)?.setContentSize(ITEM_HIT + 8, ITEM_HIT + 8);
-    n.getChildByName('Badge')?.setPosition(ITEM_ICON * 0.42, ITEM_ICON * 0.40, 0);
+    const badge = n.getChildByName('Badge');
+    badge?.setPosition(ITEM_ICON * 0.36, ITEM_ICON * 0.40, 0);
+    badge?.getChildByName('Lab')?.setPosition(0, 0, 0);
   }
 
   private _ensureTray(root: Node, w: number, h: number): Node {
     let tray = root.getChildByName('Tray');
-    if (!tray) {
-      tray = this._mk('Tray', w, h, root);
-      tray.setSiblingIndex(0);
-    }
+    if (!tray) tray = this._mk('Tray', w, h, root);
     tray.getComponent(UITransform)?.setContentSize(w, h);
+    tray.setSiblingIndex(0);
     return tray;
+  }
+
+  private _raiseItems(root: Node): void {
+    for (const id of ITEM_IDS) {
+      const n = root.getChildByName(`Item_${id}`);
+      if (n) n.setSiblingIndex(root.children.length - 1);
+    }
   }
 
   private _itemBtn(root: Node, id: ItemId, i: number): Node {
@@ -306,14 +340,15 @@ export class PlayHud extends Component {
     ring.addComponent(Graphics);
     ring.active = false;
     const badge = this._mk('Badge', ITEM_BADGE, ITEM_BADGE, n);
-    badge.setPosition(ITEM_ICON * 0.42, ITEM_ICON * 0.40, 0);
+    badge.setPosition(ITEM_ICON * 0.36, ITEM_ICON * 0.40, 0);
     this._mk('Face', ITEM_BADGE, ITEM_BADGE, badge);
-    this._lab(this._mk('Lab', ITEM_BADGE, ITEM_BADGE, badge), '1', 28, BADGE_INK, ITEM_BADGE, ITEM_BADGE, false);
+    this._lab(this._mk('Lab', ITEM_BADGE, ITEM_BADGE, badge), '+', 30, BADGE_INK, ITEM_BADGE, ITEM_BADGE, false);
     n.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
       e.propagationStopped = true;
     }, this);
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
+      if (!itemUnlocked(id, this._level)) return;
       gameAudio()?.playUiClick();
       this._onItem?.(id);
     }, this);
@@ -330,6 +365,7 @@ export class PlayHud extends Component {
     root.getComponent(UITransform)?.setContentSize(tray.w, tray.h);
     this._ensureTray(root, tray.w, tray.h);
     this._ensureItemBtns(root);
+    this._raiseItems(root);
     root.setPosition(0, -viewH * 0.5 + safeBottom + tray.h * 0.5 + 16, 0);
   }
 
@@ -342,6 +378,7 @@ export class PlayHud extends Component {
     const tray = this._traySize();
     applyArtSpriteSoon(this._ensureTray(root, tray.w, tray.h), 'itemTray', tray.w, tray.h, true);
     this._ensureItemBtns(root);
+    this._raiseItems(root);
     for (const id of ITEM_IDS) {
       const n = root.getChildByName(`Item_${id}`);
       if (!n) continue;
@@ -349,15 +386,20 @@ export class PlayHud extends Component {
       n.active = i >= 0;
       if (i < 0) continue;
       this._syncItemBtn(n, i);
-      applyArtSpriteSoon(n.getChildByName('Icon'), ITEM_ICON_KEY[id], ITEM_ICON, ITEM_ICON);
-      const count = this._items[id];
-      const on = count > 0;
-      const armed = (id === 'hook' && this._items.hookPick) || (id === 'shovel' && this._items.shovelPick);
+      const iconNode = n.getChildByName('Icon');
+      applyArtSpriteSoon(iconNode, ITEM_ICON_KEY[id], ITEM_ICON, ITEM_ICON);
+      const unlocked = itemUnlocked(id, this._level);
+      const charges = this._items[id] ?? 0;
+      const on = unlocked && charges > 0;
+      const armed = unlocked && ((id === 'hook' && this._items.hookPick) || (id === 'shovel' && this._items.shovelPick));
       n.setScale(armed ? 1.08 : 1, armed ? 1.08 : 1, 1);
-      const icon = n.getChildByName('Icon')?.getComponent(Sprite);
-      if (icon) icon.color = on ? Color.WHITE : ITEM_GRAY;
+      const icon = iconNode?.getComponent(Sprite);
+      if (icon) {
+        icon.color = Color.WHITE;
+        icon.grayscale = !unlocked;
+      }
       this._paintItemRing(n.getChildByName('Ring'), armed);
-      this._paintItemBadge(n.getChildByName('Badge'), count);
+      this._paintItemBadge(n.getChildByName('Badge'), unlocked, on, charges);
     }
   }
 
@@ -373,22 +415,28 @@ export class PlayHud extends Component {
     g.stroke();
   }
 
-  private _paintItemBadge(badge: Node | null, count: number): void {
+  private _paintItemBadge(badge: Node | null, unlocked: boolean, on: boolean, charges = 0): void {
     if (!badge) return;
-    badge.active = count > 0;
-    if (count <= 0) return;
+    badge.active = unlocked;
+    if (!unlocked) return;
     const g = badge.getComponent(Graphics);
     if (g) {
       g.clear();
       g.enabled = false;
     }
     applyArtSpriteSoon(badge.getChildByName('Face') ?? badge, 'itemBadge', ITEM_BADGE, ITEM_BADGE);
+    const coin = badge.getChildByName('Coin');
+    if (coin) coin.active = false;
     const lab = badge.getChildByName('Lab')?.getComponent(Label);
     if (lab) {
-      lab.string = String(count);
+      lab.string = on ? String(charges) : '+';
+      lab.fontSize = on ? 26 : 32;
+      lab.lineHeight = on ? 32 : 36;
+      lab.overflow = Label.Overflow.SHRINK;
       lab.color = BADGE_INK;
       lab.outlineColor = new Color(160, 40, 72, 255);
       lab.outlineWidth = 3;
+      lab.node.setPosition(0, 1, 0);
     }
   }
 

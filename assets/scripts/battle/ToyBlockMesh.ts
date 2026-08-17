@@ -43,6 +43,7 @@ function vec3Of(v: unknown): Vec3 | null {
 /** Desaturate a brick (and its nail / bomb parts) while an iron plate still blocks it. */
 export function applyBrickGray(node: Node, on: boolean): void {
   for (const mr of node.getComponentsInChildren(MeshRenderer)) {
+    if (mr.node.name === 'HoldRim' || mr.node.name.startsWith('Lock')) continue;
     const inst = mr.getMaterialInstance(0);
     if (!inst) continue;
     if (on) {
@@ -96,6 +97,24 @@ export function applyShadowReceiver(node: { getComponent: (t: typeof MeshRendere
   if (!mr) return;
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.ON;
+}
+
+const PLASTIC_ROUGH = 0.52;
+const PLASTIC_EMIT = new Vec3(0.12, 0.12, 0.12);
+
+/** Matte toy plastic: light does the shading, no candy glow. */
+export function applyBrickPlastic(node: Node): void {
+  for (const mr of node.getComponentsInChildren(MeshRenderer)) {
+    if (mr.node.name === 'HoldRim' || mr.node.name.startsWith('Lock')) continue;
+    const inst = mr.getMaterialInstance(0);
+    if (inst) {
+      inst.setProperty('roughness', PLASTIC_ROUGH);
+      inst.setProperty('metallic', 0);
+      inst.setProperty('emissiveScale', PLASTIC_EMIT);
+    }
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+    mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  }
 }
 
 export function applyToyCaster(node: Node, receive = false): void {

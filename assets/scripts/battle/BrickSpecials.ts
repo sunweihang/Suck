@@ -65,12 +65,19 @@ function blob(
 export function paintNodeColor(root: Node, token: ColorToken): void {
   const color = rgbOf(token);
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
-    if (mr.node.name.startsWith('Paint') || mr.node.name.startsWith('Magnet')) continue;
+    if (
+      mr.node.name === 'HoldRim'
+      || mr.node.name.startsWith('Paint')
+      || mr.node.name.startsWith('Magnet')
+      || mr.node.name.startsWith('Lock')
+    ) continue;
     const inst = mr.getMaterialInstance(0);
     if (!inst) continue;
     inst.setProperty('mainColor', color);
     inst.setProperty('emissive', color);
     inst.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
+    inst.setProperty('roughness', 0.52);
+    inst.setProperty('metallic', 0);
   }
 }
 

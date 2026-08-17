@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "31043aba-d0df-4ac5-beb9-be6be579ee48",
+  "files": [],
+  "subMetas": {
+    "a33ba": {
+      "importer": "gltf-mesh",
+      "uuid": "31043aba-d0df-4ac5-beb9-be6be579ee48@a33ba",
+      "displayName": "",
+      "id": "a33ba",
+      "name": "LockChainLink.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 256
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "3206f": {
+      "importer": "gltf-scene",
+      "uuid": "31043aba-d0df-4ac5-beb9-be6be579ee48@3206f",
+      "displayName": "",
+      "id": "3206f",
+      "name": "lock-chain-link.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "31043aba-d0df-4ac5-beb9-be6be579ee48@a33ba"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "31043aba-d0df-4ac5-beb9-be6be579ee48@3206f"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    }
+  }
+}

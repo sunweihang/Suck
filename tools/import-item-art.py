@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install desktop item icons: keep the authored outline, fill the cell."""
+"""Install desktop item icons. Keep the authored outline; only lift the dark matte."""
 
 from pathlib import Path
 
@@ -9,8 +9,6 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = Path("/Users/sunix/Desktop/ICON")
 OUT_DIR = ROOT / "assets/resources/ui"
-SIZE = 512
-MARGIN = 0.04
 
 ITEMS = (
     "ic-item-shuffle.png",
@@ -20,29 +18,31 @@ ITEMS = (
 )
 
 
-def trim(im: Image.Image, pad: int = 4) -> Image.Image:
-    bbox = im.getbbox()
-    if not bbox:
-        return im
-    x0, y0, x1, y1 = bbox
-    return im.crop((max(0, x0 - pad), max(0, y0 - pad), min(im.width, x1 + pad), min(im.height, y1 + pad)))
-
-
-def fit(im: Image.Image, size: int = SIZE, margin: float = MARGIN) -> Image.Image:
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    inner = int(size * (1 - 2 * margin))
-    scale = min(inner / im.width, inner / im.height)
-    w = max(1, round(im.width * scale))
-    h = max(1, round(im.height * scale))
-    arr = np.array(im.convert("RGBA"), dtype=np.float32)
-    arr[:, :, :3] *= arr[:, :, 3:4] / 255.0
-    scaled = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA").resize((w, h), Image.LANCZOS)
-    out = np.array(scaled, dtype=np.float32)
-    a = out[:, :, 3:4]
-    out[:, :, :3] = np.divide(out[:, :, :3] * 255.0, a, out=np.zeros_like(out[:, :, :3]), where=a > 0)
-    resized = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
-    canvas.paste(resized, ((size - w) // 2, (size - h) // 2), resized)
-    return canvas
+def defringe(im: Image.Image) -> Image.Image:
+    arr = np.array(im.convert("RGBA"))
+    color = arr[:, :, :3].copy()
+    alpha = arr[:, :, 3]
+    solid = alpha >= 248
+    filled = solid.copy()
+    for _ in range(10):
+        src = color.copy()
+        mask = filled.copy()
+        grew = False
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            rolled = np.roll(np.roll(src, dy, 0), dx, 1)
+            near = np.roll(np.roll(mask, dy, 0), dx, 1)
+            take = (~filled) & near
+            if not take.any():
+                continue
+            color[take] = rolled[take]
+            filled[take] = True
+            grew = True
+        if not grew:
+            break
+    fringe = (alpha > 8) & (alpha < 248)
+    arr[:, :, :3][fringe] = color[fringe]
+    arr[:, :, 3] = np.where(alpha < 8, 0, alpha)
+    return Image.fromarray(arr, "RGBA")
 
 
 def main() -> None:
@@ -50,7 +50,9 @@ def main() -> None:
     for name in ITEMS:
         src = SRC_DIR / name
         dest = OUT_DIR / name
-        out = fit(trim(Image.open(src)))
+        if not src.exists():
+            raise SystemExit(f"missing {src}")
+        out = defringe(Image.open(src))
         out.save(dest, "PNG")
         print(name, out.size, "bbox", out.getbbox())
 

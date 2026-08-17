@@ -1,0 +1,77 @@
+CCEffect %{
+  techniques:
+  - name: additive
+    passes:
+    - vert: rim-vs:vert
+      frag: rim-fs:frag
+      properties:
+        rimColor: { value: [1.0, 0.86, 0.32, 1.0], linear: true, editor: { type: color } }
+        holdMask: { value: [1.0, 1.0, 1.0, 1.0] }
+      depthStencilState:
+        depthTest: true
+        depthWrite: false
+        depthFunc: less_equal
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one
+          blendSrcAlpha: one
+          blendDstAlpha: one
+      rasterizerState:
+        cullMode: back
+}%
+
+CCProgram rim-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/local-batch>
+
+  out vec3 v_local;
+  out vec3 v_viewNormal;
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+
+    v_local = In.position.xyz;
+    vec3 worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+    v_viewNormal = (cc_matView * vec4(worldN, 0.0)).xyz;
+    return cc_matProj * (cc_matView * matWorld) * In.position;
+  }
+}%
+
+CCProgram rim-fs %{
+  precision highp float;
+  #include <legacy/output-standard>
+  #include <builtin/uniforms/cc-global>
+
+  in vec3 v_local;
+  in vec3 v_viewNormal;
+
+  uniform Constant {
+    vec4 rimColor;
+    vec4 holdMask;
+  };
+
+  vec4 frag () {
+    vec3 n = normalize(v_viewNormal);
+    float rim = pow(clamp(1.0 - abs(n.z), 0.0, 1.0), 4.6);
+
+    float r = holdMask.x * smoothstep(0.30, 0.46, v_local.x);
+    float l = holdMask.y * smoothstep(0.30, 0.46, -v_local.x);
+    float u = holdMask.z * smoothstep(0.30, 0.46, v_local.y);
+    float d = holdMask.w * smoothstep(0.30, 0.46, -v_local.y);
+    float face = max(max(r, l), max(u, d));
+
+    float a = rim * face * 2.4;
+    if (a < 0.05) discard;
+    a = clamp(a, 0.0, 1.0);
+    vec3 col = SRGBToLinear(rimColor.rgb);
+    return CCFragOutput(vec4(col * a, a));
+  }
+}%

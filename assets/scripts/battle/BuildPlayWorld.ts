@@ -1,4 +1,4 @@
-import { assetManager, instantiate, Node, Prefab, Vec3 } from 'cc';
+import { assetManager, instantiate, Layers, Node, Prefab, Sprite, SpriteFrame, UITransform, Vec3, resources } from 'cc';
 import {
   ALL_COLOR_TOKENS,
   BENCH,
@@ -12,6 +12,9 @@ import {
   slotX,
   slotZ,
   parseColorToken,
+  coveredBySpecial,
+  specialCenterX,
+  specialCenterY,
   wallColAtX,
   wallStartX,
 } from '../game/GameConfig';
@@ -25,10 +28,12 @@ import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { applyBombs, preloadBombs } from './Bombs';
 import { applyMagnetLook, applyPaintLook, applySandLook } from './BrickSpecials';
+import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
 import { applyShadowReceiver } from './ToyBlockMesh';
+import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
 import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
@@ -60,6 +65,56 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
   return n;
 }
 
+function loadChestPrefab(): Promise<Prefab | null> {
+  return new Promise((resolve) => {
+    assetManager.loadAny({ uuid: PREFAB_UUID.Chest }, (err, asset) => {
+      resolve(!err && asset ? (asset as Prefab) : null);
+    });
+  });
+}
+
+function spawnChestFallback(parent: Node, name: string, pos: Vec3): Node {
+  const n = new Node(name);
+  parent.addChild(n);
+  n.setPosition(pos);
+  n.layer = Layers.Enum.UI_3D;
+  const art = new Node('Art');
+  n.addChild(art);
+  art.layer = Layers.Enum.UI_3D;
+  art.addComponent(UITransform).setContentSize(256, 256);
+  const sp = art.addComponent(Sprite);
+  sp.sizeMode = Sprite.SizeMode.CUSTOM;
+  resources.load('ui/chest/spriteFrame', SpriteFrame, (err, sf) => {
+    if (!err && sf && art.isValid) sp.spriteFrame = sf;
+  });
+  art.setScale(0.0034, 0.0034, 0.0034);
+  return n;
+}
+
+function spawnChest(
+  prefab: Prefab | null,
+  parent: Node,
+  x: number,
+  y: number,
+  startX: number,
+  step: number,
+  baseY: number,
+  frontZ: number,
+): Node {
+  const pos = new Vec3(specialCenterX(x, startX, step), specialCenterY(y, baseY, step), frontZ);
+  const n = prefab
+    ? spawn(prefab, parent, `Chest_${x}_${y}`, pos)
+    : spawnChestFallback(parent, `Chest_${x}_${y}`, pos);
+  const s = PLAY.blockStep * 3.64;
+  n.setScale(s, s, s);
+  const chest = n.getComponent(ChestActor) ?? n.addComponent(ChestActor);
+  chest.trapped = true;
+  chest.trapCol = x;
+  chest.trapRow = y;
+  chest.idleBob();
+  return n;
+}
+
 export async function buildPlayWorld(
   scene: Node,
   level?: LevelDef,
@@ -69,11 +124,12 @@ export async function buildPlayWorld(
   applyLevel(level);
   const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
   const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
-  const [groundPf, slotPf, debrisPf, ironPf, ...colorPfs] = await Promise.all([
+  const [groundPf, slotPf, debrisPf, ironPf, chestPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
     loadPrefab(PREFAB_UUID.IronPlate),
+    loadChestPrefab(),
     ...blockUuids.map(loadPrefab),
     ...unitUuids.map(loadPrefab),
     preloadLockNails(),
@@ -82,6 +138,7 @@ export async function buildPlayWorld(
     preloadRaftBoard(),
     preloadPowerDigits().then(() => null),
   ]);
+  preloadInkShot();
   const blockPfs = new Map<ColorToken, Prefab>();
   const unitPfs = new Map<ColorToken, Prefab>();
   ALL_COLOR_TOKENS.forEach((token, i) => {
@@ -105,20 +162,30 @@ export async function buildPlayWorld(
   const baseY = PLAY.wallBaseY;
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
+      if (coveredBySpecial(level.cells, cols, x, y)) continue;
       const cell = level.cells[y * cols + x];
       if (!cell) continue;
+      if (cell.chest) {
+        const n = spawnChest(chestPf, wall, x, y, startX, step, baseY, frontZ);
+        applyLockNails(n, 'chest');
+        continue;
+      }
       if (cell.rescue) {
         const token = cell.rescue;
-        const power = level.rescuePower || 5;
+        const power = Math.min(90, Math.max(30, level.rescuePower || 30));
         const n = spawn(
           unitPfs.get(token) ?? unitPfs.get('o')!,
           wall,
           `Rescue_${token}_${x}_${y}_${power}`,
-          new Vec3(startX + x * step, baseY + y * step - PLAY.blockSize * 0.5, frontZ),
+          new Vec3(
+            specialCenterX(x, startX, step),
+            specialCenterY(y, baseY, step) - PLAY.blockStep * 0.70,
+            frontZ,
+          ),
         );
         const unit = n.getComponent(UnitActor) ?? n.addComponent(UnitActor);
         unit.syncFromName();
-        const s = PLAY.blockSize * 2.1;
+        const s = PLAY.blockStep * 6.16;
         n.setScale(s, s, s);
         unit.colorId = parseColorToken(token);
         unit.power = power;
@@ -127,6 +194,7 @@ export async function buildPlayWorld(
         unit.trapCol = x;
         unit.trapRow = y;
         unit.syncPowerLabel();
+        applyLockNails(n, 'octopus');
         continue;
       }
       for (let z = 0; z < cell.tokens.length; z++) {
@@ -137,11 +205,16 @@ export async function buildPlayWorld(
         const magnet = !!cell.magnet?.[z];
         const raft = onRaft(level, x, y);
         const tag = locked ? '_L' : bombed ? '_B' : paint ? '_P' : magnet ? '_M' : raft ? '_F' : '';
+        const big = z === 0 && (bombed || paint);
         const n = spawn(
           blockPfs.get(token) ?? blockPfs.get('o')!,
           wall,
           `Blk_${token}_${x}_${y}_${z}${tag}`,
-          new Vec3(startX + x * step, baseY + y * step + (raft ? step * 0.05 : 0), frontZ - z * step),
+          new Vec3(
+            big ? specialCenterX(x, startX, step) : startX + x * step,
+            (big ? specialCenterY(y, baseY, step) : baseY + y * step) + (raft ? step * 0.05 : 0),
+            frontZ - z * step + (big ? 0.06 : 0),
+          ),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
         if (locked && z === 0) applyLockNails(n);
@@ -226,7 +299,7 @@ export async function buildPlayWorld(
 
   const pool = new Node('DebrisPool');
   root.addChild(pool);
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 48; i++) {
     const n = spawn(debrisPf, pool, `Debris_${i}`, new Vec3(0, -2, 0));
     n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
     n.active = false;

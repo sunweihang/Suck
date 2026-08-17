@@ -14,14 +14,20 @@ export class DebrisBit extends Component {
   }
 
   burst(from: Vec3, colorScale = 1): void {
-    this.node.setWorldPosition(from);
-    this.node.setScale(0.12 * colorScale, 0.12 * colorScale, 0.12 * colorScale);
-    this._vel.set(
-      (Math.random() - 0.5) * 4.2,
-      2.4 + Math.random() * 3.2,
-      (Math.random() - 0.5) * 4.2,
+    this.node.setWorldPosition(
+      from.x + (Math.random() - 0.5) * 0.08,
+      from.y + (Math.random() - 0.5) * 0.08,
+      from.z + (Math.random() - 0.5) * 0.08,
     );
-    this._life = 0.45 + Math.random() * 0.25;
+    const s = (0.07 + Math.random() * 0.08) * colorScale;
+    this.node.setScale(s, s, s);
+    this.node.setRotationFromEuler(Math.random() * 360, Math.random() * 360, Math.random() * 360);
+    this._vel.set(
+      (Math.random() - 0.5) * 5.8,
+      2.6 + Math.random() * 3.8,
+      (Math.random() - 0.5) * 5.8,
+    );
+    this._life = 0.42 + Math.random() * 0.28;
     this.node.active = true;
   }
 

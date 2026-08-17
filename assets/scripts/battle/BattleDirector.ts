@@ -2,14 +2,17 @@ import {
   _decorator,
   Camera,
   Component,
+  director,
   EventMouse,
   EventTouch,
   geometry,
   input,
   Input,
   instantiate,
+  Layers,
   Node,
   Prefab,
+  screen,
   UITransform,
   Vec3,
 } from 'cc';
@@ -26,16 +29,26 @@ import {
   benchSeatZ,
   GAME,
   PLAY,
+  SPECIAL_SPAN,
+  VIEW_Y_MAX,
+  VIEW_Y_MIN,
+  HOLD_U,
+  forSpecialRing,
+  holdGlowMask,
   tokenOfColorId,
   wallStartX,
 } from '../game/GameConfig';
 import { paintNodeColor } from './BrickSpecials';
+import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, showsPlayHint, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
+import { InkShot } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
+import { ChestActor } from './ChestActor';
+import { applyHoldGlow, applyLockNails, clearHoldGlow, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
 import { OCTOPUS_STAND_Y } from './ToyLook';
 import { UnitActor } from './UnitActor';
@@ -44,6 +57,7 @@ const { ccclass } = _decorator;
 
 export type { ItemId };
 export type ItemHudState = {
+  coins: number;
   shuffle: number;
   merge: number;
   hook: number;
@@ -55,7 +69,40 @@ export type ItemHudState = {
 const _ray = new geometry.Ray();
 const _world = new Vec3();
 const _tmp = new Vec3();
+const _screen = new Vec3();
 const PICK_R2 = 0.38 * 0.38;
+const SPIN_THRESH_PX = 12;
+const SPIN_FRICTION = 6.2;
+const SPIN_BOX_PAD = 0.32;
+const TURRET_PAD_PX = 56;
+const _boxMin = new Vec3();
+const _boxMax = new Vec3();
+
+function rayHitsAabb(o: Vec3, d: Vec3, min: Vec3, max: Vec3): boolean {
+  let tmin = 0;
+  let tmax = 1e6;
+  for (let i = 0; i < 3; i++) {
+    const orig = i === 0 ? o.x : i === 1 ? o.y : o.z;
+    const dir = i === 0 ? d.x : i === 1 ? d.y : d.z;
+    const lo = i === 0 ? min.x : i === 1 ? min.y : min.z;
+    const hi = i === 0 ? max.x : i === 1 ? max.y : max.z;
+    if (Math.abs(dir) < 1e-8) {
+      if (orig < lo || orig > hi) return false;
+      continue;
+    }
+    let t1 = (lo - orig) / dir;
+    let t2 = (hi - orig) / dir;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return false;
+  }
+  return tmax >= 0;
+}
 
 type PointerEvt = EventTouch | EventMouse;
 
@@ -81,6 +128,7 @@ export class BattleDirector extends Component {
   private readonly _units: UnitActor[] = [];
   private readonly _slots: SlotPad[] = [];
   private readonly _debris: DebrisBit[] = [];
+  private readonly _shots: InkShot[] = [];
   private _flyRoot: Node | null = null;
   private _fromTouch = false;
   private readonly _byCol: BlockCell[][] = [];
@@ -93,7 +141,8 @@ export class BattleDirector extends Component {
   private _onWin: (() => void) | null = null;
   private _onLose: (() => void) | null = null;
   private _onItems: ((state: ItemHudState) => void) | null = null;
-  private readonly _items: Record<ItemId, number> = { shuffle: 1, merge: 1, hook: 1, shovel: 1 };
+  private _onGoldDenied: (() => void) | null = null;
+  private _wallet: PlayerWallet | null = null;
   private _hookPick = false;
   private _shovelPick = false;
   private _hint: HintHand | null = null;
@@ -107,8 +156,33 @@ export class BattleDirector extends Component {
   private _plateBreakT = 0;
   private readonly _sandCols = new Set<number>();
   private readonly _rescues: UnitActor[] = [];
+  private readonly _chests: ChestActor[] = [];
+  private readonly _chestQueue: ChestActor[] = [];
+  private _chestBusy = false;
+  private _onChest: ((chest: ChestActor) => void) | null = null;
+  private _onUnlockSlot: ((slot: SlotPad) => void) | null = null;
   private _raft: Node | null = null;
   private _raftT = 0;
+  private _wall: Node | null = null;
+  private _platesRoot: Node | null = null;
+  private _field: Node | null = null;
+  private _fieldCy = 0;
+  private _fieldCz = 0;
+  private _spinYaw = 0;
+  private _spinPitch = 0;
+  private _spinVel = 0;
+  private _pitchVel = 0;
+  private _ptrDown = false;
+  private _dragSpin = false;
+  private _spinning = false;
+  private _dragStartX = 0;
+  private _dragStartY = 0;
+  private _dragLastX = 0;
+  private _dragLastY = 0;
+  private _winSettle = 0;
+  private _lookDirty = true;
+  private _posedYaw = NaN;
+  private _posedPitch = NaN;
 
   armSpawn(
     unitPfs: Map<ColorToken, Prefab>,
@@ -124,6 +198,10 @@ export class BattleDirector extends Component {
     onWin?: () => void;
     onLose?: () => void;
     onItems?: (state: ItemHudState) => void;
+    onGoldDenied?: () => void;
+    onChest?: (chest: ChestActor) => void;
+    onUnlockSlot?: (slot: SlotPad) => void;
+    wallet?: PlayerWallet;
   }): void {
     this._cam = opts.camera;
     this._canvas = opts.canvas;
@@ -131,6 +209,10 @@ export class BattleDirector extends Component {
     this._onWin = opts.onWin ?? null;
     this._onLose = opts.onLose ?? null;
     this._onItems = opts.onItems ?? null;
+    this._onGoldDenied = opts.onGoldDenied ?? null;
+    this._onChest = opts.onChest ?? null;
+    this._onUnlockSlot = opts.onUnlockSlot ?? null;
+    this._wallet = opts.wallet ?? null;
     this._collect();
     this._bindTouch();
     this.setPlaying(false);
@@ -141,6 +223,7 @@ export class BattleDirector extends Component {
 
   setPlaying(on: boolean): void {
     this._playing = on;
+    UnitActor.animLive = on;
     const units = this._units;
     if (!units) return;
     for (const u of units) u.setPowerVisible(on);
@@ -167,6 +250,7 @@ export class BattleDirector extends Component {
   }
 
   update(dt: number): void {
+    this._tickField(dt);
     this._tickRaft(dt);
     this._tickCombat(dt);
     this._refreshPlates(dt);
@@ -178,6 +262,7 @@ export class BattleDirector extends Component {
     this._units.length = 0;
     this._slots.length = 0;
     this._debris.length = 0;
+    this._shots.length = 0;
     this._plates.length = 0;
     this._ironRows = (PLAY.ironRows ?? []).slice().sort((a, b) => a - b);
     this._ironGaps.clear();
@@ -190,16 +275,35 @@ export class BattleDirector extends Component {
     this._sandCols.clear();
     for (const col of PLAY.sandCols ?? []) this._sandCols.add(col);
     this._rescues.length = 0;
+    this._chests.length = 0;
+    this._chestQueue.length = 0;
+    this._chestBusy = false;
     this._raftT = 0;
-    this._raft = this.node.getChildByName('Raft');
-    const wall = this.node.getChildByName('Wall');
+    this._spinYaw = 0;
+    this._spinPitch = 0;
+    this._spinVel = 0;
+    this._pitchVel = 0;
+    this._ptrDown = false;
+    this._dragSpin = false;
+    this._spinning = false;
+    this._winSettle = 0;
+    this._bindField();
+    const wall = this._wall;
     const bench = this.node.getChildByName('Bench');
     const slots = this.node.getChildByName('Slots');
     const pool = this.node.getChildByName('DebrisPool');
     wall?.children.forEach((n) => {
+      if (n.name.startsWith('Chest_')) {
+        const c = n.getComponent(ChestActor) ?? n.addComponent(ChestActor);
+        c.syncFromName();
+        c.trapped = true;
+        this._chests.push(c);
+        return;
+      }
       if (n.name.startsWith('Rescue_')) {
         const u = n.getComponent(UnitActor);
         if (!u) return;
+        u.syncFromName();
         u.trapped = true;
         this._rescues.push(u);
         this._units.push(u);
@@ -224,12 +328,18 @@ export class BattleDirector extends Component {
       n.active = false;
       this._debris.push(c);
     });
-    this.node.getChildByName('Plates')?.children.forEach((n) => {
+    this._platesRoot?.children.forEach((n) => {
       const p = n.getComponent(IronPlate) ?? n.addComponent(IronPlate);
       p.syncFromName();
       this._plates.push(p);
     });
     this._flyRoot = this.node.getChildByName('FlyRoot');
+    this._flyRoot?.children.forEach((n) => {
+      if (!n.name.startsWith('Shot_')) return;
+      const s = n.getComponent(InkShot) ?? n.addComponent(InkShot);
+      n.active = false;
+      this._shots.push(s);
+    });
     this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
     this._hint = this._ensureWorldHint();
     if (this._hint && !showsPlayHint(PLAY.levelId)) this._hint.hide();
@@ -241,19 +351,29 @@ export class BattleDirector extends Component {
       if (u.index >= this._nextUnitIndex) this._nextUnitIndex = u.index + 1;
     }
     this._indexBlocks();
+    this._lookDirty = true;
     this._refreshLocks();
     this._placeRaft(0);
     this._refreshPlateGray();
     this._refreshRescues();
+    this._refreshChests();
     this._resetItems();
+  }
+
+  claimChest(chest: ChestActor): void {
+    chest.dismiss();
+    this._chestBusy = false;
+    this._flushChest();
+    if (!this._chestBusy) this.setPlaying(true);
   }
 
   itemState(): ItemHudState {
     return {
-      shuffle: this._items.shuffle,
-      merge: this._items.merge,
-      hook: this._items.hook,
-      shovel: this._items.shovel,
+      coins: this._wallet?.coins ?? 0,
+      shuffle: this._wallet?.itemCount('shuffle') ?? 0,
+      merge: this._wallet?.itemCount('merge') ?? 0,
+      hook: this._wallet?.itemCount('hook') ?? 0,
+      shovel: this._wallet?.itemCount('shovel') ?? 0,
       hookPick: this._hookPick,
       shovelPick: this._shovelPick,
     };
@@ -261,10 +381,18 @@ export class BattleDirector extends Component {
 
   useItem(id: ItemId): boolean {
     if (!this._playing || this._won || this._lost) return false;
+    if (!itemUnlocked(id, PLAY.levelId)) {
+      this._emitItems();
+      return false;
+    }
     if (id !== 'hook' && this._hookPick) this._hookPick = false;
     if (id !== 'shovel' && this._shovelPick) this._shovelPick = false;
     if (id === 'shuffle') {
-      if (this._items.shuffle <= 0 || !this._shuffleBench()) {
+      if (!this._afford('shuffle')) {
+        this._emitItems();
+        return false;
+      }
+      if (!this._shuffleBench()) {
         this._emitItems();
         return false;
       }
@@ -272,7 +400,11 @@ export class BattleDirector extends Component {
       return true;
     }
     if (id === 'merge') {
-      if (this._items.merge <= 0 || !this._mergeStuckSlots()) {
+      if (!this._afford('merge')) {
+        this._emitItems();
+        return false;
+      }
+      if (!this._mergeStuckSlots()) {
         this._emitItems();
         return false;
       }
@@ -280,7 +412,7 @@ export class BattleDirector extends Component {
       return true;
     }
     if (id === 'hook') {
-      if (this._items.hook <= 0) {
+      if (!this._afford('hook')) {
         this._emitItems();
         return false;
       }
@@ -298,7 +430,7 @@ export class BattleDirector extends Component {
       return true;
     }
     if (id === 'shovel') {
-      if (this._items.shovel <= 0) {
+      if (!this._afford('shovel')) {
         this._emitItems();
         return false;
       }
@@ -379,7 +511,7 @@ export class BattleDirector extends Component {
     }
     if (!unit) return;
     unit.node.getWorldPosition(_world);
-    _world.y += 0.28;
+    _world.y += 0.02;
     _world.z += 0.06;
     hint.placeWorld(_world, _world);
   }
@@ -431,30 +563,160 @@ export class BattleDirector extends Component {
   private _bindTouch(): void {
     this._unbindTouch();
     input.on(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.on(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
     input.on(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.on(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
     input.on(Input.EventType.MOUSE_DOWN, this._onMouseDown, this);
+    input.on(Input.EventType.MOUSE_MOVE, this._onMouseMove, this);
+    input.on(Input.EventType.MOUSE_UP, this._onMouseUp, this);
   }
 
   private _unbindTouch(): void {
     input.off(Input.EventType.TOUCH_START, this._onTouchStart, this);
+    input.off(Input.EventType.TOUCH_MOVE, this._onTouchMove, this);
     input.off(Input.EventType.TOUCH_END, this._onTouchEnd, this);
     input.off(Input.EventType.TOUCH_CANCEL, this._onTouchEnd, this);
     input.off(Input.EventType.MOUSE_DOWN, this._onMouseDown, this);
+    input.off(Input.EventType.MOUSE_MOVE, this._onMouseMove, this);
+    input.off(Input.EventType.MOUSE_UP, this._onMouseUp, this);
   }
 
   private _onTouchStart(e: EventTouch): void {
     this._fromTouch = true;
-    this._onTap(e);
+    this._beginPointer(e);
   }
 
-  private _onTouchEnd(): void {
+  private _onTouchMove(e: EventTouch): void {
+    this._movePointer(e);
+  }
+
+  private _onTouchEnd(e: EventTouch): void {
+    this._endPointer(e);
     this._fromTouch = false;
   }
 
   private _onMouseDown(e: EventMouse): void {
     if (this._fromTouch || e.getButton() !== EventMouse.BUTTON_LEFT) return;
-    this._onTap(e);
+    this._beginPointer(e);
+  }
+
+  private _onMouseMove(e: EventMouse): void {
+    if (this._fromTouch) return;
+    this._movePointer(e);
+  }
+
+  private _onMouseUp(e: EventMouse): void {
+    if (this._fromTouch) return;
+    this._endPointer(e);
+  }
+
+  private _beginPointer(e: PointerEvt): void {
+    if (!this._playing || this._won || this._lost) return;
+    if (this._overUi(e)) return;
+    const loc = e.getLocation();
+    this._ptrDown = true;
+    this._dragSpin = this._canSpinAt(e);
+    this._spinning = false;
+    this._dragStartX = loc.x;
+    this._dragStartY = loc.y;
+    this._dragLastX = loc.x;
+    this._dragLastY = loc.y;
+  }
+
+  private _movePointer(e: PointerEvt): void {
+    if (!this._dragSpin || !this._playing || this._won || this._lost) return;
+    const loc = e.getLocation();
+    const dx = loc.x - this._dragLastX;
+    const dy = loc.y - this._dragLastY;
+    if (!this._spinning) {
+      const ax = loc.x - this._dragStartX;
+      const ay = loc.y - this._dragStartY;
+      if (ax * ax + ay * ay < SPIN_THRESH_PX * SPIN_THRESH_PX) return;
+      this._spinning = true;
+    }
+    this._applySpinDelta(dx, dy);
+    this._dragLastX = loc.x;
+    this._dragLastY = loc.y;
+  }
+
+  private _endPointer(e: PointerEvt): void {
+    if (!this._ptrDown) return;
+    const spun = this._spinning;
+    this._ptrDown = false;
+    this._dragSpin = false;
+    this._spinning = false;
+    if (!spun) this._onTap(e);
+  }
+
+  private _canSpinAt(e: PointerEvt): boolean {
+    if (this._inTurretBand(e.getLocation())) return false;
+    return this._hitsFieldModel(e);
+  }
+
+  private _inTurretBand(loc: { x: number; y: number }): boolean {
+    const cam = this._cam;
+    if (!cam) return loc.y < screen.windowSize.height * 0.42;
+    let top = 0;
+    for (let i = 0; i < this._slots.length; i++) {
+      const n = this._slots[i].node;
+      if (!n?.isValid || !n.activeInHierarchy) continue;
+      n.getWorldPosition(_tmp);
+      _tmp.y += 0.62;
+      cam.worldToScreen(_tmp, _screen);
+      if (_screen.y > top) top = _screen.y;
+    }
+    for (let i = 0; i < this._units.length; i++) {
+      const u = this._units[i];
+      if (!u.usable || (u.state !== 'bench' && u.state !== 'attack')) continue;
+      u.node.getWorldPosition(_tmp);
+      _tmp.y += 0.28;
+      cam.worldToScreen(_tmp, _screen);
+      if (_screen.y > top) top = _screen.y;
+    }
+    if (top <= 0) {
+      _tmp.set(0, 0.85, GAME.slotStandZ);
+      cam.worldToScreen(_tmp, _screen);
+      top = _screen.y;
+    }
+    return loc.y <= top + TURRET_PAD_PX;
+  }
+
+  private _hitsFieldModel(e: PointerEvt): boolean {
+    const field = this._field;
+    if (!field || !this._aimRay(e)) return false;
+    this._fieldLocalBox(_boxMin, _boxMax);
+    field.inverseTransformPoint(_tmp, _ray.o);
+    Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 8);
+    field.inverseTransformPoint(_world, _world);
+    _world.subtract(_tmp);
+    return rayHitsAabb(_tmp, _world, _boxMin, _boxMax);
+  }
+
+  private _fieldLocalBox(min: Vec3, max: Vec3): void {
+    const half = PLAY.blockSize * 0.5 + SPIN_BOX_PAD;
+    const step = PLAY.blockStep;
+    const spanX = Math.max(0, this._cols - 1) * step;
+    const spanY = Math.max(0, PLAY.wallRows - 1) * step;
+    const spanZ = Math.max(0, PLAY.wallDepth - 1) * step;
+    const startX = wallStartX(this._cols);
+    min.set(startX - half, PLAY.wallBaseY - half - this._fieldCy, GAME.wallFrontZ - spanZ - half - this._fieldCz);
+    max.set(startX + spanX + half, PLAY.wallBaseY + spanY + half - this._fieldCy, GAME.wallFrontZ + half - this._fieldCz);
+  }
+
+  private _applySpinDelta(dx: number, dy: number): void {
+    const dt = Math.max(1 / 120, director.getDeltaTime());
+    const k = GAME.wallSpinDragDeg * (Math.PI / 180);
+    const dYaw = -dx * k;
+    const dPitch = dy * k;
+    this._spinYaw += dYaw;
+    this._spinPitch = this._clampPitch(this._spinPitch + dPitch);
+    this._spinVel = dYaw / dt;
+    this._pitchVel = dPitch / dt;
+  }
+
+  private _clampPitch(pitch: number): number {
+    const max = (GAME.wallSpinPitchMax * Math.PI) / 180;
+    return Math.max(-max, Math.min(max, pitch));
   }
 
   private _onTap(e: PointerEvt): void {
@@ -488,12 +750,7 @@ export class BattleDirector extends Component {
 
   private _placeOrMerge(unit: UnitActor): void {
     const slot = this._hintSlot(unit);
-    if (slot) {
-      this._placeUnit(unit, slot);
-      return;
-    }
-    const merge = this._bestMerge(unit);
-    if (merge) this._mergeUnit(unit, merge);
+    if (slot) this._placeUnit(unit, slot);
   }
 
   private _mergeUnit(unit: UnitActor, merge: UnitActor): void {
@@ -513,6 +770,7 @@ export class BattleDirector extends Component {
     unit.state = 'attack';
     slot.node.getWorldPosition(_tmp);
     unit.node.setWorldPosition(_tmp.x, unit.homePos.y + SLOT_PAD_TOP, _tmp.z);
+    unit.refreshPowerVisible();
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
   }
@@ -522,10 +780,15 @@ export class BattleDirector extends Component {
     if (this._platesBreaking) return;
     if (this._remain === 0) {
       if (!this._platesOpen && this._ironRows.length) return;
+      this._refreshChests();
+      if (this._chestBusy || this._chestQueue.length) return;
+      this._winSettle += dt;
+      if (this._stillClearing() || this._winSettle < 0.42) return;
       this._won = true;
       this._onWin?.();
       return;
     }
+    this._winSettle = 0;
     const units = this._units;
     if (!units) return;
     for (const u of units) {
@@ -539,7 +802,7 @@ export class BattleDirector extends Component {
       ) {
         const block = this._bestBlock(u);
         if (block) {
-          this._suckBrick(u, block);
+          this._shootBrick(u, block);
           u.suckWait += this._suckInterval(u);
         } else {
           this._nudgeLocked(u.colorId);
@@ -547,7 +810,28 @@ export class BattleDirector extends Component {
       }
     }
     this._refreshRescues();
+    this._refreshChests();
     this._checkStuckLose();
+  }
+
+  /** Shots, incoming bricks, or debris still on the field. */
+  private _stillClearing(): boolean {
+    for (let i = 0; i < this._shots.length; i++) {
+      if (this._shots[i].busy) return true;
+    }
+    for (let i = 0; i < this._blocks.length; i++) {
+      if (this._blocks[i].node.active) return true;
+    }
+    for (let i = 0; i < this._debris.length; i++) {
+      if (this._debris[i].busy) return true;
+    }
+    const units = this._units;
+    if (units) {
+      for (let i = 0; i < units.length; i++) {
+        if (units[i].inflight > 0) return true;
+      }
+    }
+    return false;
   }
 
   /** 8 slots occupied and nobody can (or is) absorbing → fail. */
@@ -562,26 +846,22 @@ export class BattleDirector extends Component {
       const u = s.occupant;
       if (!u?.usable) continue;
       if (u.inflight > 0) absorbing = true;
-      else if (u.power > 0 && this._bestBlock(u)) canAbsorb = true;
+      else if (u.power > 0 && this._canEventuallyAbsorb(u)) canAbsorb = true;
     }
     if (filled < GAME.slotMax || absorbing || canAbsorb) return;
-    if (this._items.merge > 0 && this._canMergeStuck()) return;
-    if (this._items.shovel > 0 && this._canShovel()) return;
+    if (this._afford('merge') && this._canMergeStuck()) return;
+    if (this._afford('shovel') && this._canShovel()) return;
     this._lost = true;
     this._onLose?.();
   }
 
   private _suckInterval(u: UnitActor): number {
-    return Math.min(
-      0.034,
-      Math.max(
-        GAME.suckMinInterval,
-        (GAME.suckRefInterval * GAME.suckRefPower) / Math.max(8, u.maxPower * GAME.matchMul),
-      ),
-    );
+    const power = Math.max(1, u.maxPower);
+    const interval = GAME.suckRefInterval * (power / GAME.suckRefPower);
+    return Math.min(GAME.suckMaxInterval, Math.max(GAME.suckMinInterval, interval));
   }
 
-  private _suckBrick(u: UnitActor, block: BlockCell): void {
+  private _shootBrick(u: UnitActor, block: BlockCell): void {
     if (!block.suckable || block.colorId !== u.colorId || u.power <= u.inflight) return;
     gameAudio()?.playAbsorb();
     const boom = block.bombed;
@@ -589,31 +869,93 @@ export class BattleDirector extends Component {
     const magnet = block.magnet;
     const sandCol = block.col;
     const sandLayer = block.layer;
+    const token = tokenOfColorId(block.colorId);
     this._unindex(block);
     if (magnet) u.magnet = true;
     if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
+    block.beginIncoming();
     u.inflight += 1;
     this._refreshLocks();
     this._refreshRescues();
-    if (boom || paint) {
-      block.beginPrimeBoom(u.node, 0.28, () => {
-        if (boom) this._detonate(u, block);
-        else this._paintSplash(block, u.colorId);
-        u.inflight = Math.max(0, u.inflight - 1);
-        u.power = Math.max(0, u.power - 1);
-        u.syncPowerLabel();
-        if (u.power <= 0) this._retireUnit(u);
-      });
-      return;
-    }
-    if (this._flyRoot) block.node.setParent(this._flyRoot, true);
-    block.beginSuck(u.node, GAME.suckFlightSec, () => {
-      this._remain = Math.max(0, this._remain - 1);
-      u.inflight = Math.max(0, u.inflight - 1);
-      u.power = Math.max(0, u.power - 1);
-      u.syncPowerLabel();
-      if (u.power <= 0) this._retireUnit(u);
+    this._refreshChests();
+    u.node.getWorldPosition(_tmp);
+    block.node.getWorldPosition(_world);
+    const dx = _world.x - _tmp.x;
+    const dy = _world.y - _tmp.y;
+    const dz = _world.z - _tmp.z;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    _tmp.x += (dx / dist) * 0.16;
+    _tmp.y += (dy / dist) * 0.16 + 0.12;
+    _tmp.z += (dz / dist) * 0.16;
+    const dur = Math.min(GAME.shotMaxSec, Math.max(GAME.shotMinSec, dist / GAME.shotSpeed));
+    this._nextShot().fire(_tmp, _world, tokenOfColorId(u.colorId), dur, GAME.shotArc, () => {
+      if (!u.isValid) return;
+      if (boom || paint) {
+        block.beginPrimeBoom(u.node, 0.28, () => {
+          if (boom) this._detonate(u, block);
+          else this._paintSplash(block, u.colorId);
+          this._spendShot(u);
+        });
+        return;
+      }
+      this._shatterBrick(block, token);
+      this._spendShot(u);
     });
+  }
+
+  private _spendShot(u: UnitActor): void {
+    u.inflight = Math.max(0, u.inflight - 1);
+    u.power = Math.max(0, u.power - 1);
+    u.syncPowerLabel();
+    if (u.power <= 0) this._retireUnit(u);
+  }
+
+  private _shatterBrick(block: BlockCell, token: ColorToken): void {
+    if (block.node.active) {
+      block.node.getWorldPosition(_world);
+      this._burstDebris(_world, token);
+    }
+    const counted = block.node.active;
+    block.shatter();
+    if (counted) this._remain = Math.max(0, this._remain - 1);
+    this._lookDirty = true;
+  }
+
+  private _burstDebris(from: Vec3, token: ColorToken, count = 6): void {
+    for (let i = 0; i < count; i++) {
+      const bit = this._nextDebris();
+      if (!bit) break;
+      paintNodeColor(bit.node, token);
+      bit.burst(from);
+    }
+  }
+
+  private _nextShot(): InkShot {
+    for (let i = 0; i < this._shots.length; i++) {
+      if (!this._shots[i].busy) return this._shots[i];
+    }
+    const n = new Node(`Shot_${this._shots.length}`);
+    n.layer = Layers.Enum.UI_3D;
+    n.setScale(0, 0, 0);
+    (this._flyRoot ?? this.node).addChild(n);
+    const shot = n.addComponent(InkShot);
+    n.active = false;
+    this._shots.push(shot);
+    return shot;
+  }
+
+  private _nextDebris(): DebrisBit | null {
+    for (let i = 0; i < this._debris.length; i++) {
+      if (!this._debris[i].busy) return this._debris[i];
+    }
+    const proto = this._debris[0];
+    if (!proto?.node?.isValid) return null;
+    const n = instantiate(proto.node);
+    proto.node.parent?.addChild(n);
+    const bit = n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
+    n.active = false;
+    this._debris.push(bit);
+    return bit;
   }
 
   private _retireUnit(u: UnitActor): void {
@@ -631,20 +973,27 @@ export class BattleDirector extends Component {
   }
 
   private _bestBlock(u: UnitActor): BlockCell | null {
-    const home = this._bestCol(u);
-    if (home < 0) return null;
-    const lo = u.magnet ? 0 : this._spanEdge(home, u.colorId, -1, u.ghost);
-    const hi = u.magnet ? this._byCol.length - 1 : this._spanEdge(home, u.colorId, 1, u.ghost);
     let best: BlockCell | null = null;
     let bestScore = -1e9;
-    for (let col = lo; col <= hi; col++) {
+    u.node.getWorldPosition(_tmp);
+    const ux = _tmp.x;
+    const uy = _tmp.y;
+    for (let col = 0; col < this._byCol.length; col++) {
       const list = this._byCol[col];
       if (!list) continue;
       for (let i = 0; i < list.length; i++) {
         const b = list[i];
-        if (b.colorId !== u.colorId || !b.suckable || !this._clearAbove(b, u.ghost)) continue;
+        if (b.colorId !== u.colorId || !b.suckable || !this._isVisible(b, u.ghost)) continue;
+        b.node.getWorldPosition(_world);
+        const dx = _world.x - ux;
+        const dy = _world.y - uy;
         const sand = this._sandCols.has(b.col);
-        const score = (sand ? -b.row : b.row) * 1000 - b.layer * 10 - Math.abs(b.col - home) + Math.random() * 0.01;
+        const score =
+          -b.layer * 20 -
+          dx * dx -
+          dy * dy * 0.35 +
+          (sand ? -b.row : 0) +
+          Math.random() * 0.01;
         if (score > bestScore) {
           bestScore = score;
           best = b;
@@ -654,52 +1003,12 @@ export class BattleDirector extends Component {
     return best;
   }
 
-  /** Inclusive edge of the contiguous same-color columns around `home`. */
-  private _spanEdge(home: number, colorId: number, dir: -1 | 1, ghost = false): number {
-    let col = home;
-    const last = dir < 0 ? 0 : this._byCol.length - 1;
-    while (col !== last && this._colHasMatch(col + dir, colorId, ghost)) col += dir;
-    return col;
-  }
-
-  private _bestCol(u: UnitActor): number {
-    if (u.lockedCol >= 0 && this._colHasMatch(u.lockedCol, u.colorId, u.ghost)) return u.lockedCol;
-    u.node.getWorldPosition(_tmp);
-    let bestCol = -1;
-    let bestScore = 1e9;
-    const startX = wallStartX(this._cols);
-    for (let col = 0; col < this._byCol.length; col++) {
-      if (!this._colHasMatch(col, u.colorId, u.ghost)) continue;
-      if (u.lockedCol >= 0 && this._colOnlyRaft(col, u.colorId, u.ghost)) continue;
-      const dx = startX + col * PLAY.blockStep - _tmp.x;
-      const score = dx * dx;
-      if (score < bestScore) {
-        bestScore = score;
-        bestCol = col;
-      }
-    }
-    return bestCol;
-  }
-
-  private _colOnlyRaft(col: number, colorId: number, ghost = false): boolean {
-    const list = this._byCol[col];
-    if (!list) return false;
-    let any = false;
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i];
-      if (b.colorId !== colorId || !b.suckable || !this._clearAbove(b, ghost)) continue;
-      if (!b.raft) return false;
-      any = true;
-    }
-    return any;
-  }
-
   private _colHasMatch(col: number, colorId: number, ghost = false): boolean {
     const list = this._byCol[col];
     if (!list) return false;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
-      if (b.colorId === colorId && b.suckable && this._clearAbove(b, ghost)) return true;
+      if (b.colorId === colorId && b.suckable && this._isVisible(b, ghost)) return true;
     }
     return false;
   }
@@ -713,49 +1022,66 @@ export class BattleDirector extends Component {
     return col >= a && col <= b ? -4 : 1.5;
   }
 
-  private _raftContact(col: number, colorId: number): boolean {
-    if ((PLAY.raftW | 0) <= 0) return true;
-    const list = this._byCol[col];
-    if (!list) return false;
-    let raft = false;
-    let ground = false;
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i];
-      if (!b.alive || b.colorId !== colorId) continue;
-      if (b.raft) raft = true;
-      else ground = true;
-    }
-    return raft && ground;
-  }
-
-  /** Same column: no other color sits higher on this layer, or in front on this row. */
-  private _clearAbove(block: BlockCell, ghost = false): boolean {
+  /** Exposed to camera: on screen, not behind another brick, not under a closed plate. */
+  private _isVisible(block: BlockCell, ghost = false): boolean {
     if (this._plateBlocks(block.row, block.col)) return false;
-    if ((PLAY.raftW | 0) > 0 && !this._raftContact(block.col, block.colorId)) return false;
-    if (ghost) return true;
-    const list = this._byCol[block.col];
-    if (!list) return false;
-    for (let i = 0; i < list.length; i++) {
-      const o = list[i];
-      if (o.row === block.row && o.layer < block.layer && o.colorId !== block.colorId) return false;
+    if (!this._inView(block)) return false;
+    return ghost || this._frontClear(block);
+  }
+
+  /** Same-color brick that is only turned away will face the camera again. */
+  private _canEventuallyAbsorb(u: UnitActor): boolean {
+    for (let col = 0; col < this._byCol.length; col++) {
+      const list = this._byCol[col];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const b = list[i];
+        if (b.colorId !== u.colorId || !b.suckable) continue;
+        if (this._plateBlocks(b.row, b.col)) continue;
+        return true;
+      }
     }
-    if (this._sandCols.has(block.col) && this._isSandBottom(block)) return true;
-    for (let i = 0; i < list.length; i++) {
-      const o = list[i];
-      if (o.layer !== block.layer || o.row <= block.row) continue;
-      if (o.colorId !== block.colorId) return false;
+    return false;
+  }
+
+  private _frontClear(block: BlockCell): boolean {
+    const yaw = this._fieldYaw();
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    for (let i = 0; i < this._blocks.length; i++) {
+      const o = this._blocks[i];
+      if (o === block || !o.alive || o.row !== block.row) continue;
+      const dCol = o.col - block.col;
+      const dLayer = block.layer - o.layer;
+      const closer = -dCol * s + dLayer * c;
+      if (closer <= 0.2) continue;
+      const side = dCol * c + dLayer * s;
+      if (Math.abs(side) < 0.7) return false;
     }
     return true;
   }
 
-  private _isSandBottom(block: BlockCell): boolean {
-    const list = this._byCol[block.col];
-    if (!list) return true;
-    for (let i = 0; i < list.length; i++) {
-      const o = list[i];
-      if (o.layer === block.layer && o.row < block.row) return false;
-    }
-    return true;
+  private _inView(block: BlockCell): boolean {
+    block.node.getWorldPosition(_tmp);
+    const half = PLAY.blockSize * 0.5;
+    if (_tmp.y + half <= VIEW_Y_MIN || _tmp.y - half >= VIEW_Y_MAX) return false;
+    const cam = this._cam;
+    if (!cam) return true;
+    cam.worldToScreen(_tmp, _screen);
+    const r = cam.rect;
+    const w = screen.windowSize.width;
+    const h = screen.windowSize.height;
+    const x0 = r.x * w;
+    const y0 = r.y * h;
+    const x1 = x0 + r.width * w;
+    const y1 = y0 + r.height * h;
+    const pad = 16;
+    return (
+      _screen.x >= x0 - pad &&
+      _screen.x <= x1 + pad &&
+      _screen.y >= y0 - pad &&
+      _screen.y <= y1 + pad
+    );
   }
 
   private _nudgeLocked(colorId: number): void {
@@ -771,14 +1097,10 @@ export class BattleDirector extends Component {
     playBaozhaBurst(this.node, _world, 0, 1.15);
     gameAudio()?.playBoom();
     this._popBomb(bomb);
-    const dirs: Array<readonly [number, number]> = [
-      [-1, 0], [1, 0], [0, 1], [0, -1],
-      [-1, 1], [1, 1], [-1, -1], [1, -1],
-    ];
-    for (let i = 0; i < dirs.length; i++) {
-      const n = this._aliveAt(bomb.col + dirs[i][0], bomb.row + dirs[i][1], bomb.layer);
+    forSpecialRing(bomb.col, bomb.row, (x, y) => {
+      const n = this._aliveAt(x, y, bomb.layer);
       if (n) this._blastAway(u, n);
-    }
+    });
   }
 
   private _popBomb(block: BlockCell): void {
@@ -801,10 +1123,7 @@ export class BattleDirector extends Component {
       this._detonate(u, block);
       return;
     }
-    if (this._flyRoot) block.node.setParent(this._flyRoot, true);
-    block.beginSuck(u.node, GAME.suckFlightSec, () => {
-      this._remain = Math.max(0, this._remain - 1);
-    });
+    this._shatterBrick(block, tokenOfColorId(block.colorId));
   }
 
   /** Whole nailed blob stays shut until no member has a free neighbor on the left, right, or top. */
@@ -948,11 +1267,12 @@ export class BattleDirector extends Component {
     if (next?.activeInHierarchy && next.getComponent(UITransform)?.hitTest(loc)) return true;
     if (settings?.activeInHierarchy && settings.getComponent(UITransform)?.hitTest(loc)) return true;
     if (this._hitsUi(hud?.getChildByName('Powers'), loc)) return true;
+    if (this._hitsUi(this._canvas?.getChildByName('GoldHud'), loc)) return true;
     const gm = this._canvas?.getChildByName('GmPanel');
     if (this._hitsUi(gm?.getChildByName('Toggle'), loc)) return true;
     if (this._hitsUi(gm?.getChildByName('Dim'), loc)) return true;
     if (this._hitsUi(gm?.getChildByName('Card'), loc)) return true;
-    for (const name of ['FailPanel', 'VictoryPanel', 'SettingsPanel']) {
+    for (const name of ['FailPanel', 'VictoryPanel', 'SettingsPanel', 'ChestPanel', 'ItemShopPanel', 'HomePanel']) {
       const n = this._canvas?.getChildByName(name);
       if (n?.activeInHierarchy) return true;
     }
@@ -1110,15 +1430,12 @@ export class BattleDirector extends Component {
   }
 
   private _dyeAround(col: number, row: number, layer: number, colorId: ColorId, token: ColorToken): void {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-        const b = this._aliveAt(col + dx, row + dy, layer);
-        if (!b) continue;
-        b.colorId = colorId;
-        paintNodeColor(b.node, token);
-      }
-    }
+    forSpecialRing(col, row, (x, y) => {
+      const b = this._aliveAt(x, y, layer);
+      if (!b) return;
+      b.colorId = colorId;
+      paintNodeColor(b.node, token);
+    });
   }
 
   private _settleSand(col: number, layer: number): void {
@@ -1145,49 +1462,160 @@ export class BattleDirector extends Component {
     }
   }
 
+  private _blocksHold(block: BlockCell, skipColor?: ColorId): boolean {
+    if (skipColor === undefined) return true;
+    return block.colorId !== skipColor || block.locked;
+  }
+
+  private _trapHeld(col: number, row: number, span = SPECIAL_SPAN, skipColor?: ColorId): boolean {
+    let held = false;
+    forSpecialRing(col, row, (x, y) => {
+      const mask = holdGlowMask(x, y, col, row, span);
+      if (held || !mask || mask === HOLD_U) return;
+      const n = this._aliveAt(x, y, 0);
+      if (n && this._blocksHold(n, skipColor)) held = true;
+    }, span);
+    return held;
+  }
+
   private _rescueHeld(u: UnitActor): boolean {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-        if (this._aliveAt(u.trapCol + dx, u.trapRow + dy, 0)) return true;
+    return this._trapHeld(u.trapCol, u.trapRow, u.trapSpan || SPECIAL_SPAN, u.colorId);
+  }
+
+  private _collectHolders(
+    out: Map<BlockCell, number>,
+    col: number,
+    row: number,
+    span = SPECIAL_SPAN,
+  ): void {
+    forSpecialRing(col, row, (x, y) => {
+      const mask = holdGlowMask(x, y, col, row, span);
+      if (!mask || mask === HOLD_U) return;
+      const n = this._aliveAt(x, y, 0);
+      if (n) out.set(n, (out.get(n) ?? 0) | mask);
+    }, span);
+  }
+
+  private _pickBenchSeat(): { col: number; rank: number } {
+    let bestCol = 0;
+    let bestN = 1e9;
+    for (let c = 0; c < BENCH.cols; c++) {
+      let n = 0;
+      for (const o of this._units) {
+        if ((o.onBench || o.freeing) && o.benchCol === c) n += 1;
+      }
+      if (n < bestN) {
+        bestN = n;
+        bestCol = c;
       }
     }
-    return false;
+    if (bestN >= BENCH.rows) return { col: 0, rank: 0 };
+    return { col: bestCol, rank: bestN };
+  }
+
+  private _beginRescueFree(u: UnitActor): void {
+    if (u.freeing) return;
+    this._lookDirty = true;
+    const bench = this._bench;
+    if (!bench) return;
+    u.freeing = true;
+    const seat = this._pickBenchSeat();
+    u.benchCol = seat.col;
+    u.benchRank = seat.rank;
+    u.homePos.set(benchSeatX(seat.col), OCTOPUS_STAND_Y, benchSeatZ(seat.rank));
+    u.flashFree();
+    this.scheduleOnce(() => {
+      if (!u.isValid || !u.node.isValid) return;
+      u.node.getWorldPosition(_world);
+      playBaozhaBurst(this.node, _world, 0, 0.82);
+      clearLockLook(u.node);
+      gameAudio()?.playBoom();
+      this.scheduleOnce(() => {
+        if (!u.isValid || !u.node.isValid || !this._bench) return;
+        u.trapped = false;
+        u.freeing = false;
+        u.state = 'bench';
+        u.node.setParent(this._bench, true);
+        u.node.setRotationFromEuler(0, 0, 0);
+        u.rebindPower();
+        u.flyToHome();
+        u.setPowerVisible(this._playing);
+      }, 0.16);
+    }, 0.3);
   }
 
   private _refreshRescues(): void {
     const bench = this._bench;
-    if (!bench) return;
+    if (!bench) {
+      this._refreshRescueLook();
+      return;
+    }
     for (let i = 0; i < this._rescues.length; i++) {
       const u = this._rescues[i];
-      if (!u.trapped || this._rescueHeld(u)) continue;
-      let bestCol = 0;
-      let bestN = 1e9;
-      for (let c = 0; c < BENCH.cols; c++) {
-        let n = 0;
-        for (const o of this._units) {
-          if (o.onBench && o.benchCol === c) n += 1;
-        }
-        if (n < bestN) {
-          bestN = n;
-          bestCol = c;
-        }
-      }
-      if (bestN >= BENCH.rows) continue;
-      u.trapped = false;
-      u.state = 'bench';
-      u.benchCol = bestCol;
-      u.benchRank = bestN;
-      const x = benchSeatX(bestCol);
-      const z = benchSeatZ(bestN);
-      u.homePos.set(x, OCTOPUS_STAND_Y, z);
-      u.node.setParent(bench, true);
-      u.flyToHome();
-      u.setPowerVisible(this._playing);
-      u.node.getWorldPosition(_world);
+      if (!u.trapped || u.freeing || this._rescueHeld(u)) continue;
+      this._beginRescueFree(u);
+    }
+    this._refreshRescueLook();
+  }
+
+  private _refreshChests(): void {
+    for (let i = 0; i < this._chests.length; i++) {
+      const c = this._chests[i];
+      if (!c.trapped || c.claimed || this._trapHeld(c.trapCol, c.trapRow, c.trapSpan || SPECIAL_SPAN)) continue;
+      c.trapped = false;
+      this._lookDirty = true;
+      clearLockLook(c.node);
+      c.node.getWorldPosition(_world);
       _world.y += 0.18;
       playMergeBurst(this.node, _world);
       gameAudio()?.playRemove();
+      this._chestQueue.push(c);
+    }
+    this._refreshRescueLook();
+    this._flushChest();
+  }
+
+  private _flushChest(): void {
+    if (this._chestBusy) return;
+    while (this._chestQueue.length) {
+      const next = this._chestQueue.shift()!;
+      if (next.claimed || !next.node.active) continue;
+      this._chestBusy = true;
+      this.setPlaying(false);
+      this._onChest?.(next);
+      return;
+    }
+  }
+
+  private _refreshRescueLook(): void {
+    if (!this._lookDirty) return;
+    this._lookDirty = false;
+    if (this._rescues.length === 0 && this._chests.length === 0) return;
+    const holders = new Map<BlockCell, number>();
+    for (let i = 0; i < this._rescues.length; i++) {
+      const u = this._rescues[i];
+      if (u.freeing) continue;
+      if (!u.trapped || !u.node.active) {
+        clearLockLook(u.node);
+        continue;
+      }
+      applyLockNails(u.node, 'octopus');
+      this._collectHolders(holders, u.trapCol, u.trapRow, u.trapSpan || SPECIAL_SPAN);
+    }
+    for (let i = 0; i < this._chests.length; i++) {
+      const c = this._chests[i];
+      if (!c.trapped || c.claimed || !c.node.active) {
+        if (!c.trapped) clearLockLook(c.node);
+        continue;
+      }
+      applyLockNails(c.node, 'chest');
+      this._collectHolders(holders, c.trapCol, c.trapRow, c.trapSpan || SPECIAL_SPAN);
+    }
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      const sides = holders.get(b) ?? 0;
+      if (sides) applyHoldGlow(b.node, sides);
+      else clearHoldGlow(b.node);
     }
   }
 
@@ -1201,6 +1629,51 @@ export class BattleDirector extends Component {
     return k * PLAY.raftTravel * PLAY.blockStep;
   }
 
+  private _bindField(): void {
+    let field = this.node.getChildByName('Field');
+    if (!field) {
+      field = new Node('Field');
+      this.node.addChild(field);
+    }
+    this._field = field;
+    this._fieldCy = PLAY.wallBaseY + Math.max(0, PLAY.wallRows - 1) * PLAY.blockStep * 0.5;
+    this._fieldCz = GAME.wallFrontZ - Math.max(0, PLAY.wallDepth - 1) * PLAY.blockStep * 0.5;
+    field.setPosition(0, this._fieldCy, this._fieldCz);
+    field.setRotationFromEuler(0, 0, 0);
+    for (const name of ['Wall', 'Plates', 'Raft'] as const) {
+      const n = this.node.getChildByName(name) ?? field.getChildByName(name);
+      if (n && n.parent !== field) n.setParent(field, true);
+    }
+    this._wall = field.getChildByName('Wall');
+    this._platesRoot = field.getChildByName('Plates');
+    this._raft = field.getChildByName('Raft');
+  }
+
+  private _fieldYaw(): number {
+    return this._spinYaw;
+  }
+
+  private _tickField(dt: number): void {
+    if (this._playing && !this._won && !this._lost && !this._spinning) {
+      this._spinYaw += this._spinVel * dt;
+      this._spinPitch = this._clampPitch(this._spinPitch + this._pitchVel * dt);
+      this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
+      this._pitchVel *= Math.exp(-SPIN_FRICTION * dt);
+      if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
+      if (Math.abs(this._pitchVel) < 0.04) this._pitchVel = 0;
+      if (this._spinVel === 0) {
+        const period = Math.max(4, GAME.wallSpinPeriod);
+        this._spinYaw += (dt / period) * Math.PI * 2;
+      }
+    }
+    const yaw = this._fieldYaw();
+    const pitch = this._spinPitch;
+    if (yaw === this._posedYaw && pitch === this._posedPitch) return;
+    this._posedYaw = yaw;
+    this._posedPitch = pitch;
+    this._field?.setRotationFromEuler((pitch * 180) / Math.PI, (yaw * 180) / Math.PI, 0);
+  }
+
   private _placeRaft(offset: number): void {
     const holder = this._raft;
     if (!holder || (PLAY.raftW | 0) <= 0) return;
@@ -1209,8 +1682,8 @@ export class BattleDirector extends Component {
     const bob = Math.sin(this._raftT * 1.3) * 0.018;
     holder.setPosition(
       startX + mid * PLAY.blockStep + offset,
-      PLAY.wallBaseY + PLAY.raftY * PLAY.blockStep - PLAY.blockStep * 0.52 + bob,
-      GAME.wallFrontZ - 0.08,
+      PLAY.wallBaseY + PLAY.raftY * PLAY.blockStep - PLAY.blockStep * 0.52 + bob - this._fieldCy,
+      GAME.wallFrontZ - 0.08 - this._fieldCz,
     );
     this._syncRaftBricks(offset, bob);
   }
@@ -1241,13 +1714,13 @@ export class BattleDirector extends Component {
   }
 
   private _resetItems(): void {
-    const lv = PLAY.levelId;
-    this._items.shuffle = itemUnlocked('shuffle', lv) ? 1 : 0;
-    this._items.merge = itemUnlocked('merge', lv) ? 1 : 0;
-    this._items.hook = itemUnlocked('hook', lv) ? 1 : 0;
-    this._items.shovel = itemUnlocked('shovel', lv) ? 1 : 0;
     this._clearPicks();
     this._emitItems();
+  }
+
+  private _afford(id: ItemId): boolean {
+    if (!itemUnlocked(id, PLAY.levelId)) return false;
+    return (this._wallet?.itemCount(id) ?? 0) > 0;
   }
 
   private _clearPicks(): void {
@@ -1256,7 +1729,10 @@ export class BattleDirector extends Component {
   }
 
   private _spend(id: ItemId): void {
-    this._items[id] = Math.max(0, this._items[id] - 1);
+    if (!this._wallet?.consumeItem(id)) {
+      this._emitItems();
+      return;
+    }
     this._clearPicks();
     this._emitItems();
   }
@@ -1300,7 +1776,7 @@ export class BattleDirector extends Component {
     for (const s of this._slots) {
       const u = s.occupant;
       if (!u?.usable || u.power <= 0 || u.inflight > 0) continue;
-      if (this._bestBlock(u)) continue;
+      if (this._canEventuallyAbsorb(u)) continue;
       out.push(u);
     }
     return out;
@@ -1450,14 +1926,22 @@ export class BattleDirector extends Component {
     return true;
   }
 
-  private _tryUnlockSlot(e: PointerEvt): boolean {
-    const slot = this._pickLockedSlot(e);
-    if (!slot) return false;
+  unlockSlot(slot: SlotPad): boolean {
+    if (!slot?.isValid || !slot.locked) return false;
     slot.node.getWorldPosition(_world);
     _world.y += 0.22;
     gameAudio()?.playBoom();
     playMergeBurst(this.node, _world);
+    this._emitItems();
     return slot.unlock();
+  }
+
+  private _tryUnlockSlot(e: PointerEvt): boolean {
+    const slot = this._pickLockedSlot(e);
+    if (!slot) return false;
+    gameAudio()?.playUiClick();
+    this._onUnlockSlot?.(slot);
+    return true;
   }
 
   private _pickLockedSlot(e: PointerEvt): SlotPad | null {

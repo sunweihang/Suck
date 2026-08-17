@@ -3,8 +3,8 @@ const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
 const BENCH = { cols: 6, rows: 6 };
 const UNIT_SEATS = BENCH.cols * BENCH.rows;
-const UNIT_MAX = UNIT_SEATS * 2;
-const POWER_LO = 6;
+const UNIT_MAX = UNIT_SEATS * 4;
+const POWER_LO = 30;
 const SLOT_MAX = 8;
 const SLOT_START = 4;
 const TOKEN_HUE = {
@@ -501,24 +501,27 @@ function cellBomb(grid, col, row, layer) {
   return !!grid.bomb?.[col]?.[row]?.[layer];
 }
 
+function specialRing(x, y, visit, span = 4) {
+  for (let yy = y - 1; yy <= y + span; yy++) {
+    for (let xx = x - 1; xx <= x + span; xx++) {
+      if (xx >= x && xx < x + span && yy >= y && yy < y + span) continue;
+      visit(xx, yy);
+    }
+  }
+}
+
 function blastPlus(grid, x, y, z) {
-  const dirs = [
-    [-1, 0], [1, 0], [0, 1], [0, -1],
-    [-1, 1], [1, 1], [-1, -1], [1, -1],
-  ];
   let n = 0;
   const chain = [];
-  for (let i = 0; i < dirs.length; i++) {
-    const nx = x + dirs[i][0];
-    const ny = y + dirs[i][1];
-    if (grid[nx]?.[ny]?.[z] == null) continue;
+  specialRing(x, y, (nx, ny) => {
+    if (grid[nx]?.[ny]?.[z] == null) return;
     const boom = cellBomb(grid, nx, ny, z);
     grid[nx][ny][z] = null;
     if (grid.lock?.[nx]?.[ny]) grid.lock[nx][ny][z] = false;
     if (grid.bomb?.[nx]?.[ny]) grid.bomb[nx][ny][z] = false;
     n += 1;
     if (boom) chain.push([nx, ny, z]);
-  }
+  });
   for (let i = 0; i < chain.length; i++) n += blastPlus(grid, chain[i][0], chain[i][1], chain[i][2]);
   return n;
 }
@@ -730,12 +733,9 @@ function writeCell(grid, x, y, z, cell) {
 }
 
 function paintSplash(grid, x, y, z, color) {
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dy === 0) continue;
-      if (grid[x + dx]?.[y + dy]?.[z] != null) grid[x + dx][y + dy][z] = color;
-    }
-  }
+  specialRing(x, y, (nx, ny) => {
+    if (grid[nx]?.[ny]?.[z] != null) grid[nx][ny][z] = color;
+  });
 }
 
 function settleSand(grid, col, layer) {
@@ -1136,18 +1136,28 @@ function collectRescues(level) {
   return list;
 }
 
+function holdGlowMask(hx, hy, col, row, span = 4) {
+  let m = 0;
+  if (hx + 1 >= col && hx + 1 < col + span && hy >= row && hy < row + span) m |= 1;
+  if (hx - 1 >= col && hx - 1 < col + span && hy >= row && hy < row + span) m |= 2;
+  if (hx >= col && hx < col + span && hy + 1 >= row && hy + 1 < row + span) m |= 4;
+  if (hx >= col && hx < col + span && hy - 1 >= row && hy - 1 < row + span) m |= 8;
+  return m;
+}
+
 function rescueHeld(grid, r) {
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dy === 0) continue;
-      const layers = grid[r.x + dx]?.[r.y + dy];
-      if (!layers) continue;
-      for (let z = 0; z < layers.length; z++) {
-        if (layers[z] != null) return true;
-      }
+  let held = false;
+  specialRing(r.x, r.y, (x, y) => {
+    if (held || !holdGlowMask(x, y, r.x, r.y)) return;
+    const layers = grid[x]?.[y];
+    if (!layers) return;
+    for (let z = 0; z < layers.length; z++) {
+      if (layers[z] == null) continue;
+      if (layers[z] === r.color && !cellLocked(grid, x, y, z)) continue;
+      held = true;
     }
-  }
-  return false;
+  });
+  return held;
 }
 
 function flushRescues(wall, bench) {
@@ -1530,6 +1540,10 @@ function asciiFace(level) {
         row += '@';
         continue;
       }
+      if (cell.chest) {
+        row += '$';
+        continue;
+      }
       const ch = cell.tokens[0];
       row += cell.magnet?.[0] ? '^' : cell.paint?.[0] ? '!' : cell.bomb?.[0] ? '*' : cell.locked?.[0] ? ch.toUpperCase() : ch;
     }
@@ -1544,6 +1558,7 @@ const path = require('path');
 function decodeCatalogCell(raw) {
   if (!raw) return null;
   if (raw[0] === '@' && raw[1]) return { tokens: [], rescue: raw[1].toLowerCase() };
+  if (raw[0] === '$') return { tokens: [], chest: true };
   const tokens = [];
   const locked = [];
   const bomb = [];
@@ -1628,38 +1643,121 @@ function reportLevel(level) {
   return { ok, ordered, greedy, info };
 }
 
-const arg = process.argv[2] || '2';
-if (arg === 'all' || arg === 'catalog') {
-  const catalog = arg === 'catalog' ? loadCatalog() : null;
-  const getLevel = catalog ? (id) => catalog[id - 1] : makeLevel;
-  const total = catalog ? catalog.length : LEVEL_COUNT;
-  const bad = [];
-  for (let id = 1; id <= total; id++) {
-    const result = reportLevel(getLevel(id));
-    if (!result.ok) bad.push({ id, ...result });
-  }
-  console.log(`\nfailed ${bad.length}/${total}`);
-  for (const b of bad.slice(0, 15)) {
-    console.log(`  L${b.id} order=${b.ordered.reason} greedy=${b.greedy.reason} remain=${b.ordered.remain}`);
-  }
-} else {
-  const id = Number(arg) || 2;
-  const catalog = (() => {
-    try { return loadCatalog(); } catch { return null; }
-  })();
-  const level = catalog?.[id - 1] ?? makeLevel(id);
-  const info = summarize(level);
-  console.log(JSON.stringify(info, null, 2));
-  console.log('\nFACE (top=high row):\n' + asciiFace(level));
+function isWinnable(level) {
   const ordered = solveInOrder(level);
-  const greedy = solveLevel(level);
-  console.log('\nORDER', JSON.stringify({ ok: ordered.ok, reason: ordered.reason, steps: ordered.steps, remain: ordered.remain, log: ordered.log }, null, 2));
-  console.log('\nGREEDY', JSON.stringify({
-    ok: greedy.ok,
-    reason: greedy.reason,
-    steps: greedy.steps,
-    remain: greedy.remain,
-    fronts: greedy.fronts,
-    slots: greedy.slots,
-  }, null, 2));
+  if (ordered.ok) return true;
+  return solveLevel(level).ok;
+}
+
+function packPlannedUnits(units, maxP = 50) {
+  const out = [];
+  for (const [color, n] of units) {
+    if (!n) continue;
+    if (n <= maxP) {
+      out.push([color, n]);
+      continue;
+    }
+    const count = Math.ceil(n / maxP);
+    let left = n;
+    for (let i = 0; i < count; i++) {
+      const take = i === count - 1 ? left : Math.round(left / (count - i));
+      out.push([color, take]);
+      left -= take;
+    }
+  }
+  return out;
+}
+
+function planUnitsForCells(level, rng, minUnits = 8) {
+  setPlayRules(level);
+  const built = buildGrid(level.cells, level.cols, level.rows);
+  const grid = built.grid;
+  let remain = built.remain;
+  if (remain <= 0) return [];
+  const remainBy = new Map();
+  const recount = () => {
+    remainBy.clear();
+    remain = 0;
+    for (const token of ALL_COLOR_TOKENS) {
+      const n = remainingCountGrid(grid, token);
+      if (n) remainBy.set(token, n);
+      remain += n;
+    }
+  };
+  recount();
+  const homeCol = (level.cols - 1) >> 1;
+  const units = [];
+  while (remain > 0) {
+    const options = [];
+    const finish = [];
+    for (const token of ALL_COLOR_TOKENS) {
+      if ((remainBy.get(token) ?? 0) <= 0) continue;
+      const acc = accessibleCountGrid(grid, token);
+      if (acc <= 0) continue;
+      options.push(token);
+      if (acc === remainBy.get(token)) finish.push(token);
+    }
+    if (!options.length) break;
+    const rich = options.filter((token) => accessibleCountGrid(grid, token) >= POWER_LO);
+    const pool = rich.length ? rich : options;
+    const finishPool = finish.filter((token) => pool.includes(token));
+    let color;
+    if (finishPool.length && rng.next() < 0.72) {
+      color = finishPool[rng.int(finishPool.length)];
+    } else {
+      pool.sort((a, b) => (remainBy.get(a) ?? 0) - (remainBy.get(b) ?? 0));
+      color = pool[rng.int(Math.min(2, pool.length))];
+    }
+    const bite = accessibleCountGrid(grid, color);
+    let ate = 0;
+    while (ate < bite) {
+      const n = eatOneGrid(grid, color, homeCol);
+      if (!n) break;
+      ate += 1;
+    }
+    if (ate <= 0) break;
+    units.push([color, ate]);
+    recount();
+  }
+  return packPlannedUnits(units);
+}
+
+module.exports = { solveInOrder, solveLevel, isWinnable, loadCatalog, reportLevel, planUnitsForCells };
+
+if (require.main === module) {
+  const arg = process.argv[2] || '2';
+  if (arg === 'all' || arg === 'catalog') {
+    const catalog = arg === 'catalog' ? loadCatalog() : null;
+    const getLevel = catalog ? (id) => catalog[id - 1] : makeLevel;
+    const total = catalog ? catalog.length : LEVEL_COUNT;
+    const bad = [];
+    for (let id = 1; id <= total; id++) {
+      const result = reportLevel(getLevel(id));
+      if (!result.ok) bad.push({ id, ...result });
+    }
+    console.log(`\nfailed ${bad.length}/${total}`);
+    for (const b of bad.slice(0, 15)) {
+      console.log(`  L${b.id} order=${b.ordered.reason} greedy=${b.greedy.reason} remain=${b.ordered.remain}`);
+    }
+  } else {
+    const id = Number(arg) || 2;
+    const catalog = (() => {
+      try { return loadCatalog(); } catch { return null; }
+    })();
+    const level = catalog?.[id - 1] ?? makeLevel(id);
+    const info = summarize(level);
+    console.log(JSON.stringify(info, null, 2));
+    console.log('\nFACE (top=high row):\n' + asciiFace(level));
+    const ordered = solveInOrder(level);
+    const greedy = solveLevel(level);
+    console.log('\nORDER', JSON.stringify({ ok: ordered.ok, reason: ordered.reason, steps: ordered.steps, remain: ordered.remain, log: ordered.log }, null, 2));
+    console.log('\nGREEDY', JSON.stringify({
+      ok: greedy.ok,
+      reason: greedy.reason,
+      steps: greedy.steps,
+      remain: greedy.remain,
+      fronts: greedy.fronts,
+      slots: greedy.slots,
+    }, null, 2));
+  }
 }

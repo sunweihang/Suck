@@ -5,6 +5,8 @@ const ABSORB_PATH = 'audio/sfx/absorb';
 const CLICK_PATH = 'audio/sfx/ui-click';
 const BOOM_PATH = 'audio/sfx/boom';
 const REMOVE_PATH = 'audio/sfx/remove';
+const GOLD_PATH = 'audio/sfx/gold';
+const GET_NEW_PATH = 'audio/sfx/get-new';
 const STORAGE_KEY = 'suck.audio.v1';
 
 const DEFAULT_BGM = 0.4;
@@ -17,6 +19,10 @@ const CLICK_GAIN = 1;
 const BOOM_GAIN = 1.8;
 /** TripleTown Remove.mp3 — shovel / piece leaves the board. */
 const REMOVE_GAIN = 1.2;
+/** TripleTown Gold.mp3 — coin fly landing. */
+const GOLD_GAIN = 1;
+/** TripleTown GetNew.mp3 — item / skill obtained. */
+const GET_NEW_GAIN = 1;
 /** Suck fires many bricks per second — keep a short gap so voices do not stack. */
 const ABSORB_GAP_SEC = 0.09;
 
@@ -33,6 +39,8 @@ export class AudioService {
   private _clickClip: AudioClip | null = null;
   private _boomClip: AudioClip | null = null;
   private _removeClip: AudioClip | null = null;
+  private _goldClip: AudioClip | null = null;
+  private _getNewClip: AudioClip | null = null;
   private _bgmGain = DEFAULT_BGM;
   private _sfxGain = DEFAULT_SFX;
   private _bgmDesired = false;
@@ -137,6 +145,34 @@ export class AudioService {
     });
   }
 
+  /** TripleTown GetNew.mp3 — item icon pops and flies to the dock. */
+  playGetNew(): void {
+    if (this._disposed) return;
+    if (this._getNewClip) {
+      this._oneShot(this._getNewClip, GET_NEW_GAIN);
+      return;
+    }
+    resources.load(GET_NEW_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._getNewClip = clip;
+      this._oneShot(clip, GET_NEW_GAIN);
+    });
+  }
+
+  /** TripleTown Gold.mp3 — coin flyer lands on the HUD. */
+  playGold(): void {
+    if (this._disposed) return;
+    if (this._goldClip) {
+      this._oneShot(this._goldClip, GOLD_GAIN);
+      return;
+    }
+    resources.load(GOLD_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._goldClip = clip;
+      this._oneShot(clip, GOLD_GAIN);
+    });
+  }
+
   /** TripleTown Remove.mp3 — octopus vanishes after power runs out. */
   playRemove(): void {
     if (this._disposed) return;
@@ -149,6 +185,32 @@ export class AudioService {
       this._removeClip = clip;
       this._oneShot(clip, REMOVE_GAIN);
     });
+  }
+
+  /** Stop BGM while rewarded video owns the audio session. */
+  pauseForAd(): void {
+    if (this._disposed) return;
+    try {
+      this._bgm.pause();
+    } catch {
+      this._stopBgmNow();
+    }
+  }
+
+  /** Restart BGM after ad close / fail. */
+  resumeAfterAd(): void {
+    if (this._disposed || !this._bgmDesired) return;
+    if (this._bgmClip) {
+      try {
+        this._bgm.play();
+        this._bgmRunning = true;
+        return;
+      } catch {
+        this._playBgm(this._bgmClip);
+        return;
+      }
+    }
+    this.startBgm();
   }
 
   playUiClick(): void {
@@ -200,6 +262,20 @@ export class AudioService {
         return;
       }
       this._removeClip = clip;
+    });
+    resources.load(GOLD_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] gold SFX load failed:', err);
+        return;
+      }
+      this._goldClip = clip;
+    });
+    resources.load(GET_NEW_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] get-new SFX load failed:', err);
+        return;
+      }
+      this._getNewClip = clip;
     });
   }
 

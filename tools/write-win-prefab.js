@@ -13,13 +13,23 @@ const UUID = {
   VictoryPanel: '8a3e5221-5cb9-30f8-8713-a85239c65ab8',
   panel: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e21@f9941',
   next: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e25@f9941',
+  gold: '7e22bb20-0076-4b02-8002-000000000076@f9941',
+  reward: '7e22bb20-0067-4b02-8002-000000000067@f9941',
+  ad: '7e22bb20-0078-4b02-8002-000000000078@f9941',
 };
 
 const PANEL_W = 860;
 const PANEL_H = Math.round((PANEL_W * 956) / 791);
 const NEXT_W = 460;
 const NEXT_H = 182;
-const BTN_Y = -Math.round(PANEL_H * 0.5 + NEXT_H * 0.5 + 20);
+const DOUBLE_W = 660;
+const DOUBLE_H = 140;
+const AD_ICON_W = 52;
+const AD_ICON_H = 36;
+const GOLD_ICON = 72;
+const GOLD_Y = -Math.round(PANEL_H * 0.32);
+const DOUBLE_Y = -Math.round(PANEL_H * 0.5 + DOUBLE_H * 0.5 + 16);
+const BTN_Y = DOUBLE_Y - Math.round(DOUBLE_H * 0.5 + 16 + NEXT_H * 0.5);
 
 function compressUuid(uuid) {
   const rest = uuid.slice(5).replace(/-/g, '');
@@ -290,8 +300,28 @@ function main() {
   const frame = addBox(doc, 'Frame', card, PANEL_W, PANEL_H, 0, 0);
   addSprite(doc, frame, UUID.panel);
 
+  const goldW = GOLD_ICON + 12 + 160;
+  const gold = addBox(doc, 'GoldReward', card, goldW, GOLD_ICON + 8, 0, GOLD_Y);
+  const goldIcon = addBox(doc, 'GoldIcon', gold, GOLD_ICON, GOLD_ICON, -goldW * 0.5 + GOLD_ICON * 0.5, 0);
+  addSprite(doc, goldIcon, UUID.gold);
+  const goldLab = addBox(doc, 'GoldLabel', gold, 160, GOLD_ICON + 8, -goldW * 0.5 + GOLD_ICON + 12 + 80, 2);
+  addLabel(doc, goldLab, '+25', 56, { r: 248, g: 225, b: 128, a: 255 }, {
+    _outlineColor: { __type__: 'cc.Color', r: 74, g: 68, b: 128, a: 255 },
+    _outlineWidth: 5,
+  });
+
+  const double = addBox(doc, 'DoubleBtn', card, DOUBLE_W, DOUBLE_H, 0, DOUBLE_Y);
+  const contentW = AD_ICON_W + 16 + 220;
+  const content = addBox(doc, 'Content', double, contentW, DOUBLE_H - 8, 0, 3);
+  const ad = addBox(doc, 'AdIcon', content, AD_ICON_W, AD_ICON_H, -contentW * 0.5 + AD_ICON_W * 0.5, 0);
+  addSprite(doc, ad, UUID.ad);
+  const dlab = addBox(doc, 'Label', content, 220, DOUBLE_H - 16, -contentW * 0.5 + AD_ICON_W + 16 + 110, 0);
+  addLabel(doc, dlab, '双倍领取', 48, { r: 255, g: 255, b: 255, a: 255 }, {
+    _outlineColor: { __type__: 'cc.Color', r: 74, g: 68, b: 128, a: 255 },
+    _outlineWidth: 4,
+  });
+
   const next = addBox(doc, 'NextBtn', card, NEXT_W, NEXT_H, 0, BTN_Y);
-  addSprite(doc, next, UUID.next);
 
   fs.writeFileSync(OUT, `${JSON.stringify(doc.items, null, 2)}\n`);
   fs.writeFileSync(
@@ -311,7 +341,7 @@ function main() {
     )}\n`,
   );
   console.log(
-    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} next=${NEXT_W}x${NEXT_H}`,
+    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} double=${DOUBLE_W}x${DOUBLE_H} next=${NEXT_W}x${NEXT_H}`,
   );
 }
 

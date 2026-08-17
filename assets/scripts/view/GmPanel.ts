@@ -15,12 +15,13 @@ import {
 } from 'cc';
 import { LEVEL_COUNT } from '../game/LevelCatalog';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
+import { GOLD_HUD, goldHudTopRight } from './GoldHud';
 import { gameAudio } from '../audio/AudioService';
 
 const { ccclass } = _decorator;
 
 const CARD_W = 640;
-const CARD_H = 900;
+const CARD_H = 980;
 const BTN_W = 480;
 const BTN_H = 88;
 const FIELD_W = 480;
@@ -66,14 +67,24 @@ export class GmPanel extends Component {
   private _onWin: (() => void) | null = null;
   private _onFail: (() => void) | null = null;
   private _onSkip: ((level: number) => void) | null = null;
+  private _onAddGold: ((delta: number) => void) | null = null;
+  private _onSetGold: ((n: number) => void) | null = null;
   private _level = 1;
   private _draft = '';
   private _levelLab: Label | null = null;
 
-  setup(opts: { onWin: () => void; onFail: () => void; onSkip: (level: number) => void }): void {
+  setup(opts: {
+    onWin: () => void;
+    onFail: () => void;
+    onSkip: (level: number) => void;
+    onAddGold?: (delta: number) => void;
+    onSetGold?: (n: number) => void;
+  }): void {
     this._onWin = opts.onWin;
     this._onFail = opts.onFail;
     this._onSkip = opts.onSkip;
+    this._onAddGold = opts.onAddGold ?? null;
+    this._onSetGold = opts.onSetGold ?? null;
     this._ensureTree();
     this.collapse();
     this.layoutChrome();
@@ -104,10 +115,13 @@ export class GmPanel extends Component {
     if (toggle) {
       toggle.active = true;
       const safe = uiSafeInsets();
-      const pad = 20;
+      const gold = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
+      const goldShown = !!this.node.parent?.getChildByName('GoldHud')?.active;
       toggle.setPosition(
-        vis.w * 0.5 - TOGGLE_W * 0.5 - pad,
-        vis.h * 0.5 - TOGGLE_H * 0.5 - safe.top - pad,
+        vis.w * 0.5 - TOGGLE_W * 0.5 - GOLD_HUD.pad,
+        goldShown
+          ? gold.y - GOLD_HUD.rootH * 0.5 - GOLD_HUD.gapBelow - TOGGLE_H * 0.5
+          : gold.y,
         0,
       );
     }
@@ -155,7 +169,10 @@ export class GmPanel extends Component {
     this._label(card, 'Title', `GM  第${this._level}关`, 42, INK, 0, 380, 520, 56);
     this._btn(card, 'WinBtn', WIN_BG, '一键胜利', BTN_TEXT, 0, 270, () => this._onWin?.());
     this._btn(card, 'FailBtn', FAIL_BG, '一键失败', BTN_TEXT, 0, 158, () => this._onFail?.());
-    this._levelLab = this._field(card, 0, 40);
+    this._btn(card, 'Gold100', TOGGLE_BG, '+100', BTN_TEXT, -164, 70, () => this._onAddGold?.(100), 148, 64, false);
+    this._btn(card, 'Gold1k', TOGGLE_BG, '+1000', BTN_TEXT, 0, 70, () => this._onAddGold?.(1000), 148, 64, false);
+    this._btn(card, 'GoldZero', FAIL_BG, '清零', BTN_TEXT, 164, 70, () => this._onSetGold?.(0), 148, 64, false);
+    this._levelLab = this._field(card, 0, -20);
     this._pad(card);
 
     const toggle = this._mk('Toggle', this.node, TOGGLE_W, TOGGLE_H);
@@ -192,7 +209,7 @@ export class GmPanel extends Component {
     const gapX = 16;
     const gapY = 16;
     const originX = -KEY_W - gapX;
-    const originY = -70;
+    const originY = -130;
     for (let i = 0; i < keys.length; i++) {
       const col = i % 3;
       const row = (i / 3) | 0;
