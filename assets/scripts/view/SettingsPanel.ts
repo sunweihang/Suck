@@ -38,11 +38,13 @@ const ROW_H = ICON + 18 + TRACK_H + 24;
 const TITLE_Y = Math.round(CARD_H * 0.5 - 150);
 const BGM_Y = 260;
 const SFX_Y = 70;
-const SHARE_Y = -200;
-const CLUB_Y = -440;
+const BTN_GAP = 20;
+const BTN_FONT = 48;
+const ACTION_Y = Math.round(-CARD_H * 0.5 + 56 + BTN_H * 0.5);
+const SHARE_X = -Math.round((BTN_W + BTN_GAP) * 0.5);
+const CLUB_X = Math.round((BTN_W + BTN_GAP) * 0.5);
 const TITLE_INK = new Color(74, 68, 128, 255);
 const BTN_INK = new Color(255, 255, 255, 255);
-const BTN_OUTLINE = new Color(74, 68, 128, 255);
 const SHARE_OUTLINE = new Color(88, 48, 16, 255);
 const CLUB_OUTLINE = new Color(20, 64, 32, 255);
 
@@ -84,10 +86,9 @@ export class SettingsPanel extends Component {
     if (lab) lab.active = false;
     ensureBtnChrome(card?.getChildByName('ShareButton'), BTN_W, BTN_H, Color.WHITE, SHARE_OUTLINE, 'winDouble');
     ensureBtnChrome(card?.getChildByName('ClubButton'), BTN_W, BTN_H, Color.WHITE, CLUB_OUTLINE, 'winAction');
-    const shareLab = card?.getChildByName('ShareButton')?.getChildByName('Label')?.getComponent(Label);
-    if (shareLab) shareLab.outlineColor = SHARE_OUTLINE;
-    const clubLab = card?.getChildByName('ClubButton')?.getChildByName('Label')?.getComponent(Label);
-    if (clubLab) clubLab.outlineColor = CLUB_OUTLINE;
+    this._styleActionLabel(card?.getChildByName('ShareButton')?.getChildByName('Label') ?? null, '分享', SHARE_OUTLINE);
+    this._styleActionLabel(card?.getChildByName('ClubButton')?.getChildByName('Label') ?? null, '游戏圈', CLUB_OUTLINE);
+    this._placeActions();
     this._paintVolumeRow(card?.getChildByName('BgmRow') ?? null, 'icMusic');
     this._paintVolumeRow(card?.getChildByName('SfxRow') ?? null, 'icSfx');
   }
@@ -105,7 +106,39 @@ export class SettingsPanel extends Component {
       CARD_H * 0.5 - 56 - CLOSE * 0.5,
       0,
     );
+    this._placeActions();
     this._applyChrome();
+  }
+
+  private _placeActions(): void {
+    const card = this.node.getChildByName('Card');
+    const share = card?.getChildByName('ShareButton');
+    const club = card?.getChildByName('ClubButton');
+    share?.getComponent(UITransform)?.setContentSize(BTN_W, BTN_H);
+    club?.getComponent(UITransform)?.setContentSize(BTN_W, BTN_H);
+    share?.setPosition(SHARE_X, ACTION_Y, 0);
+    club?.setPosition(CLUB_X, ACTION_Y, 0);
+  }
+
+  private _styleActionLabel(node: Node | null, text: string, outline: Color): void {
+    if (!node) return;
+    node.getComponent(UITransform)?.setContentSize(BTN_W - 48, BTN_H - 16);
+    node.setPosition(0, 2, 0);
+    const lab = node.getComponent(Label);
+    if (!lab) return;
+    lab.string = text;
+    lab.fontSize = BTN_FONT;
+    lab.lineHeight = BTN_FONT + 6;
+    lab.isBold = true;
+    lab.color = BTN_INK;
+    lab.enableOutline = true;
+    lab.outlineWidth = 4;
+    lab.outlineColor = outline;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.overflow = Label.Overflow.SHRINK;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
   }
 
   private _applyChrome(): void {
@@ -143,13 +176,15 @@ export class SettingsPanel extends Component {
     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
     if (!this.node.getComponent(BlockInputEvents)) this.node.addComponent(BlockInputEvents);
 
+    const existing = this.node.getChildByName('Card');
+    if (existing) {
+      this._adoptTree();
+      return;
+    }
+
     const dim = this._mk('Dim', this.node, vis.w, vis.h);
     if (!dim.getComponent(BlockInputEvents)) dim.addComponent(BlockInputEvents);
     applyArtSpriteSoon(dim, 'settingsDim', vis.w, vis.h);
-    dim.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
-      e.propagationStopped = true;
-      this._onClose?.();
-    }, this);
 
     const card = this._mk('Card', this.node, CARD_W, CARD_H);
     if (!card.getComponent(BlockInputEvents)) card.addComponent(BlockInputEvents);
@@ -160,32 +195,76 @@ export class SettingsPanel extends Component {
     title.outlineColor = TITLE_INK;
     title.outlineWidth = 0;
 
-    const bgm = this._volumeRow(card, 'BgmRow', '背景音乐', BGM_Y);
-    this._bgmSlider = bgm.slider;
-    this._bgmFill = bgm.fill;
-    this._wireSlider(bgm.slider, bgm.fill, (v) => gameAudio()?.setBgmVolume(v));
-
-    const sfx = this._volumeRow(card, 'SfxRow', '音效', SFX_Y);
-    this._sfxSlider = sfx.slider;
-    this._sfxFill = sfx.fill;
-    this._wireSlider(sfx.slider, sfx.fill, (v) => {
-      gameAudio()?.setSfxVolume(v);
-      const now = Date.now();
-      if (now - this._sfxPreviewAt > 120) {
-        this._sfxPreviewAt = now;
-        gameAudio()?.playUiClick();
-      }
-    });
-
-    this._action(card, 'ShareButton', '分享', SHARE_Y, () => shareToFriend());
-    this._action(card, 'ClubButton', '游戏圈', CLUB_Y, () => openGameCircle());
+    this._volumeRow(card, 'BgmRow', '背景音乐', BGM_Y);
+    this._volumeRow(card, 'SfxRow', '音效', SFX_Y);
+    this._action(card, 'ShareButton', '分享', SHARE_X, ACTION_Y, () => undefined);
+    this._action(card, 'ClubButton', '游戏圈', CLUB_X, ACTION_Y, () => undefined);
 
     const close = this._mk('CloseBtn', card, CLOSE, CLOSE);
     this._label(close, 'Label', '×', 48, TITLE_INK, 0, 0, CLOSE, CLOSE, false);
-    close.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+    this._adoptTree();
+  }
+
+  private _adoptTree(): void {
+    const dim = this.node.getChildByName('Dim');
+    if (dim && !dim.getComponent(BlockInputEvents)) dim.addComponent(BlockInputEvents);
+    const card = this.node.getChildByName('Card');
+    if (card && !card.getComponent(BlockInputEvents)) card.addComponent(BlockInputEvents);
+
+    const bgm = this._adoptVolumeRow(card?.getChildByName('BgmRow') ?? null);
+    this._bgmSlider = bgm.slider;
+    this._bgmFill = bgm.fill;
+    if (bgm.slider && bgm.fill) this._wireSlider(bgm.slider, bgm.fill, (v) => gameAudio()?.setBgmVolume(v));
+
+    const sfx = this._adoptVolumeRow(card?.getChildByName('SfxRow') ?? null);
+    this._sfxSlider = sfx.slider;
+    this._sfxFill = sfx.fill;
+    if (sfx.slider && sfx.fill) {
+      this._wireSlider(sfx.slider, sfx.fill, (v) => {
+        gameAudio()?.setSfxVolume(v);
+        const now = Date.now();
+        if (now - this._sfxPreviewAt > 120) {
+          this._sfxPreviewAt = now;
+          gameAudio()?.playUiClick();
+        }
+      });
+    }
+
+    dim?.off(Node.EventType.TOUCH_END);
+    dim?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this._onClose?.();
+    }, this);
+    this._bindTap(card?.getChildByName('CloseBtn'), () => this._onClose?.());
+    this._bindTap(card?.getChildByName('ShareButton'), () => shareToFriend());
+    this._bindTap(card?.getChildByName('ClubButton'), () => openGameCircle());
+  }
+
+  private _adoptVolumeRow(row: Node | null): { slider: Slider | null; fill: Node | null } {
+    if (!row) return { slider: null, fill: null };
+    const area = row.getChildByName('SliderArea');
+    const fill = area?.getChildByName('Fill') ?? null;
+    const handle = area?.getChildByName('Handle');
+    if (!area) return { slider: null, fill };
+    let slider = area.getComponent(Slider);
+    if (!slider) slider = area.addComponent(Slider);
+    let handleSp = handle?.getComponent(Sprite) ?? null;
+    if (handle && !handleSp) handleSp = handle.addComponent(Sprite);
+    if (handleSp) {
+      handleSp.sizeMode = Sprite.SizeMode.CUSTOM;
+      slider.handle = handleSp;
+    }
+    slider.direction = Slider.Direction.Horizontal;
+    return { slider, fill };
+  }
+
+  private _bindTap(node: Node | null | undefined, onTap: () => void): void {
+    if (!node) return;
+    node.off(Node.EventType.TOUCH_END);
+    node.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
-      this._onClose?.();
+      onTap();
     }, this);
   }
 
@@ -272,11 +351,10 @@ export class SettingsPanel extends Component {
     fill.active = w > 0;
   }
 
-  private _action(parent: Node, name: string, text: string, y: number, onTap: () => void): Node {
+  private _action(parent: Node, name: string, text: string, x: number, y: number, onTap: () => void): Node {
     const n = this._mk(name, parent, BTN_W, BTN_H);
-    n.setPosition(0, y, 0);
-    const lab = this._label(n, 'Label', text, 48, BTN_INK, 0, 3, BTN_W - 48, BTN_H - 16, false);
-    lab.outlineColor = BTN_OUTLINE;
+    n.setPosition(x, y, 0);
+    const lab = this._label(n, 'Label', text, BTN_FONT, BTN_INK, 0, 2, BTN_W - 48, BTN_H - 16, false);
     lab.outlineWidth = 4;
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;

@@ -202,6 +202,7 @@ function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number }
   if (key === 'settingsCard') return { t: 128, b: 128, l: 128, r: 128 };
   if (key === 'itemTray') return { t: 72, b: 72, l: 120, r: 120 };
   if (key === 'goldBg') return { t: 0, b: 0, l: 20, r: 20 };
+  if (key === 'volumeFill') return { t: 0, b: 0, l: 14, r: 2 };
   return null;
 }
 

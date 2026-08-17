@@ -255,33 +255,60 @@ export class GameBootstrap extends Component {
   }
 
   private _claimNext(): void {
-    if (this._doubleBusy) return;
-    const amount = this._clearGold > 0 ? this._clearGold : GOLD.win;
-    this._clearGold = 0;
-    void this._flyGoldThenNext(amount);
+    this._claimSettle('win');
   }
 
-  private async _claimDouble(): Promise<void> {
+  private _claimRetry(): void {
+    this._claimSettle('fail');
+  }
+
+  private _claimSettle(kind: 'win' | 'fail'): void {
+    if (this._doubleBusy) return;
+    const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
+    const amount = this._clearGold > 0 ? this._clearGold : fallback;
+    this._clearGold = 0;
+    void this._flyGoldThen(amount, kind);
+  }
+
+  private _claimDouble(): void {
+    void this._claimSettleDouble('win');
+  }
+
+  private _claimFailDouble(): void {
+    void this._claimSettleDouble('fail');
+  }
+
+  private async _claimSettleDouble(kind: 'win' | 'fail'): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
-    this._victory?.lock();
+    this._lockSettle(kind);
     const result = await showRewardedVideoAd();
-    const base = this._clearGold > 0 ? this._clearGold : GOLD.win;
+    const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
+    const base = this._clearGold > 0 ? this._clearGold : fallback;
     const amount = result === 'rewarded' ? base * 2 : base;
     this._clearGold = 0;
     this._doubleBusy = false;
-    void this._flyGoldThenNext(amount);
+    void this._flyGoldThen(amount, kind);
   }
 
-  private async _flyGoldThenNext(amount: number): Promise<void> {
+  private _lockSettle(kind: 'win' | 'fail'): void {
+    if (kind === 'fail') this._fail?.lock();
+    else this._victory?.lock();
+  }
+
+  private async _flyGoldThen(amount: number, kind: 'win' | 'fail'): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
-    this._victory?.lock();
+    this._lockSettle(kind);
+    const after = () => {
+      this._doubleBusy = false;
+      if (kind === 'fail') this._retryPlay();
+      else void this._enterNext();
+    };
     const canvas = this._canvas;
     if (!canvas?.isValid || amount <= 0) {
       if (amount > 0) this._wallet.add(amount);
-      this._doubleBusy = false;
-      void this._enterNext();
+      after();
       return;
     }
     const fx = ensureCoinFxRoot(canvas);
@@ -289,7 +316,8 @@ export class GameBootstrap extends Component {
     fx.setSiblingIndex(canvas.children.length - 1);
     const start = new Vec3();
     const end = new Vec3();
-    this._victory?.goldStartWorld(start);
+    const panel = kind === 'fail' ? this._fail : this._victory;
+    panel?.goldStartWorld(start);
     if (this._gold) this._gold.iconWorldPos(end);
     else end.set(start.x + 360, start.y + 720, 0);
     worldToFxLocal(fx, start, start);
@@ -300,16 +328,16 @@ export class GameBootstrap extends Component {
         start,
         end,
         amount,
-        frame: this._victory?.goldIconFrame() ?? artFrame('goldIcon'),
+        frame: panel?.goldIconFrame() ?? artFrame('goldIcon'),
         onCredit: (n) => this._wallet.add(n),
         onDone: () => resolve(),
       });
     });
-    this._doubleBusy = false;
-    void this._enterNext();
+    after();
   }
 
   private _onLevelFailed(): void {
+    this._clearGold = GOLD.fail;
     this._home?.hide();
     this._settings?.hide();
     this._victory?.hide();
@@ -317,7 +345,15 @@ export class GameBootstrap extends Component {
     this._itemShop?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
-    this._fail?.show();
+    this._setGoldVisible(true);
+    this._fail?.show({
+      gold: GOLD.fail,
+      canDouble: true,
+    });
+    if (this._canvas) {
+      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
+    }
   }
 
   private _onChestReady(chest: ChestActor): void {
@@ -665,9 +701,8 @@ export class GameBootstrap extends Component {
       onSettings: () => this._showSettings(),
     });
 
-    const settingsN = new Node('SettingsPanel');
-    canvasN.addChild(settingsN);
-    this._settings = settingsN.addComponent(SettingsPanel);
+    const settingsN = await this._spawnSettings(canvasN);
+    this._settings = settingsN.getComponent(SettingsPanel) ?? settingsN.addComponent(SettingsPanel);
     this._settings.setup({ onClose: () => this._closeSettings() });
     this._settings.hide();
 
@@ -686,14 +721,15 @@ export class GameBootstrap extends Component {
     this._victory = winN.getComponent(VictoryPanel) ?? winN.addComponent(VictoryPanel);
     this._victory.setup({
       onNext: () => this._claimNext(),
-      onDouble: () => void this._claimDouble(),
+      onDouble: () => this._claimDouble(),
     });
     this._victory.hide();
 
     const failN = await this._spawnFail(canvasN);
     this._fail = failN.getComponent(FailPanel) ?? failN.addComponent(FailPanel);
     this._fail.setup({
-      onRetry: () => this._retryPlay(),
+      onRetry: () => this._claimRetry(),
+      onDouble: () => this._claimFailDouble(),
     });
     this._fail.hide();
 
@@ -711,6 +747,7 @@ export class GameBootstrap extends Component {
     this._itemShop.setup({
       onBuy: (kind) => this._buyShop(kind),
       onWatch: (kind) => void this._watchShop(kind),
+      onClose: () => this._closeItemShop(),
     });
     this._itemShop.hide();
 
@@ -774,6 +811,21 @@ export class GameBootstrap extends Component {
     } catch (err) {
       console.warn('[Suck] VictoryPanel prefab missing, fallback node', err);
       const n = new Node('VictoryPanel');
+      canvasN.addChild(n);
+      return n;
+    }
+  }
+
+  private async _spawnSettings(canvasN: Node): Promise<Node> {
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.SettingsPanel);
+      const n = instantiate(pf);
+      n.name = 'SettingsPanel';
+      canvasN.addChild(n);
+      return n;
+    } catch (err) {
+      console.warn('[Suck] SettingsPanel prefab missing, fallback node', err);
+      const n = new Node('SettingsPanel');
       canvasN.addChild(n);
       return n;
     }

@@ -12,17 +12,17 @@ const UUID = {
   prefab: '7e22bb20-0043-4b02-8002-000000000043',
   ItemShopPanel: '8c01a1b0-4e21-4f3a-9c11-010000000033',
   panel: '7e22bb20-0083-4b02-8002-000000000083@f9941',
-  box: '7e22bb20-0081-4b02-8002-000000000081@f9941',
   gold: '7e22bb20-0076-4b02-8002-000000000076@f9941',
   ad: '7e22bb20-0078-4b02-8002-000000000078@f9941',
   shuffle: '7e22bb20-0070-4b02-8002-000000000070@f9941',
+  buySkin: 'c60db3f9-8067-4a17-87f5-dad8b07c60a9@f9941',
+  adSkin: 'a43b8381-cf88-4be8-9cf6-81e475e50c06@f9941',
 };
 
 const PANEL_W = 860;
 const PANEL_H = Math.round((PANEL_W * 1386) / 959);
-const BOX_W = 520;
-const BOX_H = Math.round((BOX_W * 433) / 591);
 const ICON = 336;
+const NAME_W = 480;
 const BTN_W = 374;
 const BTN_H = 145;
 const BTN_GAP = 20;
@@ -30,10 +30,10 @@ const GOLD_ICON = 76;
 const AD_ICON_W = 76;
 const AD_ICON_H = 52;
 const TITLE_Y = Math.round(PANEL_H * 0.5 - 150);
-const BOX_Y = 44;
+const ICON_Y = 44;
 const NAME_H = 56;
 const NAME_GAP = 10;
-const NAME_Y = Math.round(BOX_Y - BOX_H * 0.5 - NAME_GAP - NAME_H * 0.5);
+const NAME_Y = Math.round(ICON_Y - ICON * 0.5 - NAME_GAP - NAME_H * 0.5);
 const BTN_Y = Math.round(-PANEL_H * 0.5 + 56 + BTN_H * 0.5);
 const BUY_X = -Math.round((BTN_W + BTN_GAP) * 0.5);
 const AD_X = Math.round((BTN_W + BTN_GAP) * 0.5);
@@ -312,17 +312,16 @@ function main() {
     _outlineWidth: 4,
   });
 
-  const box = addBox(doc, 'ItemBox', card, BOX_W, BOX_H, 0, BOX_Y);
-  addSprite(doc, box, UUID.box);
-  const icon = addBox(doc, 'Icon', box, ICON, ICON, 0, 0);
+  const icon = addBox(doc, 'Icon', card, ICON, ICON, 0, ICON_Y);
   addSprite(doc, icon, UUID.shuffle);
-  const name = addBox(doc, 'Name', card, BOX_W - 40, NAME_H, 0, NAME_Y);
+  const name = addBox(doc, 'Name', card, NAME_W, NAME_H, 0, NAME_Y);
   addLabel(doc, name, '洗牌', 44, { r: 74, g: 68, b: 128, a: 255 }, {
     _outlineColor: { __type__: 'cc.Color', r: 255, g: 255, b: 255, a: 255 },
     _outlineWidth: 4,
   });
 
   const buy = addBox(doc, 'BuyBtn', card, BTN_W, BTN_H, BUY_X, BTN_Y);
+  addSprite(doc, addBox(doc, 'Skin', buy, BTN_W, BTN_H, 0, 0), UUID.buySkin);
   const buyW = GOLD_ICON + 10 + 150;
   const buyContent = addBox(doc, 'Content', buy, buyW, BTN_H - 8, 8, 2);
   const gold = addBox(doc, 'GoldIcon', buyContent, GOLD_ICON, GOLD_ICON, -buyW * 0.5 + GOLD_ICON * 0.5, 0);
@@ -334,6 +333,7 @@ function main() {
   });
 
   const adBtn = addBox(doc, 'AdBtn', card, BTN_W, BTN_H, AD_X, BTN_Y);
+  addSprite(doc, addBox(doc, 'Skin', adBtn, BTN_W, BTN_H, 0, 0), UUID.adSkin);
   const adW = AD_ICON_W + 10 + 150;
   const adContent = addBox(doc, 'Content', adBtn, adW, BTN_H - 8, 8, 2);
   const ad = addBox(doc, 'AdIcon', adContent, AD_ICON_W, AD_ICON_H, -adW * 0.5 + AD_ICON_W * 0.5, 0);
@@ -362,7 +362,7 @@ function main() {
     )}\n`,
   );
   console.log(
-    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} box=${BOX_W}x${BOX_H} btnY=${BTN_Y}`,
+    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} icon=${ICON} btnY=${BTN_Y}`,
   );
 }
 

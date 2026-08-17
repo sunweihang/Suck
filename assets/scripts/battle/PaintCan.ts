@@ -251,7 +251,7 @@ function dress(root: Node, name: string, mesh: Mesh | null, mat: Material | null
   mr.mesh = mesh;
   if (mat) mr.setSharedMaterial(mat, 0);
   mr.enabled = true;
-  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
   if (token) paintMesh(mr, token, shade, emit);
 }

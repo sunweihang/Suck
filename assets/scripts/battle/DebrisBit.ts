@@ -9,6 +9,10 @@ export class DebrisBit extends Component {
   private readonly _vel = new Vec3();
   private _life = 0;
 
+  onLoad(): void {
+    this.enabled = false;
+  }
+
   get busy(): boolean {
     return this.node.active && this._life > 0;
   }
@@ -27,8 +31,9 @@ export class DebrisBit extends Component {
       2.6 + Math.random() * 3.8,
       (Math.random() - 0.5) * 5.8,
     );
-    this._life = 0.42 + Math.random() * 0.28;
+    this._life = 0.32 + Math.random() * 0.2;
     this.node.active = true;
+    this.enabled = true;
   }
 
   update(dt: number): void {
@@ -42,6 +47,9 @@ export class DebrisBit extends Component {
     this.node.setPosition(_pos);
     const s = Math.max(0.02, this._life * 0.35);
     this.node.setScale(s, s, s);
-    if (this._life <= 0) this.node.active = false;
+    if (this._life <= 0) {
+      this.node.active = false;
+      this.enabled = false;
+    }
   }
 }

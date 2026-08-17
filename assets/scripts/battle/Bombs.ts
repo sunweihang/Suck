@@ -113,5 +113,5 @@ export function applyBombs(root: Node, token: ColorToken = 'y'): void {
     tmr.setSharedMaterial(goldMat(), 0);
     tmr.enabled = true;
   }
-  applyToyCaster(root);
+  applyToyCaster(root, false, false);
 }

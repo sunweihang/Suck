@@ -85,12 +85,11 @@ export class InkShot extends Component {
     this._arc = arc;
     this._onHit = onHit ?? null;
     this._armed = false;
-    this.node.active = false;
+    this.node.active = true;
+    this.enabled = true;
     this._ensureLook(token);
     this._pose(0);
     this._armed = true;
-    this.node.active = true;
-    this.enabled = true;
   }
 
   update(dt: number): void {
@@ -131,6 +130,7 @@ export class InkShot extends Component {
     const fadeIn = u < 0.08 ? u / 0.08 : 1;
     for (let i = 0; i < this._trail.length; i++) {
       const ghost = this._trail[i];
+      if (!ghost?.isValid) continue;
       ghost.setPosition(0, 0, 1.15 + i * 0.95);
       const fade = Math.max(0.22, 1 - (i + 1) * 0.24) * fadeIn;
       const s = 0.82 - i * 0.14;
@@ -150,6 +150,7 @@ export class InkShot extends Component {
         this._trail[i] = ghost;
       }
       ghost.layer = Layers.Enum.UI_3D;
+      ghost.active = true;
       this._applyBall(ghost, trailMat(token));
     }
   }

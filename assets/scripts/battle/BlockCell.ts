@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, PLAY, SPECIAL_SPAN, parseColorToken } from '../game/GameConfig';
+import { ColorId, GAME, PLAY, SPECIAL_SPAN, isColorToken, parseColorToken } from '../game/GameConfig';
 import { applyBrickGray, applyBrickPlastic } from './ToyBlockMesh';
 import { clearLockLook } from './LockNails';
 
@@ -286,16 +286,23 @@ export class BlockCell extends Component {
 
   private _parseName(): void {
     const p = this.node.name.split('_');
-    if (p.length < 5) return;
-    this.colorId = parseColorToken(p[1]);
-    this.col = Number(p[2]) || 0;
-    this.row = Number(p[3]) || 0;
-    this.layer = Number(p[4]) || 0;
-    this.locked = p[5] === 'L';
-    this.bombed = p[5] === 'B';
-    this.paint = p[5] === 'P';
-    this.magnet = p[5] === 'M';
-    this.raft = p[5] === 'F';
+    let tokenAt = 1;
+    if (p.length >= 5 && isColorToken(p[1])) tokenAt = 1;
+    else if (p.length >= 6 && isColorToken(p[2])) tokenAt = 2;
+    else {
+      tokenAt = p.findIndex((part) => isColorToken(part));
+      if (tokenAt < 0) return;
+    }
+    this.colorId = parseColorToken(p[tokenAt]);
+    this.col = Number(p[tokenAt + 1]) || 0;
+    this.row = Number(p[tokenAt + 2]) || 0;
+    this.layer = Number(p[tokenAt + 3]) || 0;
+    const tag = p[tokenAt + 4];
+    this.locked = tag === 'L';
+    this.bombed = tag === 'B';
+    this.paint = tag === 'P';
+    this.magnet = tag === 'M';
+    this.raft = tag === 'F';
     this.raftHomeCol = this.col;
   }
 }

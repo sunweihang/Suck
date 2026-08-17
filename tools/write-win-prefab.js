@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'assets/prefabs/VictoryPanel.prefab');
+const OUT = path.join(ROOT, 'assets/prefabs/ui/VictoryPanel.prefab');
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const LAYER_UI = 33554432;
 
@@ -12,24 +12,24 @@ const UUID = {
   prefab: '7e22bb20-0041-4b02-8002-000000000041',
   VictoryPanel: '8a3e5221-5cb9-30f8-8713-a85239c65ab8',
   panel: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e21@f9941',
-  next: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e25@f9941',
+  next: 'c60db3f9-8067-4a17-87f5-dad8b07c60a9@f9941',
+  double: 'a43b8381-cf88-4be8-9cf6-81e475e50c06@f9941',
   gold: '7e22bb20-0076-4b02-8002-000000000076@f9941',
-  reward: '7e22bb20-0067-4b02-8002-000000000067@f9941',
   ad: '7e22bb20-0078-4b02-8002-000000000078@f9941',
 };
 
 const PANEL_W = 860;
 const PANEL_H = Math.round((PANEL_W * 956) / 791);
-const NEXT_W = 460;
-const NEXT_H = 182;
-const DOUBLE_W = 660;
-const DOUBLE_H = 140;
+const BTN_W = 374;
+const BTN_H = 145;
+const BTN_GAP = 20;
 const AD_ICON_W = 52;
 const AD_ICON_H = 36;
 const GOLD_ICON = 72;
 const GOLD_Y = -Math.round(PANEL_H * 0.32);
-const DOUBLE_Y = -Math.round(PANEL_H * 0.5 + DOUBLE_H * 0.5 + 16);
-const BTN_Y = DOUBLE_Y - Math.round(DOUBLE_H * 0.5 + 16 + NEXT_H * 0.5);
+const BTN_Y = -Math.round(PANEL_H * 0.5 + 16 + BTN_H * 0.5);
+const DOUBLE_X = -Math.round((BTN_W + BTN_GAP) * 0.5);
+const NEXT_X = Math.round((BTN_W + BTN_GAP) * 0.5);
 
 function compressUuid(uuid) {
   const rest = uuid.slice(5).replace(/-/g, '');
@@ -310,18 +310,25 @@ function main() {
     _outlineWidth: 5,
   });
 
-  const double = addBox(doc, 'DoubleBtn', card, DOUBLE_W, DOUBLE_H, 0, DOUBLE_Y);
-  const contentW = AD_ICON_W + 16 + 220;
-  const content = addBox(doc, 'Content', double, contentW, DOUBLE_H - 8, 0, 3);
+  const double = addBox(doc, 'DoubleBtn', card, BTN_W, BTN_H, DOUBLE_X, BTN_Y);
+  addSprite(doc, addBox(doc, 'Skin', double, BTN_W, BTN_H, 0, 0), UUID.double);
+  const contentW = AD_ICON_W + 10 + 200;
+  const content = addBox(doc, 'Content', double, contentW, BTN_H - 8, 0, 2);
   const ad = addBox(doc, 'AdIcon', content, AD_ICON_W, AD_ICON_H, -contentW * 0.5 + AD_ICON_W * 0.5, 0);
   addSprite(doc, ad, UUID.ad);
-  const dlab = addBox(doc, 'Label', content, 220, DOUBLE_H - 16, -contentW * 0.5 + AD_ICON_W + 16 + 110, 0);
-  addLabel(doc, dlab, '双倍领取', 48, { r: 255, g: 255, b: 255, a: 255 }, {
-    _outlineColor: { __type__: 'cc.Color', r: 74, g: 68, b: 128, a: 255 },
+  const dlab = addBox(doc, 'Label', content, 200, BTN_H - 16, -contentW * 0.5 + AD_ICON_W + 10 + 100, 0);
+  addLabel(doc, dlab, '双倍领取', 40, { r: 255, g: 255, b: 255, a: 255 }, {
+    _outlineColor: { __type__: 'cc.Color', r: 88, g: 48, b: 16, a: 255 },
     _outlineWidth: 4,
   });
 
-  const next = addBox(doc, 'NextBtn', card, NEXT_W, NEXT_H, 0, BTN_Y);
+  const next = addBox(doc, 'NextBtn', card, BTN_W, BTN_H, NEXT_X, BTN_Y);
+  addSprite(doc, addBox(doc, 'Skin', next, BTN_W, BTN_H, 0, 0), UUID.next);
+  const nlab = addBox(doc, 'Label', next, BTN_W - 24, BTN_H - 16, 0, 2);
+  addLabel(doc, nlab, '下一关', 40, { r: 255, g: 255, b: 255, a: 255 }, {
+    _outlineColor: { __type__: 'cc.Color', r: 20, g: 64, b: 32, a: 255 },
+    _outlineWidth: 4,
+  });
 
   fs.writeFileSync(OUT, `${JSON.stringify(doc.items, null, 2)}\n`);
   fs.writeFileSync(
@@ -341,7 +348,7 @@ function main() {
     )}\n`,
   );
   console.log(
-    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} double=${DOUBLE_W}x${DOUBLE_H} next=${NEXT_W}x${NEXT_H}`,
+    `wrote ${path.relative(ROOT, OUT)} panel=${PANEL_W}x${PANEL_H} btn=${BTN_W}x${BTN_H}`,
   );
 }
 

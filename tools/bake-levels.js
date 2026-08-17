@@ -12,8 +12,9 @@ const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
 const { occupyShape, shapeForLevel } = require('./level-shapes');
 const CLUSTER_MIN = 10;
-const UNIT_POWER_MIN = 30;
+const UNIT_POWER_MIN = 50;
 const UNIT_POWER_MAX = 90;
+const UNIT_POWER_AIM = 65;
 const TOKEN_HUE = {
   o: 28, y: 50, c: 182, g: 136, p: 330, v: 268,
   r: 355, s: 210, k: 10, m: 156, a: 312, d: 45,
@@ -392,10 +393,12 @@ function chooseIronGaps(cols, count) {
   return gaps.slice(0, count);
 }
 
-function packPower(n, minP = UNIT_POWER_MIN, maxP = UNIT_POWER_MAX) {
+function packPower(n, minP = UNIT_POWER_MIN, maxP = UNIT_POWER_MAX, aim = UNIT_POWER_AIM) {
   if (n <= 0) return [];
   if (n <= maxP) return [n];
-  const count = Math.ceil(n / maxP);
+  let count = Math.max(2, Math.round(n / aim));
+  while (count > 1 && n / count < minP) count -= 1;
+  while (count > 1 && n / (count - 1) <= maxP && n / count < aim - 8) count -= 1;
   const parts = [];
   let left = n;
   for (let i = 0; i < count; i++) {
@@ -995,8 +998,6 @@ function specFor(id) {
     spec.ironGaps = t >= 6 ? 1 : 0;
   } else if (d === 2) {
     spec.paints = t <= 4 ? 1 : 2;
-  } else if (d === 3) {
-    spec.rescues = 1;
   } else if (d === 4) {
     spec.lockClusters = 1 + Math.floor(t / 3);
   } else if (d === 5) {
@@ -1010,7 +1011,6 @@ function specFor(id) {
     spec.paints = 1;
     spec.bombs = t >= 4 ? 1 : 0;
   } else if (d === 8) {
-    spec.rescues = 1;
     spec.iron = t >= 3 ? 1 : 0;
     spec.lockClusters = t >= 6 ? 1 : 0;
   } else if (d === 9) {
@@ -1019,11 +1019,11 @@ function specFor(id) {
       { iron: 1, lockClusters: 1 },
       { bombs: 1, paints: 1, chests: 1 },
       { iron: 2, bombs: 1 },
-      { rescues: 1, iron: 1 },
+      { iron: 1 },
       { lockClusters: 1, paints: 1, chests: 1 },
       { bombs: 1, lockClusters: 1 },
       { iron: 1, lockClusters: 1, bombs: 1 },
-      { paints: 1, rescues: 1 },
+      { paints: 1 },
       { iron: 1, bombs: 1, lockClusters: 1, chests: 1 },
     ][t];
     Object.assign(spec, mix);
@@ -1078,57 +1078,110 @@ function peelSequence(palette, count) {
   return seq;
 }
 
-function paintOuterFace(spots, occ, cols, rows, facePal, rng) {
-  const rim = facePal[0];
-  const fill = facePal[1] || facePal[0];
-  for (const ring of [2, 1]) {
-    const edges = [];
-    const interiors = [];
-    for (const [x, y] of spots) {
-      if (isSilhouetteEdge(occ, cols, rows, x, y, ring)) edges.push([x, y]);
-      else interiors.push([x, y]);
-    }
-    if (interiors.length >= 24 && edges.length < spots.length * 0.62 && facePal.length >= 2) {
-      const out = new Array(cols * rows).fill(null);
-      for (const [x, y] of interiors) out[y * cols + x] = fill;
-      for (const [x, y] of edges) out[y * cols + x] = rim;
-      return out;
+/** Chebyshev distance to empty / outside. Occupied surface cells are 1. */
+function xyInset(occ, cols, rows) {
+  const dist = new Int16Array(cols * rows);
+  for (let i = 0; i < dist.length; i++) dist[i] = occ[i] ? 32767 : 0;
+  const at = (x, y) => {
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return 0;
+    return dist[y * cols + x];
+  };
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!occ[y * cols + x]) continue;
+      dist[y * cols + x] = Math.min(
+        dist[y * cols + x],
+        at(x - 1, y) + 1,
+        at(x, y - 1) + 1,
+        at(x - 1, y - 1) + 1,
+        at(x + 1, y - 1) + 1,
+      );
     }
   }
-  return paintFace(spots, cols, rows, facePal, rng, 20);
+  for (let y = rows - 1; y >= 0; y--) {
+    for (let x = cols - 1; x >= 0; x--) {
+      if (!occ[y * cols + x]) continue;
+      dist[y * cols + x] = Math.min(
+        dist[y * cols + x],
+        at(x + 1, y) + 1,
+        at(x, y + 1) + 1,
+        at(x + 1, y + 1) + 1,
+        at(x - 1, y + 1) + 1,
+      );
+    }
+  }
+  return dist;
 }
 
-function buildShapedCells(id, size, palette, rng) {
-  const { occ } = occupyShape(id, size.cols, size.rows);
-  const spots = [];
-  for (let y = 0; y < size.rows; y++) {
-    for (let x = 0; x < size.cols; x++) {
-      if (occ[y * size.cols + x]) spots.push([x, y]);
+function mergeInnerShells(counts, minSize) {
+  const remap = counts.map((_, i) => i);
+  for (let s = counts.length - 1; s >= 1; s--) {
+    if (counts[s] <= 0) continue;
+    if (counts[s] >= minSize) continue;
+    counts[s - 1] += counts[s];
+    counts[s] = 0;
+    for (let i = 0; i < remap.length; i++) {
+      if (remap[i] === s) remap[i] = s - 1;
     }
   }
-  const bands = peelBandCount(size.depth);
-  const seq = peelSequence(palette, Math.max(2, bands + 1));
-  const face = paintOuterFace(spots, occ, size.cols, size.rows, seq.slice(0, 2), rng);
-  const cells = [];
+  return remap;
+}
+
+function buildShapedCells(id, size, palette) {
+  const { occ } = occupyShape(id, size.cols, size.rows);
+  const inset = xyInset(occ, size.cols, size.rows);
+  const depth = size.depth;
+  const shells = [];
+  let maxShell = 0;
   for (let y = 0; y < size.rows; y++) {
     for (let x = 0; x < size.cols; x++) {
       const i = y * size.cols + x;
       if (!occ[i]) {
-        cells.push(null);
+        shells.push(null);
         continue;
       }
-      const tokens = [];
-      for (let z = 0; z < size.depth; z++) {
-        const band = peelBandOf(z, size.depth, bands);
-        const token = band === 0
-          ? (face[i] ?? seq[0])
-          : (seq[Math.min(seq.length - 1, band + 1)] ?? palette[z % palette.length]);
-        tokens.push(token);
+      const xy = Math.max(0, inset[i] - 1);
+      const stack = [];
+      for (let z = 0; z < depth; z++) {
+        const shell = Math.min(xy, z, depth - 1 - z);
+        stack.push(shell);
+        if (shell > maxShell) maxShell = shell;
       }
-      cells.push(makeCell(tokens));
+      shells.push(stack);
     }
   }
-  return cells;
+  const counts = new Array(maxShell + 1).fill(0);
+  for (const stack of shells) {
+    if (!stack) continue;
+    for (let z = 0; z < stack.length; z++) counts[stack[z]] += 1;
+  }
+  const remap = mergeInnerShells(counts, UNIT_POWER_MIN);
+  let used = 0;
+  for (let s = 0; s <= maxShell; s++) {
+    if (counts[s] > 0) used += 1;
+  }
+  const seq = peelSequence(palette, Math.max(2, used));
+  const bandOf = new Array(maxShell + 1).fill(0);
+  let band = 0;
+  for (let s = 0; s <= maxShell; s++) {
+    if (s > 0 && counts[s] > 0) band += 1;
+    bandOf[s] = band;
+  }
+  const cells = [];
+  for (let i = 0; i < shells.length; i++) {
+    const stack = shells[i];
+    if (!stack) {
+      cells.push(null);
+      continue;
+    }
+    const tokens = [];
+    for (let z = 0; z < stack.length; z++) {
+      const shell = remap[stack[z]];
+      tokens.push(seq[Math.min(seq.length - 1, bandOf[shell])] ?? palette[0]);
+    }
+    cells.push(makeCell(tokens));
+  }
+  return { cells, outerToken: seq[0] ?? palette[0] };
 }
 
 function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits) {
@@ -1144,11 +1197,12 @@ function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits)
   return { units, ironRows };
 }
 
-function growSparseColors(cells, minP = UNIT_POWER_MIN) {
+function growSparseColors(cells, minP = UNIT_POWER_MIN, reserved = null) {
   const counts = countBricks(cells);
   let biggest = null;
   let biggestN = 0;
   for (const [token, n] of counts) {
+    if (token === reserved) continue;
     if (n > biggestN) {
       biggest = token;
       biggestN = n;
@@ -1156,7 +1210,7 @@ function growSparseColors(cells, minP = UNIT_POWER_MIN) {
   }
   if (!biggest) return;
   for (const [token, n] of counts) {
-    if (n >= minP || n === 0 || token === biggest) continue;
+    if (n >= minP || n === 0 || token === biggest || token === reserved) continue;
     let need = minP - n;
     for (const cell of cells) {
       if (need <= 0) break;
@@ -1190,8 +1244,8 @@ function makeDecadeLevel(id) {
 function buildDecadeLevel(id, rng) {
   const size = sizeFor(id);
   const palette = paletteFor(id, size.colors, rng);
-  const cells = buildShapedCells(id, size, palette, rng);
-  growSparseColors(cells);
+  const { cells, outerToken } = buildShapedCells(id, size, palette);
+  growSparseColors(cells, UNIT_POWER_MIN, outerToken);
   const spec = specFor(id);
   const extra = emptyLevelExtras();
   extra.brickMix = 0;
@@ -1241,7 +1295,6 @@ function makeLevel(id) {
   else if (id === 2) level = makeAbsorbTwo();
   else if (id === 11) level = makeIronTutorial();
   else if (id === 21) level = makePaintTutorial();
-  else if (id === 31) level = makeRescueTutorial();
   else if (id === 41) level = makeNailTutorial();
   else if (id === 51) level = makeBombTutorial();
   else if (id === 61) level = makeChestTutorial();

@@ -11,7 +11,6 @@ import {
   slotTotal,
   slotX,
   slotZ,
-  parseColorToken,
   coveredBySpecial,
   specialCenterX,
   specialCenterY,
@@ -170,33 +169,7 @@ export async function buildPlayWorld(
         applyLockNails(n, 'chest');
         continue;
       }
-      if (cell.rescue) {
-        const token = cell.rescue;
-        const power = Math.min(90, Math.max(30, level.rescuePower || 30));
-        const n = spawn(
-          unitPfs.get(token) ?? unitPfs.get('o')!,
-          wall,
-          `Rescue_${token}_${x}_${y}_${power}`,
-          new Vec3(
-            specialCenterX(x, startX, step),
-            specialCenterY(y, baseY, step) - PLAY.blockStep * 0.70,
-            frontZ,
-          ),
-        );
-        const unit = n.getComponent(UnitActor) ?? n.addComponent(UnitActor);
-        unit.syncFromName();
-        const s = PLAY.blockStep * 6.16;
-        n.setScale(s, s, s);
-        unit.colorId = parseColorToken(token);
-        unit.power = power;
-        unit.maxPower = power;
-        unit.trapped = true;
-        unit.trapCol = x;
-        unit.trapRow = y;
-        unit.syncPowerLabel();
-        applyLockNails(n, 'octopus');
-        continue;
-      }
+      if (cell.rescue) continue;
       for (let z = 0; z < cell.tokens.length; z++) {
         const token = cell.tokens[z];
         const locked = !!cell.locked?.[z];

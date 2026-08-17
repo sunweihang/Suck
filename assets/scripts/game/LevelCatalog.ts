@@ -151,7 +151,7 @@ export function isTutorialLevel(id: number): boolean {
 
 export function showsPlayHint(id: number): boolean {
   const n = id | 0;
-  return n === 1 || n === 11 || n === 21 || n === 31 || n === 41 || n === 51 || n === 61;
+  return n === 1 || n === 11 || n === 21 || n === 41 || n === 51 || n === 61;
 }
 
 const SPECIAL_TITLE: Record<number, string> = {
@@ -161,7 +161,6 @@ const SPECIAL_TITLE: Record<number, string> = {
   10: '解锁铲子',
   11: '挡板',
   21: '染色',
-  31: '拯救章鱼',
   41: '钉子锁',
   51: '炸弹',
   61: '拯救宝箱',

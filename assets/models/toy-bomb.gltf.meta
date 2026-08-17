@@ -5,24 +5,6 @@
   "uuid": "7e22bb20-0317-4b02-8002-000000000007",
   "files": [],
   "subMetas": {
-    "b0b01": {
-      "importer": "gltf-mesh",
-      "uuid": "7e22bb20-0317-4b02-8002-000000000007@b0b01",
-      "displayName": "ToyBomb",
-      "id": "b0b01",
-      "name": "ToyBomb.mesh",
-      "userData": {
-        "gltfIndex": 0,
-        "triangleCount": 1542
-      },
-      "ver": "1.1.1",
-      "imported": true,
-      "files": [
-        ".bin",
-        ".json"
-      ],
-      "subMetas": {}
-    },
     "52fb6": {
       "importer": "gltf-mesh",
       "uuid": "7e22bb20-0317-4b02-8002-000000000007@52fb6",

@@ -6,6 +6,7 @@ const STORAGE_KEY = 'suck.wallet.v1';
 export const GOLD = {
   start: 200,
   win: 25,
+  fail: 10,
   slot: 600,
   item: {
     shuffle: 20,

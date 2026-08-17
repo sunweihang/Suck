@@ -58,7 +58,7 @@ function blob(
   mr.enabled = true;
   mr.mesh = mesh;
   mr.setSharedMaterial(mat, 0);
-  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
@@ -83,7 +83,7 @@ export function paintNodeColor(root: Node, token: ColorToken): void {
 
 export function applyPaintLook(root: Node, token: ColorToken = 'p'): void {
   applyPaintCan(root, token);
-  applyToyCaster(root);
+  applyToyCaster(root, false, false);
 }
 
 export function applyMagnetLook(root: Node): void {
@@ -93,7 +93,7 @@ export function applyMagnetLook(root: Node): void {
   blob(root, 'MagnetArch', 0, 0.16, 0.52, 0.72, 0.55, 0.22, steel);
   blob(root, 'MagnetL', -0.22, -0.12, 0.54, 0.22, 0.38, 0.2, red);
   blob(root, 'MagnetR', 0.22, -0.12, 0.54, 0.22, 0.38, 0.2, blue);
-  applyToyCaster(root);
+  applyToyCaster(root, false, false);
 }
 
 export function applySandLook(root: Node): void {

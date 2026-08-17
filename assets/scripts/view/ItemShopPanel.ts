@@ -17,15 +17,11 @@ import type { ItemId } from '../game/LevelCatalog';
 import { itemGoldCost, slotGoldCost } from '../game/PlayerWallet';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
-import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
+import { applyArtSpriteSoon } from './UiArt';
 
 const { ccclass } = _decorator;
 
 const DIM = new Color(28, 32, 48, 150);
-const BUY_OUTLINE = new Color(20, 64, 32, 255);
-const AD_OUTLINE = new Color(88, 48, 16, 255);
-const BUY_FILL = new Color(120, 190, 244, 255);
-const AD_FILL = new Color(253, 188, 46, 255);
 
 const ITEM_ICON_KEY = {
   shuffle: 'icShuffle',
@@ -50,13 +46,16 @@ export class ItemShopPanel extends Component {
   private _kind: ShopKind = 'shuffle';
   private _onBuy: ((kind: ShopKind) => void) | null = null;
   private _onWatch: ((kind: ShopKind) => void) | null = null;
+  private _onClose: (() => void) | null = null;
 
   setup(opts: {
     onBuy: (kind: ShopKind) => void;
     onWatch: (kind: ShopKind) => void;
+    onClose: () => void;
   }): void {
     this._onBuy = opts.onBuy;
     this._onWatch = opts.onWatch;
+    this._onClose = opts.onClose;
     this._lockInput();
     this._bindEvents();
     this.layoutChrome();
@@ -86,7 +85,8 @@ export class ItemShopPanel extends Component {
     const icon = this._icon();
     const ut = icon?.getComponent(UITransform);
     if (icon && ut) applyArtSpriteSoon(icon, this._iconKey(), ut.width, ut.height);
-    this._paintBtns();
+    const close = this._closeBtn();
+    if (close) applyArtSpriteSoon(close, 'settingsClose', 72, 72);
     this._syncCopy();
   }
 
@@ -100,19 +100,16 @@ export class ItemShopPanel extends Component {
     this._fillDim(dim, vis.w, vis.h);
   }
 
-  private _paintBtns(): void {
-    const card = this._card();
-    ensureBtnChrome(card?.getChildByName('BuyBtn'), VOLCANO_BTN_W, VOLCANO_BTN_H, BUY_FILL, BUY_OUTLINE, 'winAction');
-    ensureBtnChrome(card?.getChildByName('AdBtn'), VOLCANO_BTN_W, VOLCANO_BTN_H, AD_FILL, AD_OUTLINE, 'winDouble');
-  }
-
   private _card(): Node | null {
     return this.node.getChildByName('Card');
   }
 
   private _icon(): Node | null {
-    const box = this._card()?.getChildByName('ItemBox');
-    return box?.getChildByName('Icon') ?? this._card()?.getChildByName('Icon') ?? null;
+    return this._card()?.getChildByName('Icon') ?? null;
+  }
+
+  private _closeBtn(): Node | null {
+    return this._card()?.getChildByName('CloseBtn') ?? null;
   }
 
   private _iconKey(): 'icShuffle' | 'icMerge' | 'icHook' | 'icShovel' | 'lockSeal' {
@@ -130,8 +127,7 @@ export class ItemShopPanel extends Component {
     if (title) title.string = slot ? '坑位解锁' : '道具获取';
     const sub = card?.getChildByName('Sub');
     if (sub) sub.active = false;
-    const nameLab = (card?.getChildByName('Name') ?? card?.getChildByName('ItemBox')?.getChildByName('Name'))
-      ?.getComponent(Label);
+    const nameLab = card?.getChildByName('Name')?.getComponent(Label);
     if (nameLab) {
       nameLab.node.active = true;
       nameLab.string = slot ? '坑位' : ITEM_TITLE[this._kind];
@@ -156,6 +152,11 @@ export class ItemShopPanel extends Component {
     const dim = this.node.getChildByName('Dim');
     dim?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
+      if (this._busy) return;
+      this._onClose?.();
+    }, this);
+    this._card()?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
     }, this);
     this._bindTap(this._card()?.getChildByName('BuyBtn'), () => {
       if (this._busy) return;
@@ -164,6 +165,10 @@ export class ItemShopPanel extends Component {
     this._bindTap(this._card()?.getChildByName('AdBtn'), () => {
       if (this._busy) return;
       this._onWatch?.(this._kind);
+    });
+    this._bindTap(this._closeBtn(), () => {
+      if (this._busy) return;
+      this._onClose?.();
     });
   }
 

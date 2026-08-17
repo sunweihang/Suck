@@ -12,6 +12,7 @@ import {
   Layers,
   Node,
   Prefab,
+  Quat,
   screen,
   UITransform,
   Vec3,
@@ -69,6 +70,7 @@ export type ItemHudState = {
 const _ray = new geometry.Ray();
 const _world = new Vec3();
 const _tmp = new Vec3();
+const _camP = new Vec3();
 const _screen = new Vec3();
 const PICK_R2 = 0.38 * 0.38;
 const SPIN_THRESH_PX = 12;
@@ -77,6 +79,16 @@ const SPIN_BOX_PAD = 0.32;
 const TURRET_PAD_PX = 56;
 const _boxMin = new Vec3();
 const _boxMax = new Vec3();
+const _spinDq = new Quat();
+const _camQ = new Quat();
+const _camRight = new Vec3();
+const _camUp = new Vec3();
+const _spinAxis = new Vec3();
+const _faceN = new Vec3();
+const _hitLocal = new Vec3();
+const _hitDir = new Vec3();
+const _hitMin = new Vec3(-0.5, -0.5, -0.5);
+const _hitMax = new Vec3(0.5, 0.5, 0.5);
 
 function rayHitsAabb(o: Vec3, d: Vec3, min: Vec3, max: Vec3): boolean {
   let tmin = 0;
@@ -104,7 +116,49 @@ function rayHitsAabb(o: Vec3, d: Vec3, min: Vec3, max: Vec3): boolean {
   return tmax >= 0;
 }
 
+function rayHitAabbAt(o: Vec3, d: Vec3, min: Vec3, max: Vec3, out: Vec3): boolean {
+  let tmin = 0;
+  let tmax = 1e6;
+  for (let i = 0; i < 3; i++) {
+    const orig = i === 0 ? o.x : i === 1 ? o.y : o.z;
+    const dir = i === 0 ? d.x : i === 1 ? d.y : d.z;
+    const lo = i === 0 ? min.x : i === 1 ? min.y : min.z;
+    const hi = i === 0 ? max.x : i === 1 ? max.y : max.z;
+    if (Math.abs(dir) < 1e-8) {
+      if (orig < lo || orig > hi) return false;
+      continue;
+    }
+    let t1 = (lo - orig) / dir;
+    let t2 = (hi - orig) / dir;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return false;
+  }
+  if (tmax < 0) return false;
+  const t = Math.max(0, tmin);
+  out.set(o.x + d.x * t, o.y + d.y * t, o.z + d.z * t);
+  return true;
+}
+
 type PointerEvt = EventTouch | EventMouse;
+
+function cellKey(col: number, row: number, layer: number): number {
+  return (col + 256) * 100000 + (row + 256) * 100 + (layer & 31);
+}
+
+function pullFrom(list: BlockCell[] | undefined, block: BlockCell): void {
+  if (!list) return;
+  const i = list.indexOf(block);
+  if (i >= 0) {
+    list[i] = list[list.length - 1];
+    list.pop();
+  }
+}
 
 function rayPointDistSq(ray: geometry.Ray, p: Vec3): number {
   const ox = p.x - ray.o.x;
@@ -132,6 +186,23 @@ export class BattleDirector extends Component {
   private _flyRoot: Node | null = null;
   private _fromTouch = false;
   private readonly _byCol: BlockCell[][] = [];
+  private readonly _byRow: BlockCell[][] = [];
+  private readonly _at = new Map<number, BlockCell>();
+  private readonly _vis = new Set<BlockCell>();
+  private _visKey = 0x7fffffff;
+  private _visGen = 0;
+  private _needHoldRefresh = false;
+  private _visDirty = true;
+  private readonly _depthList: BlockCell[] = [];
+  private readonly _visPx: number[] = [];
+  private readonly _visPy: number[] = [];
+  private readonly _visPz: number[] = [];
+  private readonly _visSz: number[] = [];
+  private readonly _visOrd: number[] = [];
+  private readonly _visSurf: boolean[] = [];
+  private _stuckT = 0;
+  private _sw = 1;
+  private _sh = 1;
   private _remain = 0;
   private _unitPfs = new Map<ColorToken, Prefab>();
   private _reserve: UnitSpec[] = [];
@@ -168,8 +239,7 @@ export class BattleDirector extends Component {
   private _field: Node | null = null;
   private _fieldCy = 0;
   private _fieldCz = 0;
-  private _spinYaw = 0;
-  private _spinPitch = 0;
+  private readonly _spinRot = new Quat();
   private _spinVel = 0;
   private _pitchVel = 0;
   private _ptrDown = false;
@@ -181,8 +251,7 @@ export class BattleDirector extends Component {
   private _dragLastY = 0;
   private _winSettle = 0;
   private _lookDirty = true;
-  private _posedYaw = NaN;
-  private _posedPitch = NaN;
+  private readonly _posedRot = new Quat(NaN, NaN, NaN, NaN);
 
   armSpawn(
     unitPfs: Map<ColorToken, Prefab>,
@@ -279,8 +348,8 @@ export class BattleDirector extends Component {
     this._chestQueue.length = 0;
     this._chestBusy = false;
     this._raftT = 0;
-    this._spinYaw = 0;
-    this._spinPitch = 0;
+    Quat.identity(this._spinRot);
+    this._posedRot.set(NaN, NaN, NaN, NaN);
     this._spinVel = 0;
     this._pitchVel = 0;
     this._ptrDown = false;
@@ -352,6 +421,8 @@ export class BattleDirector extends Component {
     }
     this._indexBlocks();
     this._lookDirty = true;
+    this._needHoldRefresh = false;
+    this._stuckT = 0;
     this._refreshLocks();
     this._placeRaft(0);
     this._refreshPlateGray();
@@ -504,7 +575,7 @@ export class BattleDirector extends Component {
     hint.bindCamera(this._cam);
     let unit: UnitActor | null = null;
     for (const u of this._units) {
-      if (u.usable && u.state === 'bench' && this._isColFront(u)) {
+      if (u.usable && u.state === 'bench' && u.benchRank === 0) {
         unit = u;
         break;
       }
@@ -538,26 +609,41 @@ export class BattleDirector extends Component {
 
   private _indexBlocks(): void {
     let cols = PLAY.wallCols;
-    for (const b of this._blocks) cols = Math.max(cols, b.col + 1);
+    let rows = PLAY.wallRows;
+    for (const b of this._blocks) {
+      cols = Math.max(cols, b.col + 1);
+      rows = Math.max(rows, b.row + 1);
+    }
     this._cols = Math.max(1, cols);
     this._byCol.length = 0;
+    this._byRow.length = 0;
+    this._at.clear();
     for (let i = 0; i < this._cols; i++) this._byCol.push([]);
+    for (let i = 0; i < Math.max(1, rows); i++) this._byRow.push([]);
     this._remain = 0;
     for (const b of this._blocks) {
       if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
+      this._rowList(b.row).push(b);
+      this._at.set(cellKey(b.col, b.row, b.layer), b);
       this._remain += 1;
     }
+    this._bumpVis();
+  }
+
+  private _rowList(row: number): BlockCell[] {
+    while (this._byRow.length <= row) this._byRow.push([]);
+    return this._byRow[row];
   }
 
   private _unindex(block: BlockCell): void {
-    const list = this._byCol[block.col];
-    if (!list) return;
-    const i = list.indexOf(block);
-    if (i >= 0) {
-      list[i] = list[list.length - 1];
-      list.pop();
-    }
+    pullFrom(this._byCol[block.col], block);
+    pullFrom(this._byRow[block.row], block);
+    this._at.delete(cellKey(block.col, block.row, block.layer));
+    this._vis.delete(block);
+    this._needHoldRefresh = true;
+    this._visDirty = true;
+    this._bumpVis();
   }
 
   private _bindTouch(): void {
@@ -706,17 +792,40 @@ export class BattleDirector extends Component {
   private _applySpinDelta(dx: number, dy: number): void {
     const dt = Math.max(1 / 120, director.getDeltaTime());
     const k = GAME.wallSpinDragDeg * (Math.PI / 180);
-    const dYaw = -dx * k;
-    const dPitch = dy * k;
-    this._spinYaw += dYaw;
-    this._spinPitch = this._clampPitch(this._spinPitch + dPitch);
+    // Screen follow: UI Y is up, so drag right/down moves the grabbed face the same way.
+    const dYaw = dx * k;
+    const dPitch = -dy * k;
+    this._orbitSpin(dYaw, dPitch);
     this._spinVel = dYaw / dt;
     this._pitchVel = dPitch / dt;
   }
 
-  private _clampPitch(pitch: number): number {
-    const max = (GAME.wallSpinPitchMax * Math.PI) / 180;
-    return Math.max(-max, Math.min(max, pitch));
+  private _camSpinAxes(right: Vec3, up: Vec3): void {
+    const n = this._cam?.node;
+    if (n?.isValid) {
+      n.getWorldRotation(_camQ);
+      Vec3.transformQuat(right, Vec3.UNIT_X, _camQ);
+      Vec3.transformQuat(up, Vec3.UNIT_Y, _camQ);
+      return;
+    }
+    right.set(1, 0, 0);
+    up.set(0, 1, 0);
+  }
+
+  private _orbitSpin(dYaw: number, dPitch: number): void {
+    if (dYaw === 0 && dPitch === 0) return;
+    this._camSpinAxes(_camRight, _camUp);
+    _spinAxis.set(
+      _camUp.x * dYaw + _camRight.x * dPitch,
+      _camUp.y * dYaw + _camRight.y * dPitch,
+      _camUp.z * dYaw + _camRight.z * dPitch,
+    );
+    const ang = _spinAxis.length();
+    if (ang < 1e-10) return;
+    _spinAxis.multiplyScalar(1 / ang);
+    Quat.fromAxisAngle(_spinDq, _spinAxis, ang);
+    Quat.multiply(this._spinRot, _spinDq, this._spinRot);
+    Quat.normalize(this._spinRot, this._spinRot);
   }
 
   private _onTap(e: PointerEvt): void {
@@ -778,6 +887,8 @@ export class BattleDirector extends Component {
   private _tickCombat(dt: number): void {
     if (!this._playing || this._won || this._lost) return;
     if (this._platesBreaking) return;
+    this._fireUnits(dt);
+    if (this._remain <= 0) this._remain = this._countAlive();
     if (this._remain === 0) {
       if (!this._platesOpen && this._ironRows.length) return;
       this._refreshChests();
@@ -789,29 +900,48 @@ export class BattleDirector extends Component {
       return;
     }
     this._winSettle = 0;
+    if (this._visDirty) {
+      this._visDirty = false;
+      this._bumpVis();
+    }
+    if (this._needHoldRefresh) {
+      this._needHoldRefresh = false;
+      this._refreshLocks();
+      this._refreshRescues();
+      this._refreshChests();
+    }
+    this._stuckT += dt;
+    if (this._stuckT >= 0.15) {
+      this._stuckT = 0;
+      this._checkStuckLose();
+    }
+  }
+
+  private _countAlive(): number {
+    let n = 0;
+    for (let i = 0; i < this._blocks.length; i++) {
+      if (this._blocks[i].node.active && this._blocks[i].hp > 0) n += 1;
+    }
+    return n;
+  }
+
+  private _fireUnits(dt: number): void {
     const units = this._units;
     if (!units) return;
     for (const u of units) {
-      if (!u.usable || u.state === 'bench' || u.state === 'drag' || u.power <= 0) continue;
+      if (!u.node.activeInHierarchy || u.trapped || u.power <= 0) continue;
+      if (u.state === 'bench' || u.state === 'drag') continue;
       u.suckWait -= dt;
       u.state = 'attack';
-      if (
-        u.suckWait <= 0 &&
-        u.inflight < GAME.suckMaxFlight &&
-        u.power > u.inflight
-      ) {
-        const block = this._bestBlock(u);
-        if (block) {
-          this._shootBrick(u, block);
-          u.suckWait += this._suckInterval(u);
-        } else {
-          this._nudgeLocked(u.colorId);
-        }
+      if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
+      const block = this._bestBlock(u);
+      if (!block) {
+        this._nudgeLocked(u.colorId);
+        continue;
       }
+      this._shootBrick(u, block);
+      u.suckWait += this._suckInterval(u);
     }
-    this._refreshRescues();
-    this._refreshChests();
-    this._checkStuckLose();
   }
 
   /** Shots, incoming bricks, or debris still on the field. */
@@ -862,7 +992,7 @@ export class BattleDirector extends Component {
   }
 
   private _shootBrick(u: UnitActor, block: BlockCell): void {
-    if (!block.suckable || block.colorId !== u.colorId || u.power <= u.inflight) return;
+    if (!block.node.active || block.hp <= 0 || u.power <= u.inflight) return;
     gameAudio()?.playAbsorb();
     const boom = block.bombed;
     const paint = block.paint;
@@ -875,9 +1005,6 @@ export class BattleDirector extends Component {
     if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
     block.beginIncoming();
     u.inflight += 1;
-    this._refreshLocks();
-    this._refreshRescues();
-    this._refreshChests();
     u.node.getWorldPosition(_tmp);
     block.node.getWorldPosition(_world);
     const dx = _world.x - _tmp.x;
@@ -889,39 +1016,63 @@ export class BattleDirector extends Component {
     _tmp.z += (dz / dist) * 0.16;
     const dur = Math.min(GAME.shotMaxSec, Math.max(GAME.shotMinSec, dist / GAME.shotSpeed));
     this._nextShot().fire(_tmp, _world, tokenOfColorId(u.colorId), dur, GAME.shotArc, () => {
-      if (!u.isValid) return;
       if (boom || paint) {
         block.beginPrimeBoom(u.node, 0.28, () => {
+          const existed = block.node.active && block.hp > 0;
           if (boom) this._detonate(u, block);
           else this._paintSplash(block, u.colorId);
-          this._spendShot(u);
+          if (u.isValid) this._spendShot(u, existed);
         });
         return;
       }
-      this._shatterBrick(block, token);
-      this._spendShot(u);
+      const broke = this._shatterBrick(block, token);
+      if (u.isValid) this._spendShot(u, broke);
     });
   }
 
-  private _spendShot(u: UnitActor): void {
+  /** First camera-visible point on the brick, nudged slightly toward the lens. */
+  private _brickFace(block: BlockCell, out: Vec3): Vec3 {
+    const n = block.node;
+    const cam = this._cam;
+    if (!cam?.node?.isValid) return n.getWorldPosition(out);
+    cam.node.getWorldPosition(_camP);
+    n.inverseTransformPoint(_faceN, _camP);
+    _hitDir.set(-_faceN.x, -_faceN.y, -_faceN.z);
+    if (rayHitAabbAt(_faceN, _hitDir, _hitMin, _hitMax, _hitLocal)) {
+      n.transformPoint(out, _hitLocal);
+    } else {
+      n.getWorldPosition(out);
+    }
+    _faceN.set(_camP.x - out.x, _camP.y - out.y, _camP.z - out.z);
+    const len = Math.sqrt(_faceN.lengthSqr()) || 1;
+    out.x += (_faceN.x / len) * 0.07;
+    out.y += (_faceN.y / len) * 0.07;
+    out.z += (_faceN.z / len) * 0.07;
+    return out;
+  }
+
+  private _spendShot(u: UnitActor, destroyed: boolean): void {
     u.inflight = Math.max(0, u.inflight - 1);
+    if (!destroyed) return;
     u.power = Math.max(0, u.power - 1);
     u.syncPowerLabel();
     if (u.power <= 0) this._retireUnit(u);
   }
 
-  private _shatterBrick(block: BlockCell, token: ColorToken): void {
-    if (block.node.active) {
-      block.node.getWorldPosition(_world);
-      this._burstDebris(_world, token);
-    }
-    const counted = block.node.active;
+  private _shatterBrick(block: BlockCell, token: ColorToken): boolean {
+    if (!block?.node?.isValid) return false;
+    const counted = block.node.active && block.hp > 0;
+    block.node.getWorldPosition(_world);
     block.shatter();
-    if (counted) this._remain = Math.max(0, this._remain - 1);
+    if (counted) {
+      this._burstDebris(_world, token);
+      this._remain = Math.max(0, this._remain - 1);
+    }
     this._lookDirty = true;
+    return counted;
   }
 
-  private _burstDebris(from: Vec3, token: ColorToken, count = 6): void {
+  private _burstDebris(from: Vec3, token: ColorToken, count = 4): void {
     for (let i = 0; i < count; i++) {
       const bit = this._nextDebris();
       if (!bit) break;
@@ -992,15 +1143,30 @@ export class BattleDirector extends Component {
           -b.layer * 20 -
           dx * dx -
           dy * dy * 0.35 +
-          (sand ? -b.row : 0) +
-          Math.random() * 0.01;
+          (sand ? -b.row : 0);
         if (score > bestScore) {
           bestScore = score;
           best = b;
         }
       }
     }
-    return best;
+    if (best) return best;
+    let anySame = false;
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (!b.node.active || b.hp <= 0) continue;
+      if (this._plateBlocks(b.row, b.col)) continue;
+      if (b.colorId === u.colorId) {
+        anySame = true;
+        if (b.suckable) return b;
+      }
+    }
+    if (anySame) return null;
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (b.suckable && !this._plateBlocks(b.row, b.col)) return b;
+    }
+    return null;
   }
 
   private _colHasMatch(col: number, colorId: number, ghost = false): boolean {
@@ -1013,35 +1179,10 @@ export class BattleDirector extends Component {
     return false;
   }
 
-  private _raftHintBias(col: number): number {
-    if ((PLAY.raftW | 0) <= 0) return 0;
-    const lo = PLAY.raftX + PLAY.raftTravel;
-    const hi = lo + PLAY.raftW - 1;
-    const a = Math.min(lo, hi);
-    const b = Math.max(lo, hi);
-    return col >= a && col <= b ? -4 : 1.5;
-  }
-
-  /** Exposed to camera: on screen, not behind another brick, not under a closed plate. */
   private _isVisible(block: BlockCell, ghost = false): boolean {
     if (this._plateBlocks(block.row, block.col)) return false;
     if (!this._inView(block)) return false;
     return ghost || this._frontClear(block);
-  }
-
-  /** Same-color brick that is only turned away will face the camera again. */
-  private _canEventuallyAbsorb(u: UnitActor): boolean {
-    for (let col = 0; col < this._byCol.length; col++) {
-      const list = this._byCol[col];
-      if (!list) continue;
-      for (let i = 0; i < list.length; i++) {
-        const b = list[i];
-        if (b.colorId !== u.colorId || !b.suckable) continue;
-        if (this._plateBlocks(b.row, b.col)) continue;
-        return true;
-      }
-    }
-    return false;
   }
 
   private _frontClear(block: BlockCell): boolean {
@@ -1061,27 +1202,149 @@ export class BattleDirector extends Component {
     return true;
   }
 
+  private _raftHintBias(col: number): number {
+    if ((PLAY.raftW | 0) <= 0) return 0;
+    const lo = PLAY.raftX + PLAY.raftTravel;
+    const hi = lo + PLAY.raftW - 1;
+    const a = Math.min(lo, hi);
+    const b = Math.max(lo, hi);
+    return col >= a && col <= b ? -4 : 1.5;
+  }
+
+  /** Same-color brick that is only turned away will face the camera again. */
+  private _canEventuallyAbsorb(u: UnitActor): boolean {
+    for (let col = 0; col < this._byCol.length; col++) {
+      const list = this._byCol[col];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const b = list[i];
+        if (b.colorId !== u.colorId || !b.suckable) continue;
+        if (this._plateBlocks(b.row, b.col)) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private _bumpVis(): void {
+    this._visGen = (this._visGen + 1) & 0xffff;
+    this._visKey = 0x7fffffff;
+  }
+
+  private _visBucket(): number {
+    const q = this._spinRot;
+    const qx = (q.x * 48) | 0;
+    const qy = (q.y * 48) | 0;
+    const qz = (q.z * 48) | 0;
+    return ((qx + 64) << 20) | ((qy + 64) << 10) | ((qz + 64) & 1023);
+  }
+
+  private _syncScreen(): void {
+    const size = screen.windowSize;
+    this._sw = size.width;
+    this._sh = size.height;
+  }
+
+  private _visibleSet(ghost: boolean): Set<BlockCell> {
+    const key = this._visBucket() ^ (ghost ? 0x20000000 : 0) ^ (this._visGen << 1);
+    if (key === this._visKey) return this._vis;
+    this._visKey = key;
+    this._rebuildCamVis(ghost);
+    return this._vis;
+  }
+
+  /** Surface the camera can see: nearer blocks hide anything behind them. */
+  private _rebuildCamVis(ghost: boolean): void {
+    this._vis.clear();
+    this._syncScreen();
+    const list = this._depthList;
+    const px = this._visPx;
+    const py = this._visPy;
+    const pz = this._visPz;
+    const sz = this._visSz;
+    list.length = 0;
+    px.length = 0;
+    py.length = 0;
+    pz.length = 0;
+    sz.length = 0;
+    const cam = this._cam;
+    let fx = 0;
+    let fy = 0;
+    let fz = 1;
+    if (cam) {
+      cam.node.getWorldPosition(_camP);
+      const fwd = cam.node.forward;
+      fx = fwd.x;
+      fy = fwd.y;
+      fz = fwd.z;
+    }
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (!b.node.active || b.hp <= 0 || b.inFlight) continue;
+      if (this._plateBlocks(b.row, b.col)) continue;
+      if (!this._inView(b)) continue;
+      b.node.getWorldPosition(_tmp);
+      const depth = cam
+        ? (_tmp.x - _camP.x) * fx + (_tmp.y - _camP.y) * fy + (_tmp.z - _camP.z) * fz
+        : b.layer;
+      if (cam && depth <= 0.05) continue;
+      list.push(b);
+      px.push(_tmp.x);
+      py.push(_tmp.y);
+      pz.push(_tmp.z);
+      sz.push(depth);
+    }
+    const n = list.length;
+    if (ghost) {
+      for (let i = 0; i < n; i++) {
+        if (list[i].suckable) this._vis.add(list[i]);
+      }
+      return;
+    }
+    const ord = this._visOrd;
+    const surf = this._visSurf;
+    ord.length = n;
+    surf.length = n;
+    for (let i = 0; i < n; i++) ord[i] = i;
+    ord.sort((a, b) => sz[a] - sz[b]);
+    const half = PLAY.blockSize * 0.52;
+    const half2 = half * half;
+    const slack = PLAY.blockSize * 0.35;
+    for (let k = 0; k < n; k++) {
+      const i = ord[k];
+      const ix = px[i] - _camP.x;
+      const iy = py[i] - _camP.y;
+      const iz = pz[i] - _camP.z;
+      const dist = Math.hypot(ix, iy, iz) || 1;
+      const dx = ix / dist;
+      const dy = iy / dist;
+      const dz = iz / dist;
+      let blocked = false;
+      for (let t = 0; t < k; t++) {
+        const j = ord[t];
+        if (!surf[j]) continue;
+        if (sz[i] - sz[j] < slack) continue;
+        const ox = px[j] - _camP.x;
+        const oy = py[j] - _camP.y;
+        const oz = pz[j] - _camP.z;
+        const along = ox * dx + oy * dy + oz * dz;
+        if (along <= 0.02 || along >= dist - slack) continue;
+        const perp2 = ox * ox + oy * oy + oz * oz - along * along;
+        if (perp2 < half2) {
+          blocked = true;
+          break;
+        }
+      }
+      surf[i] = !blocked;
+      if (!blocked && list[i].suckable) this._vis.add(list[i]);
+    }
+  }
+
   private _inView(block: BlockCell): boolean {
     block.node.getWorldPosition(_tmp);
     const half = PLAY.blockSize * 0.5;
     if (_tmp.y + half <= VIEW_Y_MIN || _tmp.y - half >= VIEW_Y_MAX) return false;
-    const cam = this._cam;
-    if (!cam) return true;
-    cam.worldToScreen(_tmp, _screen);
-    const r = cam.rect;
-    const w = screen.windowSize.width;
-    const h = screen.windowSize.height;
-    const x0 = r.x * w;
-    const y0 = r.y * h;
-    const x1 = x0 + r.width * w;
-    const y1 = y0 + r.height * h;
-    const pad = 16;
-    return (
-      _screen.x >= x0 - pad &&
-      _screen.x <= x1 + pad &&
-      _screen.y >= y0 - pad &&
-      _screen.y <= y1 + pad
-    );
+    return true;
   }
 
   private _nudgeLocked(colorId: number): void {
@@ -1155,11 +1418,8 @@ export class BattleDirector extends Component {
   }
 
   private _aliveAt(col: number, row: number, layer: number): BlockCell | null {
-    for (let i = 0; i < this._blocks.length; i++) {
-      const b = this._blocks[i];
-      if (b.col === col && b.row === row && b.layer === layer && b.alive) return b;
-    }
-    return null;
+    const b = this._at.get(cellKey(col, row, layer));
+    return b?.alive ? b : null;
   }
 
   private _refreshLocks(): void {
@@ -1195,6 +1455,7 @@ export class BattleDirector extends Component {
       const b = this._blocks[i];
       b.setGrayed(b.alive && this._plateBlocks(b.row, b.col));
     }
+    this._bumpVis();
   }
 
   private _rowHasBricksAtOrAbove(ironRow: number): boolean {
@@ -1455,11 +1716,16 @@ export class BattleDirector extends Component {
 
   private _reindexCols(): void {
     for (let i = 0; i < this._byCol.length; i++) this._byCol[i].length = 0;
+    for (let i = 0; i < this._byRow.length; i++) this._byRow[i].length = 0;
+    this._at.clear();
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
+      this._rowList(b.row).push(b);
+      this._at.set(cellKey(b.col, b.row, b.layer), b);
     }
+    this._bumpVis();
   }
 
   private _blocksHold(block: BlockCell, skipColor?: ColorId): boolean {
@@ -1650,28 +1916,27 @@ export class BattleDirector extends Component {
   }
 
   private _fieldYaw(): number {
-    return this._spinYaw;
+    Vec3.transformQuat(_tmp, Vec3.UNIT_X, this._spinRot);
+    return Math.atan2(-_tmp.z, _tmp.x);
   }
 
   private _tickField(dt: number): void {
     if (this._playing && !this._won && !this._lost && !this._spinning) {
-      this._spinYaw += this._spinVel * dt;
-      this._spinPitch = this._clampPitch(this._spinPitch + this._pitchVel * dt);
+      this._orbitSpin(this._spinVel * dt, this._pitchVel * dt);
       this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
       this._pitchVel *= Math.exp(-SPIN_FRICTION * dt);
       if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
       if (Math.abs(this._pitchVel) < 0.04) this._pitchVel = 0;
-      if (this._spinVel === 0) {
+      if (this._spinVel === 0 && this._pitchVel === 0) {
         const period = Math.max(4, GAME.wallSpinPeriod);
-        this._spinYaw += (dt / period) * Math.PI * 2;
+        Quat.fromAxisAngle(_spinDq, Vec3.UNIT_Y, (dt / period) * Math.PI * 2);
+        Quat.multiply(this._spinRot, _spinDq, this._spinRot);
+        Quat.normalize(this._spinRot, this._spinRot);
       }
     }
-    const yaw = this._fieldYaw();
-    const pitch = this._spinPitch;
-    if (yaw === this._posedYaw && pitch === this._posedPitch) return;
-    this._posedYaw = yaw;
-    this._posedPitch = pitch;
-    this._field?.setRotationFromEuler((pitch * 180) / Math.PI, (yaw * 180) / Math.PI, 0);
+    if (Quat.equals(this._spinRot, this._posedRot)) return;
+    this._posedRot.set(this._spinRot);
+    this._field?.setRotation(this._spinRot);
   }
 
   private _placeRaft(offset: number): void {

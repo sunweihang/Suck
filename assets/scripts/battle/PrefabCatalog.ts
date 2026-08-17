@@ -15,6 +15,7 @@ export const PREFAB_UUID = {
   VictoryPanel: '7e22bb20-0041-4b02-8002-000000000041',
   FailPanel: '7e22bb20-0042-4b02-8002-000000000042',
   ItemShopPanel: '7e22bb20-0043-4b02-8002-000000000043',
+  SettingsPanel: '7e22bb20-0044-4b02-8002-000000000044',
   Chest: '84174c78-c604-437f-bfd2-f914ec17b899',
   Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
   Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'assets/prefabs/FailPanel.prefab');
+const OUT = path.join(ROOT, 'assets/prefabs/ui/FailPanel.prefab');
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const LAYER_UI = 33554432;
 
@@ -12,13 +12,13 @@ const UUID = {
   prefab: '7e22bb20-0042-4b02-8002-000000000042',
   FailPanel: 'c4d8e2a1-7b3f-4a91-9e20-1f6c8d4a2b10',
   panel: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e31@f9941',
-  retry: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e32@f9941',
+  retry: 'c60db3f9-8067-4a17-87f5-dad8b07c60a9@f9941',
 };
 
 const PANEL_W = 860;
 const PANEL_H = Math.round((PANEL_W * 938) / 754);
-const RETRY_W = 460;
-const RETRY_H = 150;
+const RETRY_W = 374;
+const RETRY_H = 145;
 const BTN_Y = -Math.round(PANEL_H * 0.5 + RETRY_H * 0.5 + 20);
 
 function compressUuid(uuid) {
@@ -204,6 +204,44 @@ function addSprite(doc, nodeId, frameUuid) {
   });
 }
 
+function addLabel(doc, nodeId, text, fontSize, col, extra) {
+  addComp(doc, nodeId, {
+    __type__: 'cc.Label',
+    _name: '',
+    _objFlags: 0,
+    __editorExtras__: {},
+    node: { __id__: nodeId },
+    _enabled: true,
+    __prefab: null,
+    _customMaterial: null,
+    _srcBlendFactor: 2,
+    _dstBlendFactor: 4,
+    _color: color(col),
+    _string: text,
+    _horizontalAlign: 1,
+    _verticalAlign: 1,
+    _actualFontSize: fontSize,
+    _fontSize: fontSize,
+    _fontFamily: 'PingFang SC',
+    _lineHeight: fontSize + 6,
+    _overflow: 0,
+    _enableWrapText: false,
+    _font: null,
+    _isSystemFontUsed: true,
+    _spacingX: 0,
+    _isItalic: false,
+    _isBold: true,
+    _isUnderline: false,
+    _underlineHeight: 2,
+    _cacheMode: 0,
+    _enableOutline: true,
+    _outlineColor: color({ r: 20, g: 64, b: 32, a: 255 }),
+    _outlineWidth: 4,
+    _id: '',
+    ...(extra || {}),
+  });
+}
+
 function addScript(doc, nodeId, uuid) {
   addComp(doc, nodeId, {
     __type__: compressUuid(uuid),
@@ -252,7 +290,9 @@ function main() {
   addSprite(doc, frame, UUID.panel);
 
   const retry = addBox(doc, 'RetryBtn', card, RETRY_W, RETRY_H, 0, BTN_Y);
-  addSprite(doc, retry, UUID.retry);
+  addSprite(doc, addBox(doc, 'Skin', retry, RETRY_W, RETRY_H, 0, 0), UUID.retry);
+  const retryLab = addBox(doc, 'Label', retry, RETRY_W - 24, RETRY_H - 16, 0, 2);
+  addLabel(doc, retryLab, '再试一次', 48, { r: 255, g: 255, b: 255, a: 255 });
 
   fs.writeFileSync(OUT, `${JSON.stringify(doc.items, null, 2)}\n`);
   fs.writeFileSync(

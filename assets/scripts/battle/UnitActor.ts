@@ -179,9 +179,17 @@ export class UnitActor extends Component {
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     }
-    if (UnitActor.animLive || this._slideLeft > 0 || this.state === 'drag') {
+    if (this._wantsAnim()) {
       this._q.tick(dt, this.state, this.inflight);
     }
+  }
+
+  private _wantsAnim(): boolean {
+    if (this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
+      return true;
+    }
+    if (!UnitActor.animLive || this.trapped) return false;
+    return this.state === 'bench' && this.benchRank === 0;
   }
 
   private _shouldShowPower(): boolean {

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'assets/prefabs/HomePanel.prefab');
+const OUT = path.join(ROOT, 'assets/prefabs/ui/HomePanel.prefab');
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const LAYER_UI = 33554432;
 
@@ -12,12 +12,13 @@ const UUID = {
   prefab: '7e22bb20-0040-4b02-8002-000000000040',
   HomePanel: '8a3e5221-5cb9-30f8-8713-a85239c65ab7',
   bgHome: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e15@f9941',
-  btnPlay: 'e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e16@f9941',
+  btnPlay: 'a43b8381-cf88-4be8-9cf6-81e475e50c06@f9941',
 };
 
-const PLAY_W = Math.round(740 * (2 / 3));
-const PLAY_H = Math.round((PLAY_W * 423) / 1069);
-const PLAY_Y = Math.round(-1920 * 0.32);
+const PLAY_W = 374;
+const PLAY_H = 145;
+const PLAY_Y = -775.2;
+const PLAY_BOTTOM = 960 + PLAY_Y - PLAY_H * 0.5;
 
 function compressUuid(uuid) {
   const rest = uuid.slice(5).replace(/-/g, '');
@@ -122,7 +123,8 @@ function addUITransform(doc, nodeId, w, h) {
   });
 }
 
-function addWidget(doc, nodeId) {
+function addWidget(doc, nodeId, opts) {
+  const o = opts || {};
   addComp(doc, nodeId, {
     __type__: 'cc.Widget',
     _name: '',
@@ -131,14 +133,14 @@ function addWidget(doc, nodeId) {
     node: { __id__: nodeId },
     _enabled: true,
     __prefab: null,
-    _alignFlags: 45,
+    _alignFlags: o.alignFlags == null ? 45 : o.alignFlags,
     _target: null,
-    _left: 0,
-    _right: 0,
-    _top: 0,
-    _bottom: 0,
-    _horizontalCenter: 0,
-    _verticalCenter: 0,
+    _left: o.left || 0,
+    _right: o.right || 0,
+    _top: o.top || 0,
+    _bottom: o.bottom || 0,
+    _horizontalCenter: o.horizontalCenter || 0,
+    _verticalCenter: o.verticalCenter || 0,
     _isAbsLeft: true,
     _isAbsRight: true,
     _isAbsTop: true,
@@ -234,8 +236,8 @@ function addLabel(doc, nodeId, text, fontSize, col, extra) {
     _underlineHeight: 2,
     _cacheMode: 0,
     _enableOutline: true,
-    _outlineColor: color({ r: 255, g: 252, b: 242, a: 255 }),
-    _outlineWidth: Math.max(3, Math.round(fontSize * 0.1)),
+    _outlineColor: color({ r: 88, g: 48, b: 16, a: 255 }),
+    _outlineWidth: 4,
     _id: '',
     ...(extra || {}),
   });
@@ -282,18 +284,23 @@ function main() {
 
   const bg = addBox(doc, 'Bg', root, 1080, 1920, 0, 0);
   addSprite(doc, bg, UUID.bgHome);
+  addWidget(doc, bg);
 
   const dim = addBox(doc, 'Dim', root, 1080, 1920, 0, 0, false);
   addGraphics(doc, dim);
   addWidget(doc, dim);
 
   const content = addBox(doc, 'Content', root, 1080, 1920, 0, 0);
+  addWidget(doc, content);
 
   const title = addBox(doc, 'Title', content, 720, 140, 0, 461, false);
   addLabel(doc, title, '方块很忙', 108, { r: 255, g: 96, b: 32, a: 255 });
 
   const play = addBox(doc, 'PlayBtn', content, PLAY_W, PLAY_H, 0, PLAY_Y);
-  addSprite(doc, play, UUID.btnPlay);
+  addWidget(doc, play, { alignFlags: 20, bottom: PLAY_BOTTOM });
+  addSprite(doc, addBox(doc, 'Skin', play, PLAY_W, PLAY_H, 0, 0), UUID.btnPlay);
+  const playLab = addBox(doc, 'Label', play, PLAY_W - 24, PLAY_H - 16, 0, 2);
+  addLabel(doc, playLab, '开始游戏', 48, { r: 255, g: 255, b: 255, a: 255 });
 
   const setBtn = addBox(doc, 'SettingsBtn', content, 120, 120, 452, 872, false);
   addGraphics(doc, setBtn);

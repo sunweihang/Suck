@@ -18,7 +18,7 @@ import {
   tween,
   utils,
 } from 'cc';
-import { PLAY, SPECIAL_SPAN } from '../game/GameConfig';
+import { PLAY, SPECIAL_SPAN, specialCenterX, specialCenterY, wallStartX } from '../game/GameConfig';
 
 const NAIL_PX = 256;
 const NAIL_SCALE = 0.00305;
@@ -188,11 +188,37 @@ function chainMat(sf: SpriteFrame): Material | null {
   return mat;
 }
 
-function chainLocalSize(host: Node): number {
-  const world = PLAY.blockStep * SPECIAL_SPAN * 1.36;
+/** lock-chain-metal.png opaque bbox is 475px in a 512 canvas. */
+const CHAIN_TEX = 512 / 475;
+
+function trapCell(name: string): { col: number; row: number } | null {
+  const p = name.split('_');
+  if (p[0] === 'Rescue' && p.length >= 4) return { col: Number(p[2]) || 0, row: Number(p[3]) || 0 };
+  if (p[0] === 'Chest' && p.length >= 3) return { col: Number(p[1]) || 0, row: Number(p[2]) || 0 };
+  return null;
+}
+
+function parentScale(host: Node): number {
   const parent = host.parent;
-  const parentScale = parent ? Math.max(0.001, Math.abs(parent.scale.x)) : 1;
-  return world / parentScale;
+  return parent ? Math.max(0.001, Math.abs(parent.scale.x)) : 1;
+}
+
+function chainLocalSize(host: Node): number {
+  return (PLAY.blockStep * SPECIAL_SPAN * CHAIN_TEX) / parentScale(host);
+}
+
+function alignLockToHole(host: Node): void {
+  const root = host.parent;
+  const step = PLAY.blockStep;
+  const s = parentScale(host);
+  const trap = trapCell(root?.name ?? '');
+  const holeX = trap ? specialCenterX(trap.col, wallStartX(), step) : (root?.position.x ?? 0);
+  const holeY = trap ? specialCenterY(trap.row, PLAY.wallBaseY, step) : (root?.position.y ?? 0);
+  const px = root?.position.x ?? 0;
+  const py = root?.position.y ?? 0;
+  host.setPosition((holeX - px) / s, (holeY - py) / s, (PLAY.blockSize * 0.5 + 0.06) / s);
+  host.setRotationFromEuler(0, 0, 0);
+  host.setScale(1, 1, 1);
 }
 
 const _pulsing = new WeakSet<Node>();
@@ -214,10 +240,8 @@ function pulseChain(chain: Node, size: number): void {
   beat();
 }
 
-function mountFlatChain(host: Node, kind: 'octopus' | 'chest'): void {
+function mountFlatChain(host: Node, _kind: 'octopus' | 'chest'): void {
   if (!_chainSf) return;
-  const existing = host.getChildByName('Chain');
-  if (existing?.active && _pulsing.has(existing)) return;
   const mesh = chainQuad();
   const mat = chainMat(_chainSf);
   if (!mesh || !mat) return;
@@ -225,9 +249,7 @@ function mountFlatChain(host: Node, kind: 'octopus' | 'chest'): void {
     if (child.name !== 'Chain') child.destroy();
   }
   host.layer = host.parent?.layer ?? Layers.Enum.DEFAULT;
-  host.setPosition(0, 0, 0);
-  host.setRotationFromEuler(0, 0, 0);
-  host.setScale(1, 1, 1);
+  alignLockToHole(host);
   let chain = host.getChildByName('Chain');
   if (!chain) {
     chain = new Node('Chain');
@@ -235,10 +257,9 @@ function mountFlatChain(host: Node, kind: 'octopus' | 'chest'): void {
     chain.addComponent(MeshRenderer);
   }
   const size = chainLocalSize(host);
-  const y = kind === 'chest' ? 0.02 : 0.14;
   chain.layer = host.layer;
   chain.active = true;
-  chain.setPosition(0, y, 0.08);
+  chain.setPosition(0, 0, 0);
   chain.setRotationFromEuler(0, 0, 0);
   const mr = chain.getComponent(MeshRenderer);
   if (!mr) return;
@@ -272,10 +293,6 @@ export function clearLockLook(root: Node): void {
 
 export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
   let n = root.getChildByName('LockNails');
-  if (n && (kind === 'octopus' || kind === 'chest') && !isMeshLock(n) && !_fading.has(n)) {
-    const chain = n.getChildByName('Chain');
-    if (chain?.active && _pulsing.has(chain)) return;
-  }
   if (n && (kind === 'octopus' || kind === 'chest') && isMeshLock(n)) {
     n.destroy();
     n = null;

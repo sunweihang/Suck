@@ -4,7 +4,9 @@ const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a',
 const BENCH = { cols: 6, rows: 6 };
 const UNIT_SEATS = BENCH.cols * BENCH.rows;
 const UNIT_MAX = UNIT_SEATS * 4;
-const POWER_LO = 30;
+const POWER_LO = 50;
+const POWER_AIM = 65;
+const POWER_HI = 90;
 const SLOT_MAX = 8;
 const SLOT_START = 4;
 const TOKEN_HUE = {
@@ -1649,20 +1651,37 @@ function isWinnable(level) {
   return solveLevel(level).ok;
 }
 
-function packPlannedUnits(units, maxP = 50) {
-  const out = [];
+function splitPower(n, minP = POWER_LO, maxP = POWER_HI, aim = POWER_AIM) {
+  if (n <= 0) return [];
+  if (n <= maxP) return [n];
+  let count = Math.max(2, Math.round(n / aim));
+  while (count > 1 && n / count < minP) count -= 1;
+  while (count > 1 && n / (count - 1) <= maxP && n / count < aim - 8) count -= 1;
+  const parts = [];
+  let left = n;
+  for (let i = 0; i < count; i++) {
+    const take = i === count - 1 ? left : Math.round(left / (count - i));
+    parts.push(take);
+    left -= take;
+  }
+  return parts;
+}
+
+function packPlannedUnits(units, maxP = POWER_HI) {
+  const totals = new Map();
+  const order = [];
   for (const [color, n] of units) {
     if (!n) continue;
-    if (n <= maxP) {
-      out.push([color, n]);
-      continue;
+    if (!totals.has(color)) {
+      totals.set(color, 0);
+      order.push(color);
     }
-    const count = Math.ceil(n / maxP);
-    let left = n;
-    for (let i = 0; i < count; i++) {
-      const take = i === count - 1 ? left : Math.round(left / (count - i));
-      out.push([color, take]);
-      left -= take;
+    totals.set(color, totals.get(color) + n);
+  }
+  const out = [];
+  for (const color of order) {
+    for (const part of splitPower(totals.get(color), POWER_LO, maxP, POWER_AIM)) {
+      out.push([color, part]);
     }
   }
   return out;

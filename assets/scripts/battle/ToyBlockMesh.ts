@@ -99,27 +99,23 @@ export function applyShadowReceiver(node: { getComponent: (t: typeof MeshRendere
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.ON;
 }
 
-const PLASTIC_ROUGH = 0.52;
-const PLASTIC_EMIT = new Vec3(0.12, 0.12, 0.12);
+const SKIP_CAST = /^(Eye|Pupil|Highlight|Power|D\d|N\d|Lock|Hold|Trail|Chain|Text|BombTrim)/;
 
-/** Matte toy plastic: light does the shading, no candy glow. */
+/** Keep shared materials so same-color bricks stay instanced. Shadows stay off. */
 export function applyBrickPlastic(node: Node): void {
   for (const mr of node.getComponentsInChildren(MeshRenderer)) {
     if (mr.node.name === 'HoldRim' || mr.node.name.startsWith('Lock')) continue;
-    const inst = mr.getMaterialInstance(0);
-    if (inst) {
-      inst.setProperty('roughness', PLASTIC_ROUGH);
-      inst.setProperty('metallic', 0);
-      inst.setProperty('emissiveScale', PLASTIC_EMIT);
-    }
-    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
     mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
   }
 }
 
-export function applyToyCaster(node: Node, receive = false): void {
+export function applyToyCaster(node: Node, receive = false, cast = true): void {
   for (const mr of node.getComponentsInChildren(MeshRenderer)) {
-    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.ON;
+    const on = cast && !SKIP_CAST.test(mr.node.name);
+    mr.shadowCastingMode = on
+      ? MeshRenderer.ShadowCastingMode.ON
+      : MeshRenderer.ShadowCastingMode.OFF;
     mr.shadowReceivingMode = receive
       ? MeshRenderer.ShadowReceivingMode.ON
       : MeshRenderer.ShadowReceivingMode.OFF;
