@@ -127,13 +127,13 @@
   },
   "userData": {
     "type": "sprite-frame",
-    "fixAlphaTransparencyArtifacts": false,
+    "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
     "redirect": "7d536f9b-5a6f-4429-ab8d-db426a59b3a6@6c48a",
     "maxWidth": 256,
     "maxHeight": 256,
     "compressSettings": {
-      "useCompressTexture": true
+      "useCompressTexture": false
     }
   }
 }

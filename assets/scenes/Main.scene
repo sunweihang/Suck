@@ -123,14 +123,14 @@
     "_far": 220,
     "_color": {
       "__type__": "cc.Color",
-      "r": 158,
-      "g": 210,
-      "b": 230,
+      "r": 254,
+      "g": 255,
+      "b": 241,
       "a": 255
     },
     "_depth": 1,
     "_stencil": 0,
-    "_clearFlags": 7,
+    "_clearFlags": 6,
     "_rect": {
       "__type__": "cc.Rect",
       "x": 0,

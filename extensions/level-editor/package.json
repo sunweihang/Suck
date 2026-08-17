@@ -1,0 +1,62 @@
+{
+  "package_version": 2,
+  "version": "1.0.0",
+  "name": "level-editor",
+  "description": "关卡编辑器：按关独立绘制砖墙、铁板和单位队列",
+  "main": "./dist/main.js",
+  "author": "CreativeCenter",
+  "editor": ">=3.8.0",
+  "scripts": {
+    "build": "node ./node_modules/typescript/bin/tsc -b",
+    "watch": "node ./node_modules/typescript/bin/tsc -w"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "typescript": "^5.4.5"
+  },
+  "contributions": {
+    "battleManager": {
+      "enabled": true
+    },
+    "menu": [
+      {
+        "path": "扩展/关卡编辑器",
+        "label": "打开",
+        "message": "open-editor"
+      }
+    ],
+    "messages": {
+      "open-host": {
+        "methods": ["openHost"]
+      },
+      "open-editor": {
+        "public": true,
+        "description": "打开关卡编辑器",
+        "methods": ["openEditor"]
+      },
+      "list-levels": {
+        "public": true,
+        "methods": ["listLevels"]
+      },
+      "open-level": {
+        "public": true,
+        "description": "编辑关卡 { levelId }",
+        "methods": ["openLevel"]
+      },
+      "locate-level": {
+        "public": true,
+        "description": "定位关卡文件 { levelId }",
+        "methods": ["locateLevel"]
+      },
+      "validate-level": {
+        "public": true,
+        "methods": ["validateLevel"]
+      },
+      "battle-module-info": {
+        "public": true,
+        "description": "供 Game编辑器宿主发现：关卡管理",
+        "methods": ["battleModuleInfo"]
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ const UUID = '7e22bb20-0360-4b02-8002-000000000060';
 const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
 const { occupyShape, shapeForLevel } = require('./level-shapes');
+const levelIo = require('./level-io');
 const CLUSTER_MIN = 10;
 const UNIT_POWER_MIN = 50;
 const UNIT_POWER_MAX = 90;
@@ -260,9 +261,110 @@ function minUnitsFor(id) {
   if (id === 1) return 3;
   if (id === 2) return 5;
   if (id <= 5) return 8;
-  if (id <= 10) return 16;
+  if (id <= 10) return 20;
   if (isTeachLevel(id)) return 12;
   return MIN_UNITS;
+}
+
+/** From L6, boards interlock so dumping units in listed order fails. Keep it mild — unwinnable is worse. */
+function strategySpec(id) {
+  if (id <= 5) return { mix: 0, caps: 0, sandwiches: 0, belts: 0 };
+  if (id <= 8) {
+    return { mix: 0.1 + (id - 6) * 0.03, caps: 0.2, sandwiches: 0.14, belts: 0 };
+  }
+  if (id <= 10) {
+    return { mix: 0.16, caps: 0.22, sandwiches: 0.16, belts: 0 };
+  }
+  const d = decadeOf(id);
+  return {
+    mix: Math.min(0.22, 0.12 + d * 0.01),
+    caps: Math.min(0.26, 0.16 + d * 0.008),
+    sandwiches: Math.min(0.2, 0.12 + d * 0.008),
+    belts: 0,
+  };
+}
+
+function scaleStrategy(spec, scale) {
+  if (scale <= 0) return { mix: 0, caps: 0, sandwiches: 0, belts: 0 };
+  return {
+    mix: spec.mix * scale,
+    caps: spec.caps * scale,
+    sandwiches: spec.sandwiches * scale,
+    belts: scale < 0.55 ? 0 : spec.belts,
+  };
+}
+
+function cellProtected(cell) {
+  if (!cell) return true;
+  if (cell.rescue || cell.chest) return true;
+  if (cell.bomb?.some(Boolean) || cell.paint?.some(Boolean) || cell.magnet?.some(Boolean)) return true;
+  return false;
+}
+
+function applyStrategyWeave(cells, cols, rows, palette, rng, spec) {
+  if (!spec || palette.length < 2) return;
+  const occ = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = cells[y * cols + x];
+      if (!cell?.tokens?.length || cellProtected(cell)) continue;
+      occ.push({ x, y, cell });
+    }
+  }
+  if (!occ.length) return;
+
+  if (spec.caps > 0) {
+    const byCol = new Map();
+    for (const s of occ) {
+      if (!byCol.has(s.x)) byCol.set(s.x, []);
+      byCol.get(s.x).push(s);
+    }
+    for (const [, list] of byCol) {
+      list.sort((a, b) => b.y - a.y);
+      if (list.length < 3 || rng.next() > spec.caps) continue;
+      const capH = 1 + (rng.next() < 0.5 && list.length > 4 ? 1 : 0);
+      const body = list[Math.min(list.length - 1, capH)]?.cell.tokens[0] || palette[0];
+      const capTok = nextToken(body, palette);
+      for (let i = 0; i < capH && i < list.length; i++) {
+        const cell = list[i].cell;
+        const n = Math.min(cell.tokens.length, 1 + (rng.next() < 0.4 ? 1 : 0));
+        for (let z = 0; z < n; z++) {
+          if (cell.locked?.[z] || cell.bomb?.[z] || cell.paint?.[z]) continue;
+          cell.tokens[z] = capTok;
+        }
+      }
+    }
+  }
+
+  if (spec.sandwiches > 0) {
+    for (const s of occ) {
+      if (s.cell.tokens.length < 2) continue;
+      if (rng.next() > spec.sandwiches) continue;
+      const front = s.cell.tokens[0];
+      const back = nextToken(front, palette);
+      for (let z = 1; z < s.cell.tokens.length; z++) {
+        if (s.cell.locked?.[z] || s.cell.bomb?.[z] || s.cell.paint?.[z]) continue;
+        s.cell.tokens[z] = back;
+      }
+    }
+  }
+
+  if (spec.belts > 0) {
+    const { minY, maxY } = occupiedYRange(cells, cols, rows);
+    const span = maxY - minY;
+    if (span >= 6) {
+      for (let b = 0; b < spec.belts; b++) {
+        const y = Math.round(minY + span * (0.38 + b * 0.2 + rng.next() * 0.06));
+        if (y <= minY || y >= maxY) continue;
+        const tok = palette[(b + rng.int(palette.length)) % palette.length];
+        for (let x = 0; x < cols; x++) {
+          const cell = cells[y * cols + x];
+          if (!cell?.tokens?.length || cellProtected(cell) || cell.locked?.[0]) continue;
+          cell.tokens[0] = tok;
+        }
+      }
+    }
+  }
 }
 
 function countBricks(cells) {
@@ -1571,34 +1673,60 @@ function paletteComplete(level) {
 }
 
 function makeDecadeLevel(id) {
-  const { isWinnable } = require('./solve-levels');
+  const { solveInOrder, solveLevel, isWinnable } = require('./solve-levels');
   let best = null;
-  for (let attempt = 0; attempt < 16; attempt++) {
+  let bestScore = -1e9;
+  const tries = id >= 6 ? 16 : 12;
+  for (let attempt = 0; attempt < tries; attempt++) {
     const rng = new Rng((id * 2654435761 + attempt * 9973) >>> 0);
-    const level = buildDecadeLevel(id, rng);
+    const scale = id < 6 ? 1 : attempt >= 10 ? 0 : attempt >= 6 ? 0.45 : 1;
+    const level = buildDecadeLevel(id, rng, scale);
     level.units = finalizeUnits(level.units, minUnitsFor(id));
-    if (!paletteComplete(level)) {
+    if (!paletteComplete(level) || !unitsCover(level.cells, level.units)) {
       if (!best) best = level;
       continue;
     }
-    if (isWinnable(level)) return level;
-    best = level;
+    if (id < 6) {
+      if (isWinnable(level)) return level;
+      if (!best) best = level;
+      continue;
+    }
+    const ordered = solveInOrder(level);
+    const greedy = ordered.ok ? { ok: true, steps: ordered.steps } : solveLevel(level);
+    if (!ordered.ok && !greedy.ok) {
+      const score = -2000 - (greedy.remain || ordered.remain || 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = level;
+      }
+      continue;
+    }
+    const strategy = !ordered.ok && greedy.ok;
+    const score = (strategy ? 200 : 80) + (greedy.steps || 0) * 0.05;
+    if (score > bestScore) {
+      bestScore = score;
+      best = level;
+    }
+    if (strategy) return level;
   }
   return best;
 }
 
-function buildDecadeLevel(id, rng) {
+function buildDecadeLevel(id, rng, strategyScale = 1) {
   const size = sizeFor(id);
   const palette = paletteFor(id, size.colors, rng);
   const { cells, outerToken } = buildShapedCells(id, size, palette);
   const spec = specFor(id);
+  const strat = scaleStrategy(strategySpec(id), strategyScale);
   const extra = emptyLevelExtras();
-  extra.brickMix = 0;
+  extra.brickMix = strat.mix;
   if (spec.paints) placePaints(cells, size.cols, size.rows, spec.paints, rng);
   if (spec.bombs) placeBombs(cells, size.cols, size.rows, spec.bombs, rng);
   if (spec.lockClusters) placeLocks(cells, size.cols, size.rows, spec.lockClusters, rng);
   if (spec.rescues) placeRescues(cells, size.cols, size.rows, spec.rescues, palette, rng);
   if (spec.chests) placeChests(cells, size.cols, size.rows, spec.chests, rng);
+  if (strat.mix > 0) mixBackLayers(cells, palette, rng, strat.mix);
+  applyStrategyWeave(cells, size.cols, size.rows, palette, rng, strat);
   seedMissingColors(cells, size.cols, size.rows, palette, UNIT_POWER_MIN, outerToken);
   growSparseColors(cells, UNIT_POWER_MIN);
   seedMissingColors(cells, size.cols, size.rows, palette, UNIT_POWER_MIN, outerToken);
@@ -1650,11 +1778,17 @@ function makeTeachLevel(id) {
   return null;
 }
 
-function makeLevel(id) {
+function generateFresh(id) {
   const teach = makeTeachLevel(id);
   const level = teach ?? makeDecadeLevel(id);
   level.units = finalizeUnits(level.units, minUnitsFor(id));
   return level;
+}
+
+function makeLevel(id) {
+  const hand = levelIo.loadOverride(id);
+  if (hand) return levelIo.decodeLevel(hand);
+  return generateFresh(id);
 }
 
 function unitsCover(cells, units) {
@@ -1721,9 +1855,10 @@ function bakeAll() {
   const levels = [];
   for (let id = 1; id <= LEVEL_COUNT; id++) {
     const level = makeLevel(id);
+    const hand = !!level.hand || levelIo.hasOverride(id);
     levels.push(encodeLevel(level));
     const pal = level.palette || [];
-    if (!isOnboardLevel(id) && !isTeachLevel(id) && pal.length < 5) {
+    if (!hand && !isOnboardLevel(id) && !isTeachLevel(id) && pal.length < 5) {
       throw new Error(`L${id} palette ${pal.length} < 5`);
     }
     const used = new Set();
@@ -1731,8 +1866,10 @@ function bakeAll() {
       if (!cell) continue;
       for (const token of cell.tokens) used.add(token);
     }
-    for (const token of pal) {
-      if (!used.has(token)) throw new Error(`L${id} unused color ${token}`);
+    if (!hand) {
+      for (const token of pal) {
+        if (!used.has(token)) throw new Error(`L${id} unused color ${token}`);
+      }
     }
     for (let i = 0; i < pal.length; i++) {
       for (let j = i + 1; j < pal.length; j++) {
@@ -1746,21 +1883,21 @@ function bakeAll() {
     const pmin = powers.length ? Math.min(...powers) : 0;
     const pmax = powers.length ? Math.max(...powers) : 0;
     const pavg = powers.length ? powers.reduce((a, b) => a + b, 0) / powers.length : 0;
-    if (!isOnboardLevel(id) && !isTeachLevel(id) && level.units.length < MIN_UNITS) {
+    if (!hand && !isOnboardLevel(id) && !isTeachLevel(id) && level.units.length < MIN_UNITS) {
       throw new Error(`L${id} units ${level.units.length} < ${MIN_UNITS}`);
     }
-    if (!isTeachLevel(id) && pmin < UNIT_POWER_FLOOR) {
+    if (!hand && !isTeachLevel(id) && pmin < UNIT_POWER_FLOOR) {
       throw new Error(`L${id} unit power ${pmin} < ${UNIT_POWER_FLOOR}`);
     }
-    if (pmax > UNIT_POWER_MAX) {
+    if (!hand && pmax > UNIT_POWER_MAX) {
       throw new Error(`L${id} unit power ${pmax} > ${UNIT_POWER_MAX}`);
     }
     const front = level.units.slice(0, Math.min(BENCH_COLS, level.units.length));
     const frontColors = new Set(front.map((u) => u[0]));
-    if (!isOnboardLevel(id) && !isTeachLevel(id) && pal.length >= 3 && front.length >= 4 && frontColors.size < 2) {
+    if (!hand && !isOnboardLevel(id) && !isTeachLevel(id) && pal.length >= 3 && front.length >= 4 && frontColors.size < 2) {
       throw new Error(`L${id} bench front is monochrome ${front[0]?.[0]}`);
     }
-    if (!isOnboardLevel(id) && !isTeachLevel(id)) {
+    if (!hand && !isOnboardLevel(id) && !isTeachLevel(id)) {
       for (let r = 0; r < Math.ceil(level.units.length / BENCH_COLS); r++) {
         const row = level.units.slice(r * BENCH_COLS, r * BENCH_COLS + BENCH_COLS);
         const same = new Map();
@@ -1778,6 +1915,7 @@ function bakeAll() {
     }
     const shape = shapeForLevel(id);
     const tags = [];
+    if (hand) tags.push('hand');
     if ((level.ironRows || []).length) tags.push(`iron=${level.ironRows.join('/')}`);
     if ((level.ironGaps || []).length) tags.push(`gap=${level.ironGaps.join(',')}`);
     if ((level.sandCols || []).length) tags.push(`sand=${level.sandCols.length}`);
@@ -1818,4 +1956,18 @@ function bakeAll() {
 
 if (require.main === module) bakeAll();
 
-module.exports = { makeLevel, encodeLevel, bakeAll };
+function recalcUnits(level) {
+  const rng = new Rng(((level.id || 1) * 2654435761) >>> 0);
+  const planned = planUnitsForBoard(
+    level.cells,
+    level.cols,
+    level.rows,
+    rng,
+    level.ironRows || [],
+    level.ironGaps || [],
+    minUnitsFor(level.id || 1),
+  );
+  return finalizeUnits(planned.units, minUnitsFor(level.id || 1));
+}
+
+module.exports = { makeLevel, generateFresh, encodeLevel, bakeAll, recalcUnits, minUnitsFor };

@@ -18,6 +18,7 @@ import { HintHand } from '../battle/HintHand';
 import { Theme } from '../game/Theme';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
+import { GOLD_HUD } from './GoldHud';
 import { applyArtSprite, applyArtSpriteSoon, layoutHomeLevel } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
 import type { ItemHudState, ItemId } from '../battle/BattleDirector';
@@ -150,20 +151,20 @@ export class PlayHud extends Component {
     this._ensureTree();
     const vis = uiVisibleSize();
     const safe = uiSafeInsets();
-    const top = vis.h * 0.5 - safe.top;
+    const pad = GOLD_HUD.pad;
+    const chromeY = vis.h * 0.5 - GOLD_HUD.rootH * 0.5 - safe.top - pad;
     const back = this.node.getChildByName('BackBtn');
     if (back) back.active = false;
-    this.node.getChildByName('ScoreBoard')?.setPosition(0, top - PLAY_BADGE * 0.52, 0);
-    this.node.getChildByName('TipLab')?.setPosition(0, top - PLAY_BADGE - 16, 0);
+    this.node.getChildByName('ScoreBoard')?.setPosition(0, chromeY, 0);
+    this.node.getChildByName('TipLab')?.setPosition(0, chromeY - PLAY_DIGIT_H - 16, 0);
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
     const settings = this.node.getChildByName('SettingsBtn');
     if (settings) {
-      const pad = 20;
       settings.active = true;
       settings.setPosition(
         -vis.w * 0.5 + SETTINGS_W * 0.5 + safe.left + pad,
-        vis.h * 0.5 - SETTINGS_H * 0.5 - safe.top - pad,
+        chromeY - 24,
         0,
       );
     }

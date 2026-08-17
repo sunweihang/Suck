@@ -57,6 +57,7 @@ const RELOAD_PRIORITY = {
     'modifier-editor': 22,
     'story-editor': 23,
     'unit-editor': 24,
+    'level-editor': 25,
     'effect-preview': 30,
     'battle-manager': 100,
 };

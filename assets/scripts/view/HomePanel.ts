@@ -11,6 +11,8 @@ import {
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
 import { coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
+import { Theme } from '../game/Theme';
+import { ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
 
 const { ccclass } = _decorator;
 
@@ -36,6 +38,7 @@ export class HomePanel extends Component {
   }
 
   applyArt(): void {
+    ensureBtnChrome(this._playNode(), VOLCANO_BTN_W, VOLCANO_BTN_H, Theme.playFill, Theme.playStroke, 'winDouble');
   }
 
   setLevel(n: number, max = this._maxLevel): void {

@@ -1,14 +1,17 @@
 import {
+  AssetManager,
   Color,
   Graphics,
   ImageAsset,
   Label,
   Layers,
+  Mask,
   Node,
   Sprite,
   SpriteFrame,
   Texture2D,
   UITransform,
+  assetManager,
   resources,
 } from 'cc';
 import { levelBadgeText } from '../game/LevelCatalog';
@@ -62,42 +65,6 @@ const KEYS = [
 ] as const;
 type ArtKey = (typeof KEYS)[number];
 
-function imagePathOf(key: ArtKey): string | null {
-  if (key === 'bg') return 'ui/bg-play-q';
-  if (key === 'home') return 'ui/bg-home';
-  if (key === 'play') return 'ui/btn-play';
-  if (key === 'settingsBg') return 'ui/btn-settings-bg';
-  if (key === 'settingsGear') return 'ui/ic-gear';
-  if (key === 'settingsClose') return 'ui/btn-close';
-  if (key === 'shareBtn') return 'ui/btn-clear-next';
-  if (key === 'clubBtn') return 'ui/btn-clear-reward';
-  if (key === 'settingsCard') return 'ui/panel-clear';
-  if (key === 'settingsDim') return 'ui/dim-clear';
-  if (key === 'icMusic') return 'ui/ic-music';
-  if (key === 'icSfx') return 'ui/ic-sfx';
-  if (key === 'volumeTrack') return 'ui/volume-track';
-  if (key === 'volumeFill') return 'ui/volume-fill';
-  if (key === 'sliderThumb') return 'ui/slider-thumb';
-  if (key === 'itemTray') return 'ui/item-tray';
-  if (key === 'itemBadge') return 'ui/item-badge';
-  if (key === 'icShuffle') return 'ui/ic-item-shuffle';
-  if (key === 'icMerge') return 'ui/ic-item-merge';
-  if (key === 'icHook') return 'ui/ic-item-hook';
-  if (key === 'icShovel') return 'ui/ic-item-shovel';
-  if (key === 'goldIcon') return 'ui/ui-gold-icon';
-  if (key === 'goldBg') return 'ui/ui-gold-bg';
-  if (key === 'icAd') return 'ui/ic-ad-video';
-  if (key === 'chest') return 'ui/chest';
-  if (key === 'itemGetPanel') return 'ui/panel-item-get';
-  if (key === 'panelMain') return 'ui/panel-main';
-  if (key === 'winPanel') return 'ui/panel-win';
-  if (key === 'failPanel') return 'ui/panel-fail';
-  if (key === 'itemGetBox') return 'ui/item-get-box';
-  if (key === 'itemGetClose') return 'ui/btn-item-close';
-  if (key === 'lockSeal') return 'ui/lock-seal';
-  return null;
-}
-
 function pathOf(key: ArtKey): string {
   if (key === 'bg') return 'ui/bg-play-q/spriteFrame';
   if (key === 'home') return 'ui/bg-home/spriteFrame';
@@ -142,12 +109,70 @@ function pathOf(key: ArtKey): string {
 }
 
 const frames = new Map<string, SpriteFrame>();
+const inflight = new Map<string, Promise<SpriteFrame | null>>();
+const LVH_DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
 let boot: Promise<void> | null = null;
+let homeArt: Promise<void> | null = null;
+let homeOk = false;
+let homeKeep: Promise<void> | null = null;
+const pendingHome: { root: Node; level: number; glyphH: number }[] = [];
 
 function sharpenUiTex(tex: Texture2D | null | undefined): void {
   if (!tex) return;
   tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
   tex.setMipFilter(Texture2D.Filter.NONE);
+}
+
+function resBundle(): AssetManager.Bundle | null {
+  return assetManager.getBundle('resources');
+}
+
+function stashFrame(key: string, sf: SpriteFrame | null | undefined): boolean {
+  if (!sf) return false;
+  if (sf.texture) sharpenUiTex(sf.texture as Texture2D);
+  frames.set(key, sf);
+  return true;
+}
+
+function loadPath(path: string, type: typeof SpriteFrame | typeof ImageAsset): Promise<unknown> {
+  return new Promise((resolve) => {
+    const bundle = resBundle();
+    const done = (err: Error | null, asset: unknown): void => {
+      resolve(!err && asset ? asset : null);
+    };
+    if (bundle) bundle.load(path, type as never, done);
+    else resources.load(path, type as never, done);
+  });
+}
+
+function loadArt(key: ArtKey): Promise<SpriteFrame | null> {
+  const hit = frames.get(key);
+  if (hit) return Promise.resolve(hit);
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const p = loadPath(pathOf(key), SpriteFrame).then((sf) => {
+    inflight.delete(key);
+    return stashFrame(key, sf as SpriteFrame | null) ? (sf as SpriteFrame) : null;
+  });
+  inflight.set(key, p);
+  return p;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadArtRetry(key: ArtKey, tries = 8): Promise<SpriteFrame | null> {
+  for (let i = 0; i < tries; i++) {
+    const sf = await loadArt(key);
+    if (sf) return sf;
+    await wait(80 * (i + 1));
+  }
+  return null;
+}
+
+function missingLvh(): string[] {
+  return LVH_DIGITS.filter((d) => !frames.get(`lvh${d}`));
 }
 
 function frameFromImage(img: ImageAsset): SpriteFrame {
@@ -159,38 +184,104 @@ function frameFromImage(img: ImageAsset): SpriteFrame {
   return sf;
 }
 
-function loadKey(key: ArtKey, done: () => void): void {
-  const imgPath = imagePathOf(key);
-  if (imgPath) {
-    resources.load(imgPath, ImageAsset, (e2, img) => {
-      if (!e2 && img) {
-        frames.set(key, frameFromImage(img));
-        done();
-        return;
-      }
-      resources.load(pathOf(key), SpriteFrame, (err, sf) => {
-        if (!err && sf?.texture) frames.set(key, sf);
-        done();
-      });
-    });
+async function loadOneLvh(digit: string): Promise<void> {
+  const key = `lvh${digit}`;
+  if (frames.get(key)) return;
+  const img = (await loadPath(`ui/lvh-${digit}`, ImageAsset)) as ImageAsset | null;
+  if (img) {
+    const bundle = resBundle();
+    const cached = bundle?.get(`ui/lvh-${digit}/spriteFrame`, SpriteFrame);
+    if (stashFrame(key, cached)) return;
+    stashFrame(key, frameFromImage(img));
     return;
   }
-  resources.load(pathOf(key), SpriteFrame, (err, sf) => {
-    if (!err && sf?.texture) frames.set(key, sf);
-    done();
+  const sf = (await loadPath(`ui/lvh-${digit}/spriteFrame`, SpriteFrame)) as SpriteFrame | null;
+  stashFrame(key, sf);
+}
+
+function loadLvhDir(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (_err: Error | null, list: SpriteFrame[]): void => {
+      for (const sf of list ?? []) {
+        const m = /^lvh-(\d)$/.exec(sf.name || '');
+        if (m) stashFrame(`lvh${m[1]}`, sf);
+      }
+      resolve();
+    };
+    const bundle = resBundle();
+    if (bundle) bundle.loadDir('ui', SpriteFrame, done);
+    else resources.loadDir('ui', SpriteFrame, done);
   });
+}
+
+async function loadMissingLvh(): Promise<void> {
+  const need = missingLvh();
+  if (!need.length) return;
+  for (const d of need) await loadOneLvh(d);
+  if (missingLvh().length) await loadLvhDir();
+}
+
+function flushHomeDigits(): void {
+  for (let i = pendingHome.length - 1; i >= 0; i--) {
+    const job = pendingHome[i];
+    if (!job.root.isValid) {
+      pendingHome.splice(i, 1);
+      continue;
+    }
+    const digits = [...String(Math.max(0, job.level | 0)).padStart(2, '0')];
+    if (!digits.every((ch) => frames.get(`lvh${ch}`))) continue;
+    pendingHome.splice(i, 1);
+    assembleHomeDigits(job.root, job.level, job.glyphH);
+  }
+}
+
+async function keepHomeDigits(): Promise<void> {
+  while (missingLvh().length) {
+    await loadMissingLvh();
+    if (!missingLvh().length) break;
+    await wait(400);
+  }
+  homeOk = true;
+  flushHomeDigits();
+}
+
+/** Block until 0–9 home digits are in memory. Keeps retrying in the background if boot times out. */
+export function ensureHomeLevelArt(): Promise<void> {
+  if (homeOk && !missingLvh().length) return Promise.resolve();
+  if (homeArt) return homeArt;
+  homeArt = (async () => {
+    for (let i = 0; i < 30; i++) {
+      await loadMissingLvh();
+      if (!missingLvh().length) {
+        homeOk = true;
+        flushHomeDigits();
+        return;
+      }
+      await wait(80 + i * 40);
+    }
+    if (!homeKeep) homeKeep = keepHomeDigits();
+    await homeKeep;
+  })().finally(() => {
+    if (!homeOk) homeArt = null;
+  });
+  return homeArt;
 }
 
 export function preloadUiArt(): Promise<void> {
   if (boot) return boot;
-  boot = new Promise((resolve) => {
-    let left = KEYS.length;
-    const done = (): void => {
-      left -= 1;
-      if (left <= 0) resolve();
+  boot = (async () => {
+    await ensureHomeLevelArt();
+    const rest = KEYS.filter((k) => !k.startsWith('lvh'));
+    let i = 0;
+    const worker = async (): Promise<void> => {
+      while (i < rest.length) {
+        const key = rest[i];
+        i += 1;
+        await loadArtRetry(key);
+      }
     };
-    for (const key of KEYS) loadKey(key, done);
-  });
+    await Promise.all(Array.from({ length: 4 }, () => worker()));
+  })();
   return boot;
 }
 
@@ -211,6 +302,16 @@ function clearNodeGraphics(node: Node): void {
   if (!g) return;
   g.clear();
   g.enabled = false;
+}
+
+/** Drop the capsule Mask — it shears the PNG end-caps. Alpha is already intact. */
+function clearClipMask(node: Node): void {
+  const mask = node.getComponent(Mask);
+  if (mask) {
+    mask.enabled = false;
+    mask.destroy();
+  }
+  clearNodeGraphics(node);
 }
 
 function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: boolean, key?: ArtKey): void {
@@ -289,7 +390,7 @@ export function ensureBtnChrome(
     rootSp.spriteFrame = null;
     rootSp.enabled = false;
   }
-  clearNodeGraphics(btn);
+  clearClipMask(btn);
   const rawBtn = artKey === 'winDouble' || artKey === 'winAction';
   const bw = rawBtn ? VOLCANO_BTN_W : w;
   const bh = rawBtn ? VOLCANO_BTN_H : h;
@@ -355,29 +456,8 @@ export function applyArtSpriteSoon(
 ): void {
   if (!node) return;
   if (applyArtSprite(node, key, w, h, sliced)) return;
-  const imgPath = imagePathOf(key);
-  if (imgPath) {
-    resources.load(imgPath, ImageAsset, (e2, img) => {
-      if (!e2 && img && node.isValid) {
-        const made = frameFromImage(img);
-        frames.set(key, made);
-        paintSprite(node, made, w, h, sliced, key);
-        return;
-      }
-      resources.load(pathOf(key), SpriteFrame, (err, sf) => {
-        if (!err && sf?.texture && node.isValid) {
-          frames.set(key, sf);
-          paintSprite(node, sf, w, h, sliced, key);
-        }
-      });
-    });
-    return;
-  }
-  resources.load(pathOf(key), SpriteFrame, (err, sf) => {
-    if (!err && sf?.texture && node.isValid) {
-      frames.set(key, sf);
-      paintSprite(node, sf, w, h, sliced, key);
-    }
+  void loadArtRetry(key).then((sf) => {
+    if (sf && node.isValid) paintSprite(node, sf, w, h, sliced, key);
   });
 }
 
@@ -445,24 +525,19 @@ export function layoutHomeLevel(board: Node | null, level: number, size: number,
   const title = board.getChildByName('Title');
   if (!title) return;
   title.active = true;
-  title.setPosition(0, Math.round(size * 0.30), 0);
-  title.getComponent(UITransform)?.setContentSize(Math.round(size * 0.56), Math.round(size * 0.32));
+  title.setPosition(0, 0, 0);
+  title.getComponent(UITransform)?.setContentSize(Math.round(size * 0.78), Math.round(glyphH * 1.2));
   paintHomeLevelDigits(title, level, glyphH);
 }
 
-export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: number): void {
-  if (!root) return;
+function assembleHomeDigits(root: Node, level: number, glyphH: number): void {
   const digits = [...String(Math.max(0, level | 0)).padStart(2, '0')];
-  const digitSfs = digits.map((ch) => frames.get(`lvh${ch}`));
-  const ready = digitSfs.every(Boolean);
+  const fallback = root.getChildByName('Fallback');
+  if (fallback) fallback.active = false;
   for (let i = 0; i < 8; i++) {
     const n = root.getChildByName(`G_${i}`);
     if (n) n.active = false;
   }
-  const fallback = root.getChildByName('Fallback');
-  if (fallback) fallback.active = false;
-  if (!ready) return;
-
   const gap = glyphH * 0.04;
   const widths = digits.map((ch) => {
     const sf = frames.get(`lvh${ch}`);
@@ -480,6 +555,26 @@ export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: n
     applyArtSprite(n, `lvh${digits[i]}` as ArtKey, dw, glyphH);
     x += dw * 0.5 + gap;
   }
+}
+
+export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: number): void {
+  if (!root) return;
+  const digits = [...String(Math.max(0, level | 0)).padStart(2, '0')];
+  const ready = digits.every((ch) => !!frames.get(`lvh${ch}`));
+  if (ready) {
+    assembleHomeDigits(root, level, glyphH);
+    return;
+  }
+  const fallback = root.getChildByName('Fallback');
+  if (fallback) fallback.active = false;
+  for (let i = 0; i < 8; i++) {
+    const n = root.getChildByName(`G_${i}`);
+    if (n) n.active = false;
+  }
+  const i = pendingHome.findIndex((job) => job.root === root);
+  if (i >= 0) pendingHome[i] = { root, level, glyphH };
+  else pendingHome.push({ root, level, glyphH });
+  void ensureHomeLevelArt().then(flushHomeDigits);
 }
 
 export function paintLevelTitle(root: Node | null, level: number, glyphH: number): void {

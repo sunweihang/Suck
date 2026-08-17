@@ -40,6 +40,6 @@ export const Theme = {
   badgeFill: new Color(255, 255, 255, 255),
   badgeStroke: new Color(180, 222, 177, 255),
   badgeShadow: new Color(132, 148, 136, 70),
-  badgeText: new Color(92, 176, 108, 255),
-  badgeTextStroke: new Color(52, 112, 64, 255),
+  badgeText: new Color(168, 124, 228, 255),
+  badgeTextStroke: new Color(255, 255, 255, 255),
 } as const;

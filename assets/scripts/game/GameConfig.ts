@@ -26,6 +26,8 @@ export const GAME = {
   suckMaxFlightTotal: 28,
   suckMinInterval: 0.05,
   suckMaxInterval: 0.16,
+  /** First shot after an octopus lands in a pit. */
+  suckLandDelay: 0.18,
   shotSpeed: 12,
   shotMinSec: 0.11,
   shotMaxSec: 0.28,
@@ -43,7 +45,7 @@ export const GAME = {
   slotStandZ: -1.38,
   slotRowStep: 0.58,
   slotStart: 4,
-  slotMax: 8,
+  slotMax: 6,
   slotRows: 1,
   slotPickR: 0.42,
 } as const;

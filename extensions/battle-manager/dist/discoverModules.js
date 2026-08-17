@@ -95,6 +95,29 @@ const FALLBACK_MODULES = {
             },
         },
     ],
+    'level-editor': {
+        id: 'level',
+        packageName: 'level-editor',
+        title: '关卡配置',
+        order: 10,
+        group: 'level',
+        groupTitle: '关卡编辑器',
+        groupOrder: 8,
+        itemIdKey: 'levelId',
+        openArgKey: 'levelId',
+        emptyHint: '没有关卡。请先运行 node tools/bake-levels.js',
+        openLabel: '编辑',
+        hideCreate: true,
+        hideExport: true,
+        messages: {
+            list: 'list-levels',
+            open: 'open-level',
+            exportOne: 'validate-level',
+            exportBatch: 'validate-level',
+            create: 'open-editor',
+            locate: 'locate-level',
+        },
+    },
     'unit-editor': [
         {
             id: 'unit',
@@ -356,7 +379,7 @@ function normalizeInfoList(raw) {
     return [];
 }
 function withDefaultGroup(info) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     if (info.group)
         return info;
     // 未声明分组时：单位 / 特效 / 场景 / 其余→战斗
@@ -376,19 +399,27 @@ function withDefaultGroup(info) {
             groupOrder: (_b = info.groupOrder) !== null && _b !== void 0 ? _b : 12,
         };
     }
+    if (info.id.startsWith('level')) {
+        return {
+            ...info,
+            group: 'level',
+            groupTitle: info.groupTitle || '关卡编辑器',
+            groupOrder: (_c = info.groupOrder) !== null && _c !== void 0 ? _c : 8,
+        };
+    }
     if (info.id.includes('scene')) {
         return {
             ...info,
             group: 'scene',
             groupTitle: info.groupTitle || '场景管理',
-            groupOrder: (_c = info.groupOrder) !== null && _c !== void 0 ? _c : 15,
+            groupOrder: (_d = info.groupOrder) !== null && _d !== void 0 ? _d : 15,
         };
     }
     return {
         ...info,
         group: 'battle',
         groupTitle: info.groupTitle || '战斗管理器',
-        groupOrder: (_d = info.groupOrder) !== null && _d !== void 0 ? _d : 20,
+        groupOrder: (_e = info.groupOrder) !== null && _e !== void 0 ? _e : 20,
     };
 }
 function getProjectRoot() {

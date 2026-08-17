@@ -929,6 +929,7 @@ export class BattleDirector extends Component {
     slot.node.getWorldPosition(_tmp);
     _tmp.y = unit.homePos.y + SLOT_PAD_TOP;
     unit.flyToWorld(_tmp, delay);
+    unit.suckWait = Math.max(unit.suckWait, GAME.suckLandDelay);
     unit.refreshPowerVisible();
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
@@ -979,7 +980,7 @@ export class BattleDirector extends Component {
     let flying = this._flightBusy();
     for (const u of units) {
       if (!u.node.activeInHierarchy || u.trapped || u.power <= 0) continue;
-      if (u.lockedCol < 0) continue;
+      if (u.lockedCol < 0 || u.traveling) continue;
       u.suckWait -= dt;
       u.state = 'attack';
       if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
@@ -1018,7 +1019,7 @@ export class BattleDirector extends Component {
     return false;
   }
 
-  /** 8 slots occupied and nobody can (or is) absorbing → fail. */
+  /** All pits occupied and nobody can (or is) absorbing → fail. */
   private _checkStuckLose(): void {
     if (this._won || this._lost || this._platesBreaking) return;
     let filled = 0;

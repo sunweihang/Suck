@@ -3,7 +3,8 @@
   "common": {
     "startScene": "4528bbb6-d6a3-a0b2-f729-9b144877ab60",
     "mainBundleCompressionType": "subpackage",
-    "mainBundleIsRemote": false
+    "mainBundleIsRemote": false,
+    "skipCompressTexture": true
   },
   "bundleConfig": {
     "custom": {

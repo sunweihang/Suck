@@ -35,7 +35,7 @@
   },
   "userData": {
     "compressSettings": {
-      "useCompressTexture": true,
+      "useCompressTexture": false,
       "presetId": "ttAstcUi"
     },
     "type": "texture",

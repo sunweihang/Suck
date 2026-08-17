@@ -49,7 +49,7 @@ export function styleLevelBadge(lab: Label, size: number): void {
   lab.enableShadow = true;
   lab.shadowOffset = new Vec2(0, -Math.max(2, Math.round(size * 0.05)));
   lab.shadowBlur = 1;
-  lab.shadowColor = new Color(52, 112, 64, 90);
+  lab.shadowColor = new Color(88, 56, 140, 90);
   lab.horizontalAlign = Label.HorizontalAlign.CENTER;
   lab.verticalAlign = Label.VerticalAlign.CENTER;
   lab.overflow = Label.Overflow.SHRINK;

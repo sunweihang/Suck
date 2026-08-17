@@ -94,7 +94,7 @@ export async function spawnToyBackdrop(scene: Node): Promise<Node> {
   cam.priority = 0;
   cam.visibility = WORLD_BG_LAYER;
   cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
-  cam.clearColor.set(196, 224, 240, 255);
+  cam.clearColor.set(254, 255, 241, 255);
   applyPortraitCameraRect(cam);
 
   const root = new Node(ROOT_NAME);

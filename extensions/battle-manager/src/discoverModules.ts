@@ -61,6 +61,29 @@ const FALLBACK_MODULES: Record<string, BattleModuleInfo | BattleModuleInfo[]> = 
       },
     },
   ],
+  'level-editor': {
+    id: 'level',
+    packageName: 'level-editor',
+    title: '关卡配置',
+    order: 10,
+    group: 'level',
+    groupTitle: '关卡编辑器',
+    groupOrder: 8,
+    itemIdKey: 'levelId',
+    openArgKey: 'levelId',
+    emptyHint: '没有关卡。请先运行 node tools/bake-levels.js',
+    openLabel: '编辑',
+    hideCreate: true,
+    hideExport: true,
+    messages: {
+      list: 'list-levels',
+      open: 'open-level',
+      exportOne: 'validate-level',
+      exportBatch: 'validate-level',
+      create: 'open-editor',
+      locate: 'locate-level',
+    },
+  },
   'unit-editor': [
     {
       id: 'unit',
@@ -339,6 +362,14 @@ function withDefaultGroup(info: BattleModuleInfo): BattleModuleInfo {
       group: 'effect',
       groupTitle: info.groupTitle || '特效管理器',
       groupOrder: info.groupOrder ?? 12,
+    };
+  }
+  if (info.id.startsWith('level')) {
+    return {
+      ...info,
+      group: 'level',
+      groupTitle: info.groupTitle || '关卡编辑器',
+      groupOrder: info.groupOrder ?? 8,
     };
   }
   if (info.id.includes('scene')) {

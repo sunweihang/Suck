@@ -18,17 +18,30 @@
         <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
 
         <link rel="stylesheet" type="text/css" href="./index.css" />
+        <link rel="preload" as="image" href="./splash_screen.png" />
         <style>
             #splash {
-                visibility: visible !important;
-                z-index: 9999 !important;
-                background: #000 !important;
-            }
-            #splash.is-done {
                 display: none !important;
             }
-            #splash .progress-bar {
+            #SplashOverlay {
+                position: absolute;
+                inset: 0;
+                z-index: 99999;
+                overflow: hidden;
+                background: #fefff1;
+                pointer-events: none;
+            }
+            #SplashOverlay.is-done {
                 display: none !important;
+            }
+            #SplashOverlay img {
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                width: 100%;
+                height: auto;
+                transform: translate(-50%, -50%);
+                display: block;
             }
 
             /*
@@ -42,7 +55,8 @@
             #GameDiv {
                 position: relative !important;
                 flex: none !important;
-                width: var(--game-frame-width, 100%) !important;
+                /* Fallback before game-frame.js: already 1080-wide, no large→small jump. */
+                width: var(--game-frame-width, min(100%, calc(100vh * 1080 / 1920))) !important;
                 height: var(--game-frame-height, 100%) !important;
                 max-width: 100% !important;
                 max-height: 100% !important;
@@ -80,6 +94,9 @@
                     <div id="splash">
                         <div class="progress-bar stripes"><span></span></div>
                     </div>
+                    <div id="SplashOverlay">
+                        <img src="./splash_screen.png" alt="轻玩星球" draggable="false"/>
+                    </div>
                     <div id="bulletin">
                         <div id="sceneIsEmpty" class="inner"><%=tip_sceneIsEmpty%></div>
                     </div>
@@ -104,31 +121,41 @@
                 splash.logo = { type: 'none' };
                 splash.background = {
                     type: 'color',
-                    color: { x: 0, y: 0, z: 0, w: 1 },
+                    color: { x: 254 / 255, y: 255 / 255, z: 241 / 255, w: 1 },
                 };
             })();
 
             (function () {
-                var MAX_MS = 8000;
+                var SPLASH_MIN_MS = 400;
+                var shownAt = Date.now();
                 var done = false;
                 function hideSplash() {
                     if (done) return;
                     done = true;
-                    var el = document.getElementById('splash');
+                    var el = document.getElementById('SplashOverlay');
                     if (el) el.classList.add('is-done');
                 }
-                setTimeout(hideSplash, MAX_MS);
-                var tries = 0;
-                var timer = setInterval(function () {
-                    tries += 1;
-                    var cc = window.cc;
-                    if (cc && cc.game && cc.game.isPaused !== undefined) {
-                        clearInterval(timer);
-                        hideSplash();
-                        return;
-                    }
-                    if (tries > 200) clearInterval(timer);
-                }, 50);
+                var homeReady = false;
+                var minElapsed = false;
+                var tryHide = function () {
+                    if (homeReady && minElapsed) hideSplash();
+                };
+                window.setTimeout(function () {
+                    minElapsed = true;
+                    tryHide();
+                }, SPLASH_MIN_MS);
+                if (window.__unravelHomeReady) {
+                    homeReady = true;
+                    tryHide();
+                } else {
+                    var prev = window.__unravelNotifyHomeReady;
+                    window.__unravelNotifyHomeReady = function () {
+                        try { if (typeof prev === 'function') prev(); } catch (e) {}
+                        homeReady = true;
+                        tryHide();
+                    };
+                }
+                window.setTimeout(hideSplash, 12000);
             })();
         </script>
         <script src="./game-frame.js"></script>

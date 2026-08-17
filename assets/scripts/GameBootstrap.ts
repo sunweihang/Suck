@@ -4,6 +4,8 @@ import {
   Canvas,
   Color,
   Component,
+  Director,
+  director,
   DirectionalLight,
   EventKeyboard,
   Graphics,
@@ -56,7 +58,7 @@ import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinFlyFx';
 import { playItemGrantFly } from './view/ItemFlyFx';
-import { artFrame, preloadUiArt } from './view/UiArt';
+import { artFrame, ensureHomeLevelArt, preloadUiArt } from './view/UiArt';
 import { loadGameBundles } from './boot/LoadBundles';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
@@ -74,6 +76,26 @@ function loadPrefab(uuid: string): Promise<Prefab> {
 const { ccclass } = _decorator;
 
 const LEFTOVER_NAMES = new Set(['SmokeCube', 'HintHand', 'Cube']);
+
+/** Host splash (WeChat first-screen / web #SplashOverlay) waits on this before hiding. */
+function notifyHostSplashHomeReady(): void {
+  type SplashGate = {
+    __unravelHomeReady?: boolean;
+    __unravelNotifyHomeReady?: () => void;
+  };
+  const targets: SplashGate[] = [globalThis as SplashGate];
+  const gg = (globalThis as { GameGlobal?: SplashGate }).GameGlobal;
+  if (gg && gg !== targets[0]) targets.push(gg);
+
+  for (const g of targets) {
+    g.__unravelHomeReady = true;
+    try {
+      g.__unravelNotifyHomeReady?.();
+    } catch {
+      /* host optional */
+    }
+  }
+}
 
 @ccclass('GameBootstrap')
 export class GameBootstrap extends Component {
@@ -103,15 +125,43 @@ export class GameBootstrap extends Component {
   private _uiJob: Promise<void> | null = null;
   private _clearGold = 0;
   private _doubleBusy = false;
+  /** Host splash stays until HomePanel has painted once. */
+  private _homeDrawn = false;
 
   onLoad(): void {
     initWxShare();
     initGameCircle();
-    initRewardedAd();
+    this._holdHostSplash();
     this._resetToFirst();
     this._stripLeftovers();
     input.on(Input.EventType.KEY_DOWN, this._onKeyDown, this);
     this._uiJob = this._bootUi();
+  }
+
+  /** Keep company splash pixels: no camera may SOLID_COLOR-wipe before HomePanel. */
+  private _holdHostSplash(): void {
+    applyDesignResolution();
+    const camNode = this.node.scene?.getChildByName('Main Camera');
+    const cam = camNode?.getComponent(Camera);
+    if (cam) {
+      cam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
+      cam.clearColor = Theme.sky;
+      cam.enabled = false;
+      this._mainCam = cam;
+    }
+    this._ensureLetterboxCam();
+    if (this._letterboxCam?.isValid) this._letterboxCam.enabled = false;
+  }
+
+  private _revealHomeAndLiftSplash(): void {
+    if (this._homeDrawn) return;
+    this._homeDrawn = true;
+    if (this._letterboxCam?.isValid) {
+      this._letterboxCam.clearColor = LETTERBOX_CLEAR;
+      this._letterboxCam.enabled = true;
+    }
+    notifyHostSplashHomeReady();
+    initRewardedAd();
   }
 
   private async _bootUi(): Promise<void> {
@@ -127,7 +177,12 @@ export class GameBootstrap extends Component {
       this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
+      director.once(Director.EVENT_AFTER_DRAW, () => {
+        if (!this.isValid) return;
+        this._revealHomeAndLiftSplash();
+      });
       await preloadUiArt();
+      await ensureHomeLevelArt();
       if (this.node.scene) await spawnToyBackdrop(this.node.scene);
       this._home?.applyArt();
       this._playHud?.applyArt();
@@ -139,6 +194,7 @@ export class GameBootstrap extends Component {
       this._bindBattle();
     } catch (err) {
       console.error('[Suck] boot ui failed', err);
+      this._revealHomeAndLiftSplash();
     }
   }
 
@@ -567,7 +623,7 @@ export class GameBootstrap extends Component {
     cam.priority = 1;
     cam.visibility = Layers.Enum.DEFAULT | Layers.Enum.UI_3D;
     applyPortraitCameraRect(cam);
-    cam.enabled = true;
+    cam.enabled = false;
   }
 
   private _tuneLighting(): void {
@@ -625,6 +681,7 @@ export class GameBootstrap extends Component {
     cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
     cam.clearColor = LETTERBOX_CLEAR;
     cam.rect.set(0, 0, 1, 1);
+    cam.enabled = this._homeDrawn;
     this._letterboxCam = cam;
   }
 
@@ -641,7 +698,7 @@ export class GameBootstrap extends Component {
     if (this._letterboxCam?.isValid) {
       this._letterboxCam.clearColor = LETTERBOX_CLEAR;
       this._letterboxCam.rect.set(0, 0, 1, 1);
-      this._letterboxCam.enabled = true;
+      this._letterboxCam.enabled = this._homeDrawn;
     }
     layoutWorldBg(this.node.scene);
     this._home?.layoutChrome();

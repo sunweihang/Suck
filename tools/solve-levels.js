@@ -7,7 +7,7 @@ const UNIT_MAX = UNIT_SEATS * 4;
 const POWER_LO = 50;
 const POWER_AIM = 65;
 const POWER_HI = 90;
-const SLOT_MAX = 8;
+const SLOT_MAX = 6;
 const SLOT_START = 4;
 const TOKEN_HUE = {
   o: 28, y: 50, c: 182, g: 136, p: 330, v: 268,

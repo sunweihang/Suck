@@ -18,7 +18,7 @@ const { ccclass } = _decorator;
 export const GOLD_HUD = {
   rootW: 280,
   rootH: 88,
-  pad: 20,
+  pad: 36,
   gapBelow: 16,
   bgW: 236,
   bgH: 66,

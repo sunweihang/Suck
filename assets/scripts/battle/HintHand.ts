@@ -3,12 +3,10 @@ import {
   Camera,
   Color,
   Component,
-  ImageAsset,
   Layers,
   RenderRoot2D,
   Sprite,
   SpriteFrame,
-  Texture2D,
   UITransform,
   Vec3,
   resources,
@@ -19,14 +17,6 @@ const { ccclass } = _decorator;
 const HAND_W = 180;
 const HAND_H = 220;
 const WORLD_SCALE = 0.0035;
-
-function frameFromImage(img: ImageAsset): SpriteFrame {
-  const tex = new Texture2D();
-  tex.image = img;
-  const sf = new SpriteFrame();
-  sf.texture = tex;
-  return sf;
-}
 
 @ccclass('HintHand')
 export class HintHand extends Component {
@@ -106,15 +96,8 @@ export class HintHand extends Component {
 
   private _loadArt(): void {
     resources.load('ui/hint-hand/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!this.isValid) return;
-      if (!err && sf) {
-        this._apply(sf);
-        return;
-      }
-      resources.load('ui/hint-hand', ImageAsset, (e2, img) => {
-        if (!this.isValid || e2 || !img) return;
-        this._apply(frameFromImage(img));
-      });
+      if (!this.isValid || err || !sf) return;
+      this._apply(sf);
     });
   }
 

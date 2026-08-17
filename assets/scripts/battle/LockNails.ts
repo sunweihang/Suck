@@ -1,6 +1,5 @@
 import {
   Color,
-  ImageAsset,
   Layers,
   Material,
   Mesh,
@@ -9,7 +8,6 @@ import {
   RenderRoot2D,
   Sprite,
   SpriteFrame,
-  Texture2D,
   Tween,
   UITransform,
   Vec3,
@@ -31,24 +29,10 @@ let _chainMat: Material | null = null;
 let _chainQuad: Mesh | null = null;
 let _depthMat: Material | null = null;
 
-function frameFromImage(img: ImageAsset): SpriteFrame {
-  const tex = new Texture2D();
-  tex.image = img;
-  const sf = new SpriteFrame();
-  sf.texture = tex;
-  return sf;
-}
-
 function loadFrame(path: string): Promise<SpriteFrame | null> {
   return new Promise((resolve) => {
     resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
-      if (!err && sf) {
-        resolve(sf);
-        return;
-      }
-      resources.load(path, ImageAsset, (e2, img) => {
-        resolve(!e2 && img ? frameFromImage(img) : null);
-      });
+      resolve(!err && sf ? sf : null);
     });
   });
 }

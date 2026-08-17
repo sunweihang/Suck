@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>关卡编辑器</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">关卡编辑器</div>
+    <div id="title" class="title">第 1 关</div>
+    <div id="dirty" class="dirty hidden">未保存</div>
+    <div class="spacer"></div>
+    <button id="btn-undo" type="button" title="Ctrl+Z">撤销</button>
+    <button id="btn-redo" type="button" title="Ctrl+Y">重做</button>
+    <button id="btn-help" type="button" title="?">快捷键</button>
+    <button id="btn-prev" type="button">上一关</button>
+    <button id="btn-next" type="button">下一关</button>
+    <button id="btn-units" type="button">按砖块重算单位</button>
+    <button id="btn-solve" type="button">验关</button>
+    <button id="btn-gen" type="button">重新生成</button>
+    <button id="btn-save" class="primary" type="button">保存本关</button>
+  </header>
+  <main>
+    <aside class="list">
+      <input id="search" type="search" placeholder="搜索关卡 / 造型" />
+      <div id="levels" class="levels"></div>
+    </aside>
+    <section class="stage">
+      <div class="stage-bar">
+        <label>层 <input id="layer" type="range" min="0" max="7" value="0" /> <span id="layer-lab">0</span></label>
+        <label class="check"><input id="view-iso" type="checkbox" checked /> 立体</label>
+        <label class="check"><input id="show-all" type="checkbox" checked /> 画出整叠</label>
+        <button id="btn-flat" type="button" title="F">2D俯视</button>
+        <button id="btn-cam" type="button" title="R">复位视角</button>
+        <span id="hover" class="hover">左键绘制 · 右键旋转 · 中键/空格平移 · 滚轮缩放</span>
+        <span id="stats" class="stats"></span>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="grid" width="720" height="640"></canvas>
+      </div>
+      <div id="solve" class="solve"></div>
+    </section>
+    <aside class="dock">
+      <h3>画笔</h3>
+      <div id="tools" class="tools"></div>
+      <h3>颜色</h3>
+      <div id="palette" class="palette"></div>
+      <div class="row">
+        <button id="btn-add-color" type="button">+ 色</button>
+        <button id="btn-del-color" type="button">− 色</button>
+      </div>
+      <h3>画布</h3>
+      <div class="grid2">
+        <label>列 <input id="cols" type="number" min="8" max="36" /></label>
+        <label>行 <input id="rows" type="number" min="8" max="28" /></label>
+      </div>
+      <div class="row">
+        <button id="btn-resize" type="button">应用尺寸</button>
+        <button id="btn-clear" type="button">清空</button>
+      </div>
+      <h3>造型模板</h3>
+      <select id="shape"></select>
+      <div class="row">
+        <label class="check"><input id="flip" type="checkbox" /> 镜像</label>
+        <button id="btn-stamp" type="button">盖章</button>
+      </div>
+      <h3>铁板</h3>
+      <label>铁板行 <input id="iron" type="text" placeholder="如 6,12" /></label>
+      <label>缺口列 <input id="gaps" type="text" placeholder="如 10,14" /></label>
+      <p class="hint">也可点画布左侧行号 / 底栏列号切换。</p>
+      <h3>单位队列</h3>
+      <div id="units" class="units"></div>
+      <div class="row">
+        <button id="btn-add-unit" type="button">加单位</button>
+      </div>
+      <p class="hint">保存写入 <code>levels/Lxxx.json</code>，重新生成不会覆盖手改关。</p>
+    </aside>
+  </main>
+  <div id="help" class="help hidden">
+    <div class="help-card">
+      <h2>快捷键</h2>
+      <ul>
+        <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销　<kbd>Ctrl</kbd>+<kbd>Y</kbd> 重做</li>
+        <li><kbd>Ctrl</kbd>+<kbd>S</kbd> 保存　<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 验关</li>
+        <li><kbd>B</kbd> 画笔　<kbd>E</kbd> 橡皮　<kbd>G</kbd> 填充</li>
+        <li><kbd>N</kbd> 钉子　<kbd>O</kbd> 炸弹　<kbd>T</kbd> 染色</li>
+        <li><kbd>C</kbd> 宝箱　<kbd>Q</kbd> 拯救　<kbd>I</kbd> 铁板　<kbd>P</kbd> 缺口</li>
+        <li><kbd>1</kbd>–<kbd>9</kbd> 选颜色　<kbd>[</kbd> <kbd>]</kbd> 换层</li>
+        <li>右键/Alt+左键拖拽旋转　中键/空格拖拽平移　滚轮缩放</li>
+        <li><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> 转视角　<kbd>+</kbd><kbd>-</kbd> 缩放</li>
+        <li><kbd>F</kbd> 2D俯视　<kbd>R</kbd> 复位立体视角　<kbd>?</kbd> 开关本说明　<kbd>Esc</kbd> 关闭</li>
+      </ul>
+      <button id="btn-help-close" type="button">关闭</button>
+    </div>
+  </div>
+  <script src="editor.js"></script>
+</body>
+</html>
