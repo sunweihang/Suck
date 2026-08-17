@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -22.0,
-            -14.0,
+            -22,
+            -14,
             0,
-            22.0,
-            -14.0,
+            22,
+            -14,
             0,
-            -22.0,
-            14.0,
+            -22,
+            14,
             0,
-            22.0,
-            14.0,
+            22,
+            14,
             0
           ],
           "indexes": [
@@ -102,13 +102,13 @@
             1
           ],
           "minPos": [
-            -22.0,
-            -14.0,
+            -22,
+            -14,
             0
           ],
           "maxPos": [
-            22.0,
-            14.0,
+            22,
+            14,
             0
           ]
         },
@@ -129,6 +129,11 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
-    "redirect": "7e22bb20-006c-4b02-8002-00000000006c@6c48a"
+    "redirect": "7e22bb20-006c-4b02-8002-00000000006c@6c48a",
+    "maxWidth": 512,
+    "maxHeight": 512,
+    "compressSettings": {
+      "useCompressTexture": true
+    }
   }
 }

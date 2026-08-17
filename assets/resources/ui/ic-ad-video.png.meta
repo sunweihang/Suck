@@ -3,7 +3,10 @@
   "importer": "image",
   "imported": true,
   "uuid": "7e22bb20-0078-4b02-8002-000000000078",
-  "files": [".json", ".png"],
+  "files": [
+    ".json",
+    ".png"
+  ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
@@ -24,7 +27,9 @@
       },
       "ver": "1.0.22",
       "imported": true,
-      "files": [".json"],
+      "files": [
+        ".json"
+      ],
       "subMetas": {}
     },
     "f9941": {
@@ -54,12 +59,58 @@
         "pivotY": 0.5,
         "meshType": 0,
         "vertices": {
-          "rawPosition": [-122.0, -84.0, 0, 122.0, -84.0, 0, -122.0, 84.0, 0, 122.0, 84.0, 0],
-          "indexes": [0, 1, 2, 2, 1, 3],
-          "uv": [0, 168, 244, 168, 0, 0, 244, 0],
-          "nuv": [0, 0, 1, 0, 0, 1, 1, 1],
-          "minPos": [-122.0, -84.0, 0],
-          "maxPos": [122.0, 84.0, 0]
+          "rawPosition": [
+            -122,
+            -84,
+            0,
+            122,
+            -84,
+            0,
+            -122,
+            84,
+            0,
+            122,
+            84,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            0,
+            168,
+            244,
+            168,
+            0,
+            0,
+            244,
+            0
+          ],
+          "nuv": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1
+          ],
+          "minPos": [
+            -122,
+            -84,
+            0
+          ],
+          "maxPos": [
+            122,
+            84,
+            0
+          ]
         },
         "isUuid": true,
         "imageUuidOrDatabaseUri": "7e22bb20-0078-4b02-8002-000000000078@6c48a",
@@ -68,7 +119,9 @@
       },
       "ver": "1.0.12",
       "imported": true,
-      "files": [".json"],
+      "files": [
+        ".json"
+      ],
       "subMetas": {}
     }
   },
@@ -76,6 +129,11 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "7e22bb20-0078-4b02-8002-000000000078@6c48a"
+    "redirect": "7e22bb20-0078-4b02-8002-000000000078@6c48a",
+    "maxWidth": 512,
+    "maxHeight": 512,
+    "compressSettings": {
+      "useCompressTexture": true
+    }
   }
 }

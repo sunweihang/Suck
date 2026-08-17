@@ -41,6 +41,8 @@
     "type": "texture",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "db2209fe-1f8b-4488-8d30-8baa41bd5290@6c48a"
+    "redirect": "db2209fe-1f8b-4488-8d30-8baa41bd5290@6c48a",
+    "maxWidth": 256,
+    "maxHeight": 256
   }
 }

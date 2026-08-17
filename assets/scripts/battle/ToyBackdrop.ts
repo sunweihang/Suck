@@ -11,8 +11,7 @@ import {
   assetManager,
   resources,
 } from 'cc';
-import { applyPortraitCameraRect, portraitVisibleSize } from '../game/PortraitFit';
-import { DESIGN_H, DESIGN_W } from '../game/Theme';
+import { applyPortraitCameraRect, coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 
 const BG_IMAGE_UUID = '2dd19bfe-8cac-486f-9e72-ba1499869c97';
 const ROOT_NAME = 'WorldBg';
@@ -75,10 +74,8 @@ export function layoutWorldBg(scene: Node | null): void {
   root?.getComponent(UITransform)?.setContentSize(vis.width, vis.height);
   const art = root?.getChildByName('SkyArt');
   if (!art) return;
-  const scale = Math.max(vis.width / DESIGN_W, vis.height / DESIGN_H);
-  const w = Math.ceil(DESIGN_W * scale);
-  const h = Math.ceil(DESIGN_H * scale);
-  art.getComponent(UITransform)?.setContentSize(w, h);
+  const cover = coverBackgroundSize(vis.width, vis.height);
+  art.getComponent(UITransform)?.setContentSize(cover.w, cover.h);
 }
 
 export async function spawnToyBackdrop(scene: Node): Promise<Node> {
@@ -120,13 +117,11 @@ export async function spawnToyBackdrop(scene: Node): Promise<Node> {
     return root;
   }
 
-  const scale = Math.max(vis.width / DESIGN_W, vis.height / DESIGN_H);
-  const w = Math.ceil(DESIGN_W * scale);
-  const h = Math.ceil(DESIGN_H * scale);
+  const cover = coverBackgroundSize(vis.width, vis.height);
   const art = new Node('SkyArt');
   root.addChild(art);
   art.layer = WORLD_BG_LAYER;
-  art.addComponent(UITransform).setContentSize(w, h);
+  art.addComponent(UITransform).setContentSize(cover.w, cover.h);
   const widget = art.addComponent(Widget);
   widget.isAlignHorizontalCenter = widget.isAlignVerticalCenter = true;
   widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;

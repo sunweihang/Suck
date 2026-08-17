@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Layers, Material, MeshRenderer, Node, Vec3 } from 'cc';
+import { _decorator, Color, Component, Layers, Material, MeshRenderer, Node, Quat, Vec3 } from 'cc';
 import { ALL_COLOR_TOKENS, ColorToken, TOKEN_RGB } from '../game/GameConfig';
 import { getToyBall } from './ToySlotMesh';
 
@@ -6,8 +6,9 @@ const { ccclass } = _decorator;
 
 const _pos = new Vec3();
 const _dir = new Vec3();
+const _rot = new Quat();
 const SIZE = 0.078;
-const TRAIL = 3;
+const TRAIL = 1;
 
 const _mats = new Map<string, Material>();
 
@@ -109,17 +110,17 @@ export class InkShot extends Component {
   private _pose(u: number): void {
     const k = u * (2 - u);
     const lift = Math.sin(u * Math.PI) * this._arc;
-    _pos.set(
-      this._from.x + (this._to.x - this._from.x) * k,
-      this._from.y + (this._to.y - this._from.y) * k + lift,
-      this._from.z + (this._to.z - this._from.z) * k,
-    );
+    const dx = this._to.x - this._from.x;
+    const dy = this._to.y - this._from.y;
+    const dz = this._to.z - this._from.z;
+    _pos.set(this._from.x + dx * k, this._from.y + dy * k + lift, this._from.z + dz * k);
     this.node.setWorldPosition(_pos);
-    _dir.set(this._to.x - this._from.x, this._to.y - this._from.y + lift, this._to.z - this._from.z);
-    const len = Math.sqrt(_dir.lengthSqr());
-    if (len > 1e-6) {
-      _pos.add(_dir);
-      this.node.lookAt(_pos, Math.abs(_dir.y) > len * 0.92 ? Vec3.UNIT_Z : Vec3.UP);
+    const dk = 2 - 2 * u;
+    _dir.set(dx * dk, dy * dk + Math.PI * Math.cos(u * Math.PI) * this._arc, dz * dk);
+    if (_dir.lengthSqr() > 1e-8) {
+      Vec3.normalize(_dir, _dir);
+      Quat.rotationTo(_rot, Vec3.UNIT_Z, _dir);
+      this.node.setWorldRotation(_rot);
     }
     const streak = 2.4 + (1 - Math.abs(u - 0.4) * 1.7) * 2.1;
     this.node.setScale(SIZE * 0.58, SIZE * 0.58, SIZE * streak);
@@ -131,7 +132,7 @@ export class InkShot extends Component {
     for (let i = 0; i < this._trail.length; i++) {
       const ghost = this._trail[i];
       if (!ghost?.isValid) continue;
-      ghost.setPosition(0, 0, 1.15 + i * 0.95);
+      ghost.setPosition(0, 0, -(1.15 + i * 0.95));
       const fade = Math.max(0.22, 1 - (i + 1) * 0.24) * fadeIn;
       const s = 0.82 - i * 0.14;
       ghost.setScale(s * fade, s * fade, (1.8 + i * 0.4) * fade);

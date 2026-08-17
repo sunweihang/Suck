@@ -62,6 +62,36 @@ function blob(
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
+function plasticMat(token: ColorToken): Material {
+  const key = `plastic-${token}`;
+  let mat = _mats.get(key);
+  if (mat) return mat;
+  const color = rgbOf(token);
+  mat = new Material();
+  mat.initialize({ effectName: 'builtin-standard' });
+  mat.setProperty('mainColor', color);
+  mat.setProperty('roughness', 0.52);
+  mat.setProperty('metallic', 0);
+  mat.setProperty('emissive', color);
+  mat.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
+  _mats.set(key, mat);
+  return mat;
+}
+
+/** Recolor without material instances so same-color debris stay batched. */
+export function paintNodeShared(root: Node, token: ColorToken): void {
+  const mat = plasticMat(token);
+  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+    if (
+      mr.node.name === 'HoldRim'
+      || mr.node.name.startsWith('Paint')
+      || mr.node.name.startsWith('Magnet')
+      || mr.node.name.startsWith('Lock')
+    ) continue;
+    mr.setSharedMaterial(mat, 0);
+  }
+}
+
 export function paintNodeColor(root: Node, token: ColorToken): void {
   const color = rgbOf(token);
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {

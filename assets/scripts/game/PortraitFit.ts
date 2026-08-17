@@ -13,6 +13,16 @@ import {
 export const DESIGN_W = 1080;
 export const DESIGN_H = 1920;
 
+/** Fullscreen art. Wider phones crop top/bottom; never letterbox the play field. */
+export const BG_W = 1080;
+export const BG_H = 2200;
+
+/** Size the 1080×2200 backdrop so width fills, leftover height is cropped. */
+export function coverBackgroundSize(visW: number, visH: number): { w: number; h: number } {
+  const scale = Math.max(visW / BG_W, visH / BG_H);
+  return { w: Math.ceil(BG_W * scale), h: Math.ceil(BG_H * scale) };
+}
+
 /** Desktop side bars outside the 1080 portrait frame — plain black. */
 export const LETTERBOX_CLEAR = new Color(0, 0, 0, 255);
 

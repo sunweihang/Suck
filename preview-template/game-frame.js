@@ -1,6 +1,7 @@
 /**
- * Preview 9:16 frame — design 1080×1920.
- * Outside the frame stays black. Engine maps 1080 to this frame's width.
+ * Preview frame — design 1080×1920, art 1080×2200.
+ * Tall/narrow: fill the window (FIXED_WIDTH, crop top/bottom).
+ * Wide: keep a 9:16 frame with side letterbox.
  */
 (function () {
   var DESIGN_WIDTH = 1080;
@@ -28,10 +29,14 @@
 
   function calculateGameFrameSize() {
     var box = parentBox();
-    var scale = Math.min(box.w / DESIGN_WIDTH, box.h / DESIGN_HEIGHT);
+    var designAspect = DESIGN_WIDTH / DESIGN_HEIGHT;
+    var boxAspect = box.w / Math.max(box.h, 1);
+    if (boxAspect <= designAspect + 1e-3) {
+      return { width: box.w, height: box.h };
+    }
     return {
-      width: DESIGN_WIDTH * scale,
-      height: DESIGN_HEIGHT * scale,
+      width: box.h * designAspect,
+      height: box.h,
     };
   }
 

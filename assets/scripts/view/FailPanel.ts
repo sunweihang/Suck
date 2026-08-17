@@ -39,6 +39,8 @@ const GOLD_ICON = 72;
 const GOLD_LAB_W = 160;
 const GOLD_GAP = 12;
 const GOLD_FONT = 56;
+const CARD_W = 860;
+const CARD_H = 1070;
 
 @ccclass('FailPanel')
 export class FailPanel extends Component {
@@ -117,6 +119,7 @@ export class FailPanel extends Component {
     this._fillDim(dim, vis.w, vis.h);
     this._placeRow();
     this._paintBtns();
+    this._paintFrame();
   }
 
   private _card(): Node | null {
@@ -256,6 +259,13 @@ export class FailPanel extends Component {
       g.clear();
       g.enabled = false;
     }
+  }
+
+  private _paintFrame(): void {
+    const card = this._card();
+    if (!card) return;
+    card.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
+    applyArtSpriteSoon(card.getChildByName('Frame'), 'failPanel', CARD_W, CARD_H);
   }
 
   private _paintBtns(): void {

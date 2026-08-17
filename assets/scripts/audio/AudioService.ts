@@ -45,6 +45,7 @@ export class AudioService {
   private _sfxGain = DEFAULT_SFX;
   private _bgmDesired = false;
   private _bgmRunning = false;
+  private _bgmHeldForAd = false;
   private _absorbAt = -99;
   private _disposed = false;
 
@@ -190,27 +191,15 @@ export class AudioService {
   /** Stop BGM while rewarded video owns the audio session. */
   pauseForAd(): void {
     if (this._disposed) return;
-    try {
-      this._bgm.pause();
-    } catch {
-      this._stopBgmNow();
-    }
+    this._bgmHeldForAd = true;
+    this._pauseBgmKeepCursor();
   }
 
   /** Restart BGM after ad close / fail. */
   resumeAfterAd(): void {
-    if (this._disposed || !this._bgmDesired) return;
-    if (this._bgmClip) {
-      try {
-        this._bgm.play();
-        this._bgmRunning = true;
-        return;
-      } catch {
-        this._playBgm(this._bgmClip);
-        return;
-      }
-    }
-    this.startBgm();
+    if (this._disposed) return;
+    this._bgmHeldForAd = false;
+    this._resumeBgmIfIdle();
   }
 
   playUiClick(): void {
@@ -279,6 +268,30 @@ export class AudioService {
     });
   }
 
+  private _pauseBgmKeepCursor(): void {
+    try {
+      this._bgm.pause();
+    } catch {
+      this._stopBgmNow();
+    }
+  }
+
+  private _resumeBgmIfIdle(): void {
+    if (this._disposed || !this._bgmDesired || this._bgmHeldForAd) return;
+    if (this._bgmClip) {
+      try {
+        this._bgm.play();
+        this._bgmRunning = true;
+        return;
+      } catch {
+        this._bgmRunning = false;
+        this._playBgm(this._bgmClip);
+        return;
+      }
+    }
+    this.startBgm();
+  }
+
   private _playBgm(clip: AudioClip): void {
     if (this._disposed) return;
     if (this._bgmRunning) {
@@ -289,6 +302,7 @@ export class AudioService {
     this._bgm.clip = clip;
     this._bgm.loop = true;
     this._bgm.volume = this._bgmGain;
+    if (this._bgmHeldForAd) return;
     this._bgm.play();
     this._bgmRunning = true;
   }

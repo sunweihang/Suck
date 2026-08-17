@@ -23,7 +23,7 @@ import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } fro
 const { ccclass } = _decorator;
 
 const CARD_W = 860;
-const CARD_H = Math.round((CARD_W * 1386) / 959);
+const CARD_H = 1000;
 const BTN_W = VOLCANO_BTN_W;
 const BTN_H = VOLCANO_BTN_H;
 const CLOSE = 72;
@@ -35,14 +35,15 @@ const THUMB = 48;
 const FILL_INSET = 6;
 const ROW_W = CARD_W - 100;
 const ROW_H = ICON + 18 + TRACK_H + 24;
-const TITLE_Y = Math.round(CARD_H * 0.5 - 150);
-const BGM_Y = 260;
-const SFX_Y = 70;
-const BTN_GAP = 20;
+const TITLE_Y = 330;
+const BGM_Y = 126;
+const SFX_Y = -64;
 const BTN_FONT = 48;
-const ACTION_Y = Math.round(-CARD_H * 0.5 + 56 + BTN_H * 0.5);
-const SHARE_X = -Math.round((BTN_W + BTN_GAP) * 0.5);
-const CLUB_X = Math.round((BTN_W + BTN_GAP) * 0.5);
+const ACTION_Y = -323;
+const SHARE_X = -197;
+const CLUB_X = 197;
+const CLOSE_X = 340;
+const CLOSE_Y = 425;
 const TITLE_INK = new Color(74, 68, 128, 255);
 const BTN_INK = new Color(255, 255, 255, 255);
 const SHARE_OUTLINE = new Color(88, 48, 16, 255);
@@ -51,6 +52,7 @@ const CLUB_OUTLINE = new Color(20, 64, 32, 255);
 @ccclass('SettingsPanel')
 export class SettingsPanel extends Component {
   private _built = false;
+  private _fromPrefab = false;
   private _onClose: (() => void) | null = null;
   private _bgmSlider: Slider | null = null;
   private _sfxSlider: Slider | null = null;
@@ -81,14 +83,16 @@ export class SettingsPanel extends Component {
     this._applyChrome();
     const card = this.node.getChildByName('Card');
     const close = card?.getChildByName('CloseBtn');
-    applyArtSpriteSoon(close, 'settingsClose', CLOSE, CLOSE);
+    this._paintNode(close, 'settingsClose');
     const lab = close?.getChildByName('Label');
     if (lab) lab.active = false;
-    ensureBtnChrome(card?.getChildByName('ShareButton'), BTN_W, BTN_H, Color.WHITE, SHARE_OUTLINE, 'winDouble');
-    ensureBtnChrome(card?.getChildByName('ClubButton'), BTN_W, BTN_H, Color.WHITE, CLUB_OUTLINE, 'winAction');
-    this._styleActionLabel(card?.getChildByName('ShareButton')?.getChildByName('Label') ?? null, '分享', SHARE_OUTLINE);
-    this._styleActionLabel(card?.getChildByName('ClubButton')?.getChildByName('Label') ?? null, '游戏圈', CLUB_OUTLINE);
-    this._placeActions();
+    if (!this._fromPrefab) {
+      ensureBtnChrome(card?.getChildByName('ShareButton'), BTN_W, BTN_H, Color.WHITE, SHARE_OUTLINE, 'winDouble');
+      ensureBtnChrome(card?.getChildByName('ClubButton'), BTN_W, BTN_H, Color.WHITE, CLUB_OUTLINE, 'winAction');
+      this._styleActionLabel(card?.getChildByName('ShareButton')?.getChildByName('Label') ?? null, '分享', SHARE_OUTLINE);
+      this._styleActionLabel(card?.getChildByName('ClubButton')?.getChildByName('Label') ?? null, '游戏圈', CLUB_OUTLINE);
+      this._placeActions();
+    }
     this._paintVolumeRow(card?.getChildByName('BgmRow') ?? null, 'icMusic');
     this._paintVolumeRow(card?.getChildByName('SfxRow') ?? null, 'icSfx');
   }
@@ -99,13 +103,13 @@ export class SettingsPanel extends Component {
     this.node.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     this.node.getComponent(Widget)?.updateAlignment();
     this.node.getChildByName('Dim')?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
+    if (this._fromPrefab) {
+      this._applyChrome();
+      return;
+    }
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
     this.node.getChildByName('Card')?.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
-    this.node.getChildByName('Card')?.getChildByName('CloseBtn')?.setPosition(
-      CARD_W * 0.5 - 56 - CLOSE * 0.5,
-      CARD_H * 0.5 - 56 - CLOSE * 0.5,
-      0,
-    );
+    this.node.getChildByName('Card')?.getChildByName('CloseBtn')?.setPosition(CLOSE_X, CLOSE_Y, 0);
     this._placeActions();
     this._applyChrome();
   }
@@ -158,7 +162,15 @@ export class SettingsPanel extends Component {
       frameG.clear();
       frameG.enabled = false;
     }
-    applyArtSpriteSoon(frame, 'panelMain', CARD_W, CARD_H);
+    this._paintNode(frame, 'panelMain');
+  }
+
+  private _paintNode(node: Node | null | undefined, key: 'settingsClose' | 'winDouble' | 'winAction' | 'panelMain'): void {
+    if (!node) return;
+    const ut = node.getComponent(UITransform);
+    const w = ut?.width || CARD_W;
+    const h = ut?.height || CARD_H;
+    applyArtSpriteSoon(node, key, w, h);
   }
 
   private _ensureTree(): void {
@@ -178,6 +190,7 @@ export class SettingsPanel extends Component {
 
     const existing = this.node.getChildByName('Card');
     if (existing) {
+      this._fromPrefab = true;
       this._adoptTree();
       return;
     }
@@ -201,6 +214,7 @@ export class SettingsPanel extends Component {
     this._action(card, 'ClubButton', '游戏圈', CLUB_X, ACTION_Y, () => undefined);
 
     const close = this._mk('CloseBtn', card, CLOSE, CLOSE);
+    close.setPosition(CLOSE_X, CLOSE_Y, 0);
     this._label(close, 'Label', '×', 48, TITLE_INK, 0, 0, CLOSE, CLOSE, false);
     this._adoptTree();
   }
@@ -308,11 +322,19 @@ export class SettingsPanel extends Component {
 
   private _paintVolumeRow(row: Node | null, iconKey: 'icMusic' | 'icSfx'): void {
     if (!row) return;
-    applyArtSpriteSoon(row.getChildByName('Icon'), iconKey, ICON, ICON);
+    const icon = row.getChildByName('Icon');
+    const iconUt = icon?.getComponent(UITransform);
+    applyArtSpriteSoon(icon, iconKey, iconUt?.width || ICON, iconUt?.height || ICON);
     const area = row.getChildByName('SliderArea');
-    applyArtSpriteSoon(area?.getChildByName('Track') ?? null, 'volumeTrack', TRACK_W, TRACK_H);
-    applyArtSpriteSoon(area?.getChildByName('Fill') ?? null, 'volumeFill', FILL_H, FILL_H, true);
-    applyArtSpriteSoon(area?.getChildByName('Handle') ?? null, 'sliderThumb', THUMB, THUMB);
+    const track = area?.getChildByName('Track') ?? null;
+    const trackUt = track?.getComponent(UITransform);
+    applyArtSpriteSoon(track, 'volumeTrack', trackUt?.width || TRACK_W, trackUt?.height || TRACK_H);
+    const fill = area?.getChildByName('Fill') ?? null;
+    const fillUt = fill?.getComponent(UITransform);
+    applyArtSpriteSoon(fill, 'volumeFill', fillUt?.width || FILL_H, fillUt?.height || FILL_H, true);
+    const handle = area?.getChildByName('Handle') ?? null;
+    const handleUt = handle?.getComponent(UITransform);
+    applyArtSpriteSoon(handle, 'sliderThumb', handleUt?.width || THUMB, handleUt?.height || THUMB);
   }
 
   private _wireSlider(slider: Slider, fill: Node, apply: (v: number) => void): void {
@@ -343,11 +365,13 @@ export class SettingsPanel extends Component {
     if (!fill) return;
     const ut = fill.getComponent(UITransform);
     if (!ut) return;
-    const travel = Math.max(0, TRACK_W - FILL_INSET * 2);
-    const w = progress <= 0.001 ? 0 : Math.max(FILL_H, travel * progress);
+    const trackW = fill.parent?.getChildByName('Track')?.getComponent(UITransform)?.width || TRACK_W;
+    const fillH = FILL_H;
+    const travel = Math.max(0, trackW - FILL_INSET * 2);
+    const w = progress <= 0.001 ? 0 : Math.max(fillH, travel * progress);
     ut.setAnchorPoint(0, 0.5);
-    ut.setContentSize(w, FILL_H);
-    fill.setPosition(-TRACK_W / 2 + FILL_INSET, 0, 0);
+    ut.setContentSize(w, fillH);
+    fill.setPosition(-trackW / 2 + FILL_INSET, 0, 0);
     fill.active = w > 0;
   }
 

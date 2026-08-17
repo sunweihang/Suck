@@ -36,7 +36,7 @@
             "_value": false
           },
           "rich-text": {
-            "_value": true
+            "_value": false
           },
           "mask": {
             "_value": true
@@ -98,13 +98,13 @@
             "_value": false
           },
           "intersection-2d": {
-            "_value": true
+            "_value": false
           },
           "primitive": {
             "_value": true
           },
           "profiler": {
-            "_value": true
+            "_value": false
           },
           "occlusion-query": {
             "_value": false
@@ -202,12 +202,9 @@
           "gfx-webgl",
           "gfx-webgl2",
           "graphics",
-          "intersection-2d",
           "mask",
           "particle",
           "primitive",
-          "profiler",
-          "rich-text",
           "skeletal-animation",
           "tween",
           "ui"

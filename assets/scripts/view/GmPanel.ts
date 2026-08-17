@@ -29,6 +29,7 @@ const KEY_W = 140;
 const KEY_H = 76;
 const TOGGLE_W = 96;
 const TOGGLE_H = 64;
+const SHOW_GM_ENTRY = false;
 
 const INK = new Color(56, 36, 24, 255);
 const CARD_BG = new Color(255, 248, 236, 255);
@@ -113,7 +114,7 @@ export class GmPanel extends Component {
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
     const toggle = this.node.getChildByName('Toggle');
     if (toggle) {
-      toggle.active = true;
+      toggle.active = SHOW_GM_ENTRY;
       const safe = uiSafeInsets();
       const gold = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
       const goldShown = !!this.node.parent?.getChildByName('GoldHud')?.active;
@@ -176,7 +177,7 @@ export class GmPanel extends Component {
     this._pad(card);
 
     const toggle = this._mk('Toggle', this.node, TOGGLE_W, TOGGLE_H);
-    toggle.active = true;
+    toggle.active = SHOW_GM_ENTRY;
     this._paint(toggle, TOGGLE_BG, TOGGLE_W, TOGGLE_H);
     this._label(toggle, 'Label', 'GM', 28, BTN_TEXT, 0, 0, TOGGLE_W, TOGGLE_H);
     toggle.on(Node.EventType.TOUCH_END, (e: EventTouch) => {

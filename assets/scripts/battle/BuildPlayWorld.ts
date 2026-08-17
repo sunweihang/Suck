@@ -272,7 +272,7 @@ export async function buildPlayWorld(
 
   const pool = new Node('DebrisPool');
   root.addChild(pool);
-  for (let i = 0; i < 48; i++) {
+  for (let i = 0; i < 64; i++) {
     const n = spawn(debrisPf, pool, `Debris_${i}`, new Vec3(0, -2, 0));
     n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
     n.active = false;

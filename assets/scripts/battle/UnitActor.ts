@@ -35,9 +35,12 @@ export class UnitActor extends Component {
 
   private readonly _q = new OctopusQAnim();
   private readonly _slideFrom = new Vec3();
+  private readonly _slideTo = new Vec3();
   private readonly _flyFromScale = new Vec3(1, 1, 1);
   private _slideLeft = 0;
   private _slideDur = 0.22;
+  private _flyWait = 0;
+  private _flyArc = 0;
   private _flying = false;
   private _prevState: UnitState = 'bench';
   private _prevPower = 40;
@@ -48,7 +51,7 @@ export class UnitActor extends Component {
   private _powerOn = false;
 
   onLoad(): void {
-    applyToyCaster(this.node, false);
+    applyToyCaster(this.node, false, false);
     this.syncFromName();
   }
 
@@ -97,27 +100,53 @@ export class UnitActor extends Component {
     return this.usable && (this.state === 'bench' || this.state === 'drag');
   }
 
+  get traveling(): boolean {
+    return this._slideLeft > 0 || this._flyWait > 0;
+  }
+
   resetHome(): void {
     this.state = 'bench';
     this.lockedCol = -1;
     this._slideLeft = 0;
+    this._flyWait = 0;
+    this._flyArc = 0;
     this._flying = false;
     this.node.setPosition(this.homePos);
   }
 
   slideToHome(): void {
     this.node.getPosition(this._slideFrom);
+    this._slideTo.set(this.homePos);
     this._flying = false;
+    this._flyArc = 0;
     this._slideDur = 0.22;
     this._slideLeft = 0.22;
   }
 
   flyToHome(): void {
+    this._beginFly(this.homePos, 0.72, 0.95, true);
+  }
+
+  /** Arc from the current pose to a world seat (bench → pit). */
+  flyToWorld(world: Vec3, delay = 0): void {
+    if (this.node.parent) this.node.parent.inverseTransformPoint(this.targetPos, world);
+    else this.targetPos.set(world);
+    const dx = this.targetPos.x - this.node.position.x;
+    const dz = this.targetPos.z - this.node.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    this._beginFly(this.targetPos, 0.28 + Math.min(0.34, dist * 0.14), 0.32 + Math.min(0.55, dist * 0.24), false);
+    this._flyWait = Math.max(0, delay);
+    if (this._flyWait <= 0) this._q.punchPick();
+  }
+
+  private _beginFly(local: Vec3, dur: number, arc: number, occupy: boolean): void {
     this.node.getPosition(this._slideFrom);
     this.node.getScale(this._flyFromScale);
-    this._flying = true;
-    this._slideDur = 0.72;
-    this._slideLeft = 0.72;
+    this._slideTo.set(local);
+    this._flying = occupy;
+    this._flyArc = arc;
+    this._slideDur = dur;
+    this._slideLeft = dur;
   }
 
   flashFree(): void {
@@ -136,26 +165,33 @@ export class UnitActor extends Component {
 
   update(dt: number): void {
     if (!this.node.activeInHierarchy) return;
-    if (this._slideLeft > 0 && (this.state === 'bench' || this._flying)) {
+    if (this._flyWait > 0) {
+      this._flyWait = Math.max(0, this._flyWait - dt);
+      if (this._flyWait <= 0) this._q.punchPick();
+    } else if (this._slideLeft > 0) {
       this._slideLeft = Math.max(0, this._slideLeft - dt);
       const t = this._slideDur <= 0 ? 1 : 1 - this._slideLeft / this._slideDur;
       const k = t * t * (3 - 2 * t);
-      const y = this._flying
-        ? this._slideFrom.y + (this.homePos.y - this._slideFrom.y) * k + Math.sin(t * Math.PI) * 0.95
-        : this.homePos.y;
+      const lift = this._flyArc > 0 ? Math.sin(t * Math.PI) : 0;
       this.node.setPosition(
-        this._slideFrom.x + (this.homePos.x - this._slideFrom.x) * k,
-        y,
-        this._slideFrom.z + (this.homePos.z - this._slideFrom.z) * k,
+        this._slideFrom.x + (this._slideTo.x - this._slideFrom.x) * k,
+        this._slideFrom.y + (this._slideTo.y - this._slideFrom.y) * k + lift * this._flyArc,
+        this._slideFrom.z + (this._slideTo.z - this._slideFrom.z) * k,
       );
-      if (this._flying) {
+      if (this._flyArc > 0) {
         const s = this._flyFromScale.x + (1 - this._flyFromScale.x) * k;
-        this.node.setScale(s, s, s);
+        this.node.setScale(s * (1 - lift * 0.07), s * (1 + lift * 0.12), s * (1 - lift * 0.07));
+        this.node.setRotationFromEuler(
+          (this._slideTo.z - this._slideFrom.z) * 7 * lift,
+          0,
+          -(this._slideTo.x - this._slideFrom.x) * 9 * lift,
+        );
         if (this._slideLeft <= 0) {
           this._flying = false;
+          this._flyArc = 0;
           this.node.setScale(1, 1, 1);
           this.node.setRotationFromEuler(0, 0, 0);
-          this.node.setPosition(this.homePos);
+          this.node.setPosition(this._slideTo);
           this._q.punchLand();
           this.refreshPowerVisible();
         }

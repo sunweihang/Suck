@@ -57,6 +57,7 @@ import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinFlyFx';
 import { playItemGrantFly } from './view/ItemFlyFx';
 import { artFrame, preloadUiArt } from './view/UiArt';
+import { loadGameBundles } from './boot/LoadBundles';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
   return new Promise((resolve, reject) => {
@@ -115,6 +116,7 @@ export class GameBootstrap extends Component {
 
   private async _bootUi(): Promise<void> {
     try {
+      await loadGameBundles();
       applyDesignResolution();
       this._tuneMainCamera();
       this._tuneLighting();

@@ -22,9 +22,10 @@ export const GAME = {
   suckRefInterval: 0.08,
   suckFlightSec: 0.34,
   suckArc: 0.62,
-  suckMaxFlight: 12,
-  suckMinInterval: 0.04,
-  suckMaxInterval: 0.14,
+  suckMaxFlight: 8,
+  suckMaxFlightTotal: 28,
+  suckMinInterval: 0.05,
+  suckMaxInterval: 0.16,
   shotSpeed: 12,
   shotMinSec: 0.11,
   shotMaxSec: 0.28,
@@ -203,9 +204,9 @@ export function wallColAtX(x: number): number {
 }
 
 export const BENCH = {
-  cols: 6,
+  cols: 4,
   rows: 6,
-  stepX: 0.52,
+  stepX: 0.72,
   stepZ: 0.74,
   startZ: 0.62,
 } as const;

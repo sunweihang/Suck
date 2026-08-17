@@ -740,7 +740,7 @@ function buildScene() {
   }
 
   const bench = addNode(doc, { name: 'Bench', parentId: world.id });
-  const ucols = 6;
+  const ucols = 4;
   const urows = 4;
   const usx = 0.78;
   const usz = 0.72;

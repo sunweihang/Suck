@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import the play backdrop as a 1080x1920 cover. Drop extra height at the bottom to hide the Doubao caption."""
+"""Import the play backdrop as a 1080x2200 cover. Extra height is cropped top/bottom at runtime."""
 
 from pathlib import Path
 
@@ -8,7 +8,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SRC = Path("/Users/sunix/Desktop/游戏背景.png")
 OUT = ROOT / "assets/resources/ui/bg-play-q.png"
-DESIGN_W, DESIGN_H = 1080, 1920
+DESIGN_W, DESIGN_H = 1080, 2200
 
 
 def crop_to_design(src: Image.Image) -> Image.Image:

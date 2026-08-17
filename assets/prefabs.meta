@@ -5,5 +5,16 @@
   "uuid": "c0110001-0001-4001-8001-000000000002",
   "files": [],
   "subMetas": {},
-  "userData": {}
+  "userData": {
+    "isBundle": true,
+    "bundleConfigID": "default",
+    "bundleName": "prefabs",
+    "priority": 7,
+    "compressionType": {
+      "wechatgame": "subpackage"
+    },
+    "isRemoteBundle": {
+      "wechatgame": false
+    }
+  }
 }

@@ -1,7 +1,7 @@
 /** Port LevelCatalog + BattleDirector eat rules; check whether levels are winnable. */
 const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
-const BENCH = { cols: 6, rows: 6 };
+const BENCH = { cols: 4, rows: 6 };
 const UNIT_SEATS = BENCH.cols * BENCH.rows;
 const UNIT_MAX = UNIT_SEATS * 4;
 const POWER_LO = 50;
@@ -13,12 +13,9 @@ const TOKEN_HUE = {
   o: 28, y: 50, c: 182, g: 136, p: 330, v: 268,
   r: 355, s: 210, k: 10, m: 156, a: 312, d: 45,
 };
-/** Same-family colors that read as 靠色 in play. At most one per group. */
+/** Only block pairs that read as the same brick on the wall. */
 const CLASH_GROUPS = [
-  ['o', 'y', 'd'],
-  ['p', 'v', 'a'],
-  ['c', 's'],
-  ['g', 'm'],
+  ['y', 'd'],
 ];
 
 class Rng {
@@ -427,6 +424,8 @@ function paletteFor(id, count, rng) {
   };
   take(48);
   if (out.length < n) take(36);
+  if (out.length < n) take(24);
+  if (out.length < n) take(12);
   if (out.length < n) take(1);
   return out.length > 0 ? out : [bag[0]];
 }
@@ -1277,7 +1276,7 @@ function solveInOrder(level) {
   const locked = Array.from({ length: SLOT_MAX }, (_, i) => slotStartsLocked(i));
   let expect = 0;
   const log = [];
-  for (let step = 0; step < 800; step++) {
+  for (let step = 0; step < 1500; step++) {
     if (wall.remain <= 0) return { ok: true, steps: step, log, mode: 'order' };
     tickWaiters(wall, slots);
     if (wall.remain <= 0) return { ok: true, steps: step, log, mode: 'order' };
@@ -1337,7 +1336,7 @@ function solveLevel(level, opts = {}) {
     locked: Array.from({ length: SLOT_MAX }, (_, i) => slotStartsLocked(i)),
   };
 
-  const maxSteps = opts.maxSteps ?? 400;
+  const maxSteps = opts.maxSteps ?? 1200;
   let steps = 0;
   const log = [];
 

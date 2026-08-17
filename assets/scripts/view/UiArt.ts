@@ -22,8 +22,6 @@ const KEYS = [
   'bg',
   'home',
   'play',
-  'board',
-  'chip',
   'badge',
   'homeBadge',
   'prefix',
@@ -50,12 +48,13 @@ const KEYS = [
   'icAd',
   'winAction',
   'winDouble',
-  'winNext',
   'chest',
   'itemGetPanel',
   'itemGetBox',
   'itemGetClose',
   'panelMain',
+  'winPanel',
+  'failPanel',
   'lockSeal',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
@@ -91,6 +90,8 @@ function imagePathOf(key: ArtKey): string | null {
   if (key === 'chest') return 'ui/chest';
   if (key === 'itemGetPanel') return 'ui/panel-item-get';
   if (key === 'panelMain') return 'ui/panel-main';
+  if (key === 'winPanel') return 'ui/panel-win';
+  if (key === 'failPanel') return 'ui/panel-fail';
   if (key === 'itemGetBox') return 'ui/item-get-box';
   if (key === 'itemGetClose') return 'ui/btn-item-close';
   if (key === 'lockSeal') return 'ui/lock-seal';
@@ -101,8 +102,6 @@ function pathOf(key: ArtKey): string {
   if (key === 'bg') return 'ui/bg-play-q/spriteFrame';
   if (key === 'home') return 'ui/bg-home/spriteFrame';
   if (key === 'play') return 'ui/btn-play/spriteFrame';
-  if (key === 'board') return 'ui/board-score-q/spriteFrame';
-  if (key === 'chip') return 'ui/chip-q/spriteFrame';
   if (key === 'badge') return 'ui/level-badge/spriteFrame';
   if (key === 'homeBadge') return 'ui/level-home/spriteFrame';
   if (key === 'prefix') return 'ui/lv-prefix/spriteFrame';
@@ -129,10 +128,11 @@ function pathOf(key: ArtKey): string {
   if (key === 'icAd') return 'ui/ic-ad-video/spriteFrame';
   if (key === 'winAction') return 'ui/btn-win-action/spriteFrame';
   if (key === 'winDouble') return 'ui/btn-win-double/spriteFrame';
-  if (key === 'winNext') return 'ui/btn-win-next/spriteFrame';
   if (key === 'chest') return 'ui/chest/spriteFrame';
   if (key === 'itemGetPanel') return 'ui/panel-item-get/spriteFrame';
   if (key === 'panelMain') return 'ui/panel-main/spriteFrame';
+  if (key === 'winPanel') return 'ui/panel-win/spriteFrame';
+  if (key === 'failPanel') return 'ui/panel-fail/spriteFrame';
   if (key === 'itemGetBox') return 'ui/item-get-box/spriteFrame';
   if (key === 'itemGetClose') return 'ui/btn-item-close/spriteFrame';
   if (key === 'lockSeal') return 'ui/lock-seal/spriteFrame';
@@ -227,7 +227,7 @@ function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: 
   sp.spriteFrame = sf;
   sp.color = Color.WHITE;
   sp.enabled = true;
-  const rawBtn = key === 'winAction' || key === 'winDouble' || key === 'winNext';
+  const rawBtn = key === 'winAction' || key === 'winDouble';
   if (rawBtn) {
     sp.sizeMode = Sprite.SizeMode.RAW;
     sp.type = Sprite.Type.SIMPLE;
@@ -281,7 +281,7 @@ export function ensureBtnChrome(
   h: number,
   fill: Color,
   stroke: Color,
-  artKey?: 'winDouble' | 'winAction' | 'winNext' | 'clubBtn' | 'shareBtn',
+  artKey?: 'winDouble' | 'winAction' | 'clubBtn' | 'shareBtn',
 ): void {
   if (!btn) return;
   const rootSp = btn.getComponent(Sprite);
@@ -290,7 +290,7 @@ export function ensureBtnChrome(
     rootSp.enabled = false;
   }
   clearNodeGraphics(btn);
-  const rawBtn = artKey === 'winDouble' || artKey === 'winAction' || artKey === 'winNext';
+  const rawBtn = artKey === 'winDouble' || artKey === 'winAction';
   const bw = rawBtn ? VOLCANO_BTN_W : w;
   const bh = rawBtn ? VOLCANO_BTN_H : h;
   btn.getComponent(UITransform)?.setContentSize(bw, bh);

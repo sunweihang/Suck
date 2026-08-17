@@ -5,9 +5,6 @@ export const PREFAB_UUID = {
   Ground: '7e22bb20-0008-4b02-8002-000000000008',
   Debris: '7e22bb20-0009-4b02-8002-000000000009',
   HintHand: '7e22bb20-000a-4b02-8002-00000000000a',
-  HintHandSprite: '7e22bb20-000e-4b02-8002-00000000000e@f9941',
-  SlotCircle: '7e22bb20-000b-4b02-8002-00000000000b@6c48a',
-  PlayBtn: '7e22bb20-000d-4b02-8002-00000000000d@f9941',
   LockNails: '7e22bb20-0031-4b02-8002-000000000031',
   LockChain: '7e22bb20-0033-4b02-8002-000000000033',
   IronPlate: '7e22bb20-0032-4b02-8002-000000000032',
@@ -19,7 +16,6 @@ export const PREFAB_UUID = {
   Chest: '84174c78-c604-437f-bfd2-f914ec17b899',
   Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
   Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
-  Pingmu: 'f3acda95-f24d-4e94-a3d1-e089c980275e',
   Shuaxin: '29821b8d-1014-439d-81ef-9f11e3487797',
 } as const;
 

@@ -32,8 +32,8 @@
             }
 
             /*
-             * Lock GameDiv to max 9:16. Outside the frame is black.
-             * Engine SHOW_ALL / FIXED_WIDTH keeps design width at 1080.
+             * Tall window: fill (FIXED_WIDTH). Wide window: 9:16 frame, side bars.
+             * game-frame.js writes --game-frame-width / height.
              */
             .content,
             .contentWrap {
@@ -42,11 +42,10 @@
             #GameDiv {
                 position: relative !important;
                 flex: none !important;
-                width: var(--game-frame-width, auto) !important;
+                width: var(--game-frame-width, 100%) !important;
                 height: var(--game-frame-height, 100%) !important;
                 max-width: 100% !important;
                 max-height: 100% !important;
-                aspect-ratio: 9 / 16 !important;
                 margin: auto !important;
                 overflow: hidden !important;
                 background-color: #000 !important;
@@ -73,7 +72,7 @@
         <%- include(cocosToolBar, {config: config}) %>
         <div id="content" class="content" style="overflow: hidden; background-color: #000;">
             <div class="contentWrap">
-                <!-- 9:16 frame; black outside. Design 1080 fills this frame. -->
+                <!-- Portrait frame; tall windows fill, wide windows letterbox sides. -->
                 <div id="GameDiv" class="wrapper" cc_exact_fit_screen="false">
                     <div id="Cocos3dGameContainer">
                         <canvas id="GameCanvas" tabindex="-1" style="background-color: #000;"></canvas>

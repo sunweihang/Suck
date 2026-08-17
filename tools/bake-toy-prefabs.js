@@ -21,15 +21,21 @@ const UUID = {
   ToyLook: '8c01a1b0-4e21-4f3a-9c11-01000000000b',
   MatEye: '9d11aa10-0006-4a01-8001-000000000006',
   MatPupil: '9d11aa10-0007-4a01-8001-000000000007',
+  MatSucker: '9d11aa10-0008-4a01-8001-000000000008',
+  MatCheek: '9d11aa10-0009-4a01-8001-000000000009',
   MatHighlight: '9d11aa10-000a-4a01-8001-00000000000a',
   MeshBlockJson: '7e22bb20-0301-4b02-8002-000000000001',
   MeshOctopusJson: '7e22bb20-0302-4b02-8002-000000000002',
   MeshBallJson: '7e22bb20-0303-4b02-8002-000000000003',
   MeshPowerJson: '7e22bb20-0304-4b02-8002-000000000004',
+  MeshBellyJson: '7e22bb20-0305-4b02-8002-000000000005',
+  MeshSuckersJson: '7e22bb20-0306-4b02-8002-000000000006',
   GltfBlock: '7e22bb20-0311-4b02-8002-000000000001',
   GltfOctopus: '7e22bb20-0312-4b02-8002-000000000002',
   GltfBall: '7e22bb20-0313-4b02-8002-000000000003',
   GltfPower: '7e22bb20-0314-4b02-8002-000000000004',
+  GltfBelly: '7e22bb20-0315-4b02-8002-000000000005',
+  GltfSuckers: '7e22bb20-0316-4b02-8002-000000000006',
   dirModels: 'c0110001-0001-4001-8001-000000000010',
   dirMeshes: 'c0110001-0001-4001-8001-000000000011',
 };
@@ -38,12 +44,30 @@ const MESH_BLOCK = `${UUID.GltfBlock}@e1d15`;
 const MESH_OCTOPUS = `${UUID.GltfOctopus}@9d64e`;
 const MESH_BALL = `${UUID.GltfBall}@642dc`;
 const MESH_POWER = `${UUID.GltfPower}@cc693`;
+const MESH_BELLY = `${UUID.GltfBelly}@a2b3c`;
+const MESH_SUCKERS = `${UUID.GltfSuckers}@b3c4d`;
 const MESH_ID = {
   [UUID.GltfBlock]: { id: 'e1d15', name: 'ToyBlock', tris: 300 },
-  [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 3152 },
+  [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 1800 },
   [UUID.GltfBall]: { id: '642dc', name: 'ToyBall', tris: 192 },
   [UUID.GltfPower]: { id: 'cc693', name: 'ToyPower', tris: 2 },
+  [UUID.GltfBelly]: { id: 'a2b3c', name: 'ToyBelly', tris: 224 },
+  [UUID.GltfSuckers]: { id: 'b3c4d', name: 'ToySuckers', tris: 480 },
 };
+
+function bellyMatUuid(i) {
+  const h = i.toString(16);
+  return `9d11aa10-00e${h}-4a01-8001-0000000000e${h}`;
+}
+
+function bellyRgb(rgb) {
+  const cream = [255, 236, 214];
+  return [
+    Math.round(rgb[0] * 0.4 + cream[0] * 0.6),
+    Math.round(rgb[1] * 0.4 + cream[1] * 0.6),
+    Math.round(rgb[2] * 0.4 + cream[2] * 0.6),
+  ];
+}
 
 function powerImgUuid(d) {
   return `9d12cc10-030${d}-4a01-8001-00000000003${d}`;
@@ -79,7 +103,11 @@ function compressUuid(uuid) {
 
 function write(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, typeof data === 'string' ? data : `${JSON.stringify(data, null, 2)}\n`);
+  if (Buffer.isBuffer(data) || typeof data === 'string') {
+    fs.writeFileSync(file, data);
+    return;
+  }
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function dirMeta(uuid) {
@@ -904,8 +932,8 @@ function buildBlockPrefab(color) {
   addPrefabInfo(doc, root.id, assetRef, true);
   addMeshRenderer(doc, root.id, MESH_BLOCK, color.mat, true, true);
   addScript(doc, root.id, UUID.BlockCell, true);
-  write(path.join(ASSETS, `prefabs/${name}.prefab`), doc.json());
-  write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.block, name));
+  write(path.join(ASSETS, `prefabs/blocks/${name}.prefab`), doc.json());
+  write(path.join(ASSETS, `prefabs/blocks/${name}.prefab.meta`), prefabMeta(color.block, name));
 }
 
 function buildUnitPrefab(color, lift) {
@@ -952,7 +980,7 @@ function buildUnitPrefab(color, lift) {
       name: `D${i}`,
       parentId: power.id,
       sx: 0.13,
-      sy: 0.175;
+      sy: 0.175,
       sz: 1,
       active: i === 0,
     });
@@ -967,15 +995,23 @@ function buildUnitPrefab(color, lift) {
     addMeshRenderer(doc, n.id, MESH_POWER, powerMatUuid(d), true, false);
   }
 
-  write(path.join(ASSETS, `prefabs/${name}.prefab`), doc.json());
-  write(path.join(ASSETS, `prefabs/${name}.prefab.meta`), prefabMeta(color.unit, name));
+  write(path.join(ASSETS, `prefabs/units/${name}.prefab`), doc.json());
+  write(path.join(ASSETS, `prefabs/units/${name}.prefab.meta`), prefabMeta(color.unit, name));
 }
 
-function writeToyLook(_lift) {
+function writeToyLook() {
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts'), `import { Vec3 } from 'cc';
+import { SPECIAL_SPAN } from '../game/GameConfig';
 
 export const OCTOPUS_STAND_Y = 0.012;
 export const OCTO_POWER_LOCAL = new Vec3(0, 0.18, -0.18);
+/** Body centroid. Keep Z at 0 so the blob stays in the window, not behind the wall. */
+export const OCTO_BODY_LOCAL = new Vec3(0, 0.26716, 0);
+/** Main blob radius from bake-toy-prefabs. */
+const OCTO_BODY_R = 0.148;
+/** How much of the 4-cell cage the body should fill. */
+const OCTO_CAGE_FILL = 0.86;
+export const OCTO_CAGE_SCALE = (SPECIAL_SPAN * OCTO_CAGE_FILL) / (2 * OCTO_BODY_R);
 `);
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts.meta'), tsMeta(UUID.ToyLook));
 }
@@ -1022,13 +1058,19 @@ export function unitPrefabUuid(token: string): string {
 
 function main() {
   console.log('baking toy meshes...');
-  const { execFileSync } = require('child_process');
-  execFileSync('python3', [path.join(ROOT, 'tools/draw-power-digits.py')], { stdio: 'inherit' });
+  try {
+    const { execFileSync } = require('child_process');
+    execFileSync('python', [path.join(ROOT, 'tools/draw-power-digits.py')], { stdio: 'inherit' });
+  } catch {
+    console.log('skip power digits (python missing)');
+  }
 
   const block = bakeBlock();
   const ball = bakeBall();
   const powerQuad = bakePowerQuad();
   const { mesh: octopus, lift } = bakeOctopus();
+  MESH_ID[UUID.GltfOctopus].tris = octopus.i.length / 3;
+  MESH_ID[UUID.GltfBlock].tris = block.i.length / 3;
   console.log(`block verts=${block.p.length / 3} tris=${block.i.length / 3}`);
   console.log(`octopus verts=${octopus.p.length / 3} tris=${octopus.i.length / 3} lift=${lift}`);
   console.log(`ball verts=${ball.p.length / 3}`);
@@ -1063,12 +1105,12 @@ function main() {
   write(path.join(ASSETS, 'materials/MatEye.mtl.meta'), mtlMeta(UUID.MatEye));
   write(path.join(ASSETS, 'materials/MatPupil.mtl'), clayMaterial('MatPupil', [22, 24, 30], 0.28, 0.04));
   write(path.join(ASSETS, 'materials/MatPupil.mtl.meta'), mtlMeta(UUID.MatPupil));
-  for (const c of COLORS) {
+  COLORS.forEach((c) => {
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.34, 0.12));
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl.meta`), mtlMeta(c.mat));
-  }
+  });
 
-  writeToyLook(lift);
+  writeToyLook();
 
   for (const stale of ['BlockBlack', 'UnitBlack']) {
     const pf = path.join(ASSETS, `prefabs/${stale}.prefab`);
@@ -1082,7 +1124,6 @@ function main() {
     buildUnitPrefab(c, lift);
   }
 
-  writeCatalog();
   console.log(`wrote ${COLORS.length} block + ${COLORS.length} unit prefabs`);
 }
 

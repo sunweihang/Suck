@@ -4,11 +4,13 @@ import {
   EventTouch,
   Node,
   Tween,
+  UITransform,
   Vec3,
   Widget,
   tween,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
+import { coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 
 const { ccclass } = _decorator;
 
@@ -54,9 +56,26 @@ export class HomePanel extends Component {
 
   layoutChrome(): void {
     this.node.getComponent(Widget)?.updateAlignment();
-    this.node.getChildByName('Bg')?.getComponent(Widget)?.updateAlignment();
+    this._layoutCoverBg();
     this.node.getChildByName('Content')?.getComponent(Widget)?.updateAlignment();
     this._playNode()?.getComponent(Widget)?.updateAlignment();
+  }
+
+  private _layoutCoverBg(): void {
+    const bg = this.node.getChildByName('Bg');
+    if (!bg) return;
+    const widget = bg.getComponent(Widget);
+    if (widget) {
+      widget.isAlignTop = widget.isAlignBottom = false;
+      widget.isAlignLeft = widget.isAlignRight = false;
+      widget.isAlignHorizontalCenter = widget.isAlignVerticalCenter = true;
+      widget.horizontalCenter = 0;
+      widget.verticalCenter = 0;
+    }
+    const vis = portraitVisibleSize();
+    const cover = coverBackgroundSize(vis.width, vis.height);
+    bg.getComponent(UITransform)?.setContentSize(cover.w, cover.h);
+    widget?.updateAlignment();
   }
 
   private _content(): Node | null {

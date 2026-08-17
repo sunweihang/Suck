@@ -14,17 +14,20 @@ const { occupyShape, shapeForLevel } = require('./level-shapes');
 const CLUSTER_MIN = 10;
 const UNIT_POWER_MIN = 50;
 const UNIT_POWER_MAX = 90;
-const UNIT_POWER_AIM = 65;
+const UNIT_POWER_AIM = 60;
+const UNIT_POWER_FLOOR = 20;
+const MIN_UNITS = 48;
+const MAX_UNITS = 72;
+const MAX_STACK = 48;
+const BENCH_COLS = 4;
+const BENCH_ROW_SAME = 2;
 const TOKEN_HUE = {
   o: 28, y: 50, c: 182, g: 136, p: 330, v: 268,
   r: 355, s: 210, k: 10, m: 156, a: 312, d: 45,
 };
-/** Same-family colors that read as 靠色 in play. At most one per group. */
+/** Only block pairs that read as the same brick on the wall. */
 const CLASH_GROUPS = [
-  ['o', 'y', 'd'],
-  ['p', 'v', 'a'],
-  ['c', 's'],
-  ['g', 'm'],
+  ['y', 'd'],
 ];
 
 class Rng {
@@ -204,6 +207,8 @@ function paletteFor(id, count, rng) {
   };
   take(48);
   if (out.length < n) take(36);
+  if (out.length < n) take(24);
+  if (out.length < n) take(12);
   if (out.length < n) take(1);
   return out.length > 0 ? out : [bag[0]];
 }
@@ -213,22 +218,51 @@ function decadeOf(id) {
 }
 
 function isTeachLevel(id) {
-  return id === 1 || id === 2 || id === 11 || id === 21 || id === 31 || id === 41 || id === 51;
+  return id === 1 || id === 2 || id === 11 || id === 21 || id === 31 || id === 41 || id === 51 || id === 61;
+}
+
+function isOnboardLevel(id) {
+  return id >= 1 && id <= 10;
+}
+
+function colorCountFor(id) {
+  if (id === 1) return 1;
+  if (id <= 3) return 2;
+  if (id <= 6) return 3;
+  if (id <= 9) return 4;
+  if (id === 10) return 5;
+  const d = decadeOf(id);
+  const t = (id - 1) % 10;
+  const base = [5, 6, 7, 7, 8, 8, 9, 9, 10, 10][d];
+  return Math.min(10, t >= 7 && base < 10 ? base + 1 : base);
 }
 
 function sizeFor(id) {
+  if (id === 1) return { cols: 16, rows: 12, depth: 1, colors: 1 };
+  if (id === 2) return { cols: 18, rows: 14, depth: 1, colors: 2 };
+  if (id === 3) return { cols: 20, rows: 15, depth: 2, colors: 2 };
+  if (id === 4) return { cols: 20, rows: 16, depth: 2, colors: 3 };
+  if (id === 5) return { cols: 22, rows: 16, depth: 3, colors: 3 };
+  if (id === 6) return { cols: 22, rows: 17, depth: 3, colors: 3 };
+  if (id === 7) return { cols: 24, rows: 18, depth: 4, colors: 4 };
+  if (id === 8) return { cols: 24, rows: 18, depth: 4, colors: 4 };
+  if (id === 9) return { cols: 25, rows: 19, depth: 5, colors: 4 };
+  if (id === 10) return { cols: 26, rows: 20, depth: 6, colors: 5 };
   const d = decadeOf(id);
   const t = (id - 1) % 10;
-  const cols = Math.min(32, 24 + Math.floor(d * 0.8) + Math.floor(t * 0.4));
-  const rows = Math.min(24, 18 + Math.floor(d * 0.55) + Math.floor(t * 0.25));
-  const depth = Math.min(12, 7 + d);
-  const colors = 6;
-  return { cols, rows, depth, colors };
+  const cols = Math.min(32, 26 + Math.floor(d * 0.5) + Math.floor(t * 0.3));
+  const rows = Math.min(22, 20 + Math.floor(d * 0.2) + Math.floor(t * 0.1));
+  const depth = Math.min(16, 9 + d);
+  return { cols, rows, depth, colors: colorCountFor(id) };
 }
 
 function minUnitsFor(id) {
-  if (isTeachLevel(id)) return id <= 2 ? 2 : 3;
-  return 8;
+  if (id === 1) return 3;
+  if (id === 2) return 5;
+  if (id <= 5) return 8;
+  if (id <= 10) return 16;
+  if (isTeachLevel(id)) return 12;
+  return MIN_UNITS;
 }
 
 function countBricks(cells) {
@@ -420,9 +454,180 @@ function splitToMinUnits(units, _minCount) {
 
 function padUnitPowers(units) {
   return units.map((u) => {
-    const n = Math.max(UNIT_POWER_MIN, u[1]);
+    const n = Math.max(1, u[1]);
     return u[2] ? [u[0], n, u[2]] : [u[0], n];
   });
+}
+
+function ensureMinUnits(units, minCount = MIN_UNITS) {
+  const totals = new Map();
+  const extra = new Map();
+  for (const u of units || []) {
+    if (!u[1]) continue;
+    totals.set(u[0], (totals.get(u[0]) ?? 0) + u[1]);
+    if (u[2]) extra.set(u[0], u[2]);
+  }
+  const colors = [...totals.keys()];
+  if (!colors.length) return [];
+  const total = [...totals.values()].reduce((a, b) => a + b, 0);
+  const want = Math.max(minCount, Math.min(MAX_UNITS, Math.floor(total / UNIT_POWER_AIM)));
+  const parts = new Map(colors.map((c) => [c, 1]));
+  let n = colors.length;
+  const canSplit = (color, floor = UNIT_POWER_FLOOR) =>
+    Math.floor(totals.get(color) / (parts.get(color) + 1)) >= floor;
+  const fair = Math.floor(want / colors.length);
+  for (const color of colors) {
+    while (parts.get(color) < fair && canSplit(color) && n < MAX_UNITS) {
+      parts.set(color, parts.get(color) + 1);
+      n += 1;
+    }
+  }
+  const growParts = (floor) => {
+    while (n < Math.min(want, total)) {
+      let best = null;
+      let bestScore = -1;
+      for (const color of colors) {
+        if (!canSplit(color, floor)) continue;
+        const next = parts.get(color) + 1;
+        const size = Math.floor(totals.get(color) / next);
+        const score = size * 10 - parts.get(color) * 3;
+        if (score > bestScore) {
+          bestScore = score;
+          best = color;
+        }
+      }
+      if (!best) break;
+      parts.set(best, parts.get(best) + 1);
+      n += 1;
+    }
+  };
+  growParts(UNIT_POWER_FLOOR);
+  for (const color of colors) {
+    while (Math.ceil(totals.get(color) / parts.get(color)) > UNIT_POWER_MAX && canSplit(color)) {
+      parts.set(color, parts.get(color) + 1);
+      n += 1;
+    }
+  }
+  const out = [];
+  for (const color of colors) {
+    const k = parts.get(color);
+    const pile = totals.get(color);
+    const base = Math.floor(pile / k);
+    let rem = pile - base * k;
+    for (let i = 0; i < k; i++) {
+      const power = base + (rem > 0 ? 1 : 0);
+      if (rem > 0) rem -= 1;
+      if (power <= 0) continue;
+      out.push(extra.has(color) ? [color, power, extra.get(color)] : [color, power]);
+    }
+  }
+  return out;
+}
+
+function balanceColorCounts(cells, palette, minP = UNIT_POWER_MIN) {
+  if (!palette.length) return;
+  for (let step = 0; step < 40; step++) {
+    const counts = countBricks(cells);
+    let total = 0;
+    for (const token of palette) total += counts.get(token) ?? 0;
+    if (total <= 0) return;
+    const fair = total / palette.length;
+    const cap = Math.max(minP, Math.round(fair * 1.2));
+    const floor = Math.max(minP, Math.round(fair * 0.75));
+    let fat = null;
+    let fatN = -1;
+    let thin = null;
+    let thinN = 1e9;
+    for (const token of palette) {
+      const n = counts.get(token) ?? 0;
+      if (n > fatN) {
+        fat = token;
+        fatN = n;
+      }
+      if (n < thinN) {
+        thin = token;
+        thinN = n;
+      }
+    }
+    if (!fat || !thin || fat === thin) return;
+    if (fatN <= cap && thinN >= floor) return;
+    const need = Math.max(1, Math.min(fatN - cap, Math.max(floor - thinN, Math.ceil((fatN - thinN) / 4))));
+    if (stealBricks(cells, fat, thin, need, true) <= 0) return;
+  }
+}
+
+function thickenCells(cells, minBricks = MIN_UNITS * UNIT_POWER_AIM, maxDepth = MAX_STACK) {
+  const occ = cells.filter((cell) => cell?.tokens?.length);
+  if (!occ.length) return;
+  let n = 0;
+  for (const cell of occ) n += cell.tokens.length;
+  while (n < minBricks) {
+    let grew = false;
+    for (const cell of occ) {
+      if (n >= minBricks) break;
+      if (cell.tokens.length >= maxDepth) continue;
+      cell.tokens.push(cell.tokens[cell.tokens.length - 1]);
+      n += 1;
+      grew = true;
+    }
+    if (!grew) break;
+  }
+}
+
+function finalizeUnits(units, minCount = MIN_UNITS) {
+  return spreadBenchUnits(ensureMinUnits(padUnitPowers(units), minCount));
+}
+
+/** Deal units onto the 4-wide bench so the same color does not sit in a block. */
+function spreadBenchUnits(units) {
+  if (!units || units.length <= 2) return units;
+  const piles = new Map();
+  for (const unit of units) {
+    const color = unit[0];
+    if (!piles.has(color)) piles.set(color, []);
+    piles.get(color).push(unit);
+  }
+  const colors = [...piles.keys()];
+  if (colors.length <= 1) return units.slice();
+
+  const out = new Array(units.length);
+  const rowUsed = new Map();
+
+  const pick = (i) => {
+    const col = i % BENCH_COLS;
+    const rank = Math.floor(i / BENCH_COLS);
+    const left = col > 0 ? out[i - 1][0] : null;
+    const ahead = rank > 0 ? out[i - BENCH_COLS][0] : null;
+    const diag = col > 0 && rank > 0 ? out[i - BENCH_COLS - 1][0] : null;
+    let best = null;
+    let bestScore = -1e9;
+    for (const color of colors) {
+      const leftN = piles.get(color).length;
+      if (!leftN) continue;
+      const inRow = rowUsed.get(`${rank}:${color}`) ?? 0;
+      let score = leftN;
+      if (color === left) score -= 80;
+      if (color === ahead) score -= 80;
+      if (color === diag) score -= 20;
+      if (inRow >= BENCH_ROW_SAME) score -= 60;
+      if (inRow === 0) score += 8;
+      if (rank === 0 && inRow === 0) score += 12;
+      if (score > bestScore) {
+        bestScore = score;
+        best = color;
+      }
+    }
+    return best;
+  };
+
+  for (let i = 0; i < units.length; i++) {
+    const color = pick(i);
+    const rank = Math.floor(i / BENCH_COLS);
+    out[i] = piles.get(color).shift();
+    const key = `${rank}:${color}`;
+    rowUsed.set(key, (rowUsed.get(key) ?? 0) + 1);
+  }
+  return out;
 }
 
 function clampUnitPower(n) {
@@ -563,6 +768,9 @@ function unitsFromCells(cells, palette) {
 }
 
 function teachCanvas(id) {
+  if (id === 1) return { cols: 16, rows: 12 };
+  if (id === 2) return { cols: 18, rows: 14 };
+  if (isTeachLevel(id)) return { cols: 20, rows: 16 };
   const size = sizeFor(id);
   return { cols: size.cols, rows: size.rows };
 }
@@ -611,123 +819,115 @@ function tutorialBase(id, palette, face, units, extra = {}) {
   };
 }
 
+function regionToken(ch, palette, map) {
+  if (map[ch]) return map[ch];
+  if (ch === '#') return palette[0];
+  return palette[Math.min(1, palette.length - 1)];
+}
+
+function makeShapedTutorial(id, palette, extra = {}) {
+  const size = extra.canvas ?? teachCanvas(id);
+  const { regions } = occupyShape(id, size.cols, size.rows);
+  const depth = extra.depth ?? 1;
+  const map = extra.regionMap || {};
+  const cells = [];
+  for (const ch of regions) {
+    if (!ch || ch === '.') {
+      cells.push(null);
+      continue;
+    }
+    const token = regionToken(ch, palette, map);
+    cells.push(makeCell(Array.from({ length: depth }, () => token)));
+  }
+  const rng = new Rng((id * 2654435761) >>> 0);
+  if (extra.paints) placePaints(cells, size.cols, size.rows, extra.paints, rng);
+  if (extra.bombs) placeBombs(cells, size.cols, size.rows, extra.bombs, rng);
+  if (extra.lockClusters) placeLocks(cells, size.cols, size.rows, extra.lockClusters, rng);
+  if (extra.chests) placeChests(cells, size.cols, size.rows, extra.chests, rng);
+  if (extra.rescues) placeRescues(cells, size.cols, size.rows, extra.rescues, palette, rng);
+  expandSpecials(cells, size.cols, size.rows);
+  let ironRows = extra.ironRows ?? [];
+  if (extra.iron && !ironRows.length) {
+    ironRows = chooseIronRows(cells, size.cols, size.rows, extra.iron);
+  }
+  const units = extra.units?.length ? extra.units : unitsFromCells(cells, palette);
+  return {
+    id,
+    cols: size.cols,
+    rows: size.rows,
+    cells,
+    units,
+    palette,
+    ...emptyLevelExtras(),
+    ironRow: ironRows.length ? ironRows[ironRows.length - 1] : -1,
+    ironRows,
+    ironGaps: extra.ironGaps ?? [],
+  };
+}
+
 function makeAbsorbTutorial() {
-  const face = scaleFace([
-    'oooooooo',
-    'oooooooo',
-    'oooooooo',
-    'oooooooo',
-  ], 2);
-  return tutorialBase(1, ['o'], face);
+  return makeShapedTutorial(1, ['o'], {
+    canvas: teachCanvas(1),
+    regionMap: { '#': 'o', L: 'o', T: 'o', H: 'o', E: 'o', N: 'o' },
+    depth: 1,
+  });
 }
 
 function makeAbsorbTwo() {
   const face = scaleFace([
-    'oooooooccccccc',
-    'oooooooccccccc',
-    'oooooooccccccc',
-    'oooooooccccccc',
+    'oooocccc',
+    'oooocccc',
+    'oooocccc',
+    'oooocccc',
   ], 2);
-  return tutorialBase(2, ['o', 'c'], face);
+  return tutorialBase(2, ['o', 'c'], face, null, { canvas: { cols: 18, rows: 14 } });
 }
 
 function makeIronTutorial() {
-  const face = scaleFace([
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'cccccccc',
-    'cccccccc',
-    'cccccccc',
-  ], 2);
-  return tutorialBase(11, ['y', 'c'], face, null, { ironRows: [6] });
+  return makeShapedTutorial(11, ['y', 'c'], {
+    regionMap: { '#': 'y', L: 'y', T: 'c', H: 'y' },
+    iron: 1,
+    depth: 2,
+  });
 }
 
 function makePaintTutorial() {
-  const face = scaleFace([
-    'cccccccc',
-    'ccppppcc',
-    'ccppppcc',
-    'ccppppcc',
-    'ccppppcc',
-    'cccccccc',
-  ], 2);
-  const paint = scaleFace([
-    '........',
-    '..*.....',
-    '........',
-    '........',
-    '........',
-    '........',
-  ], 2);
-  return tutorialBase(21, ['p', 'c'], face, null, { paint });
+  return makeShapedTutorial(21, ['p', 'c'], {
+    regionMap: { '#': 'c', E: 'p', N: 'p', H: 'p', T: 'c', L: 'c' },
+    paints: 1,
+    depth: 2,
+  });
 }
 
 function makeRescueTutorial() {
-  const face = scaleFace([
-    'rrrrrrrr',
-    'rrqqqrrr',
-    'rrqqqrrr',
-    'rrqqqrrr',
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'cccccccc',
-    'cccccccc',
-  ], 2);
-  return tutorialBase(31, ['y', 'r', 'c'], face, null, {
-    rescue: 'y',
-    rescuePower: 32,
+  return makeShapedTutorial(31, ['y', 'r', 'c'], {
+    regionMap: { '#': 'r', E: 'c', N: 'y', H: 'y', T: 'c', L: 'c' },
+    rescues: 1,
   });
 }
 
 function makeChestTutorial() {
-  const face = scaleFace([
-    'rrrrrrrr',
-    'rr$$$rrr',
-    'rr$$$rrr',
-    'rr$$$rrr',
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'cccccccc',
-    'cccccccc',
-  ], 2);
-  return tutorialBase(61, ['y', 'r', 'c'], face);
+  return makeShapedTutorial(61, ['y', 'c'], {
+    regionMap: { '#': 'y', H: 'c', E: 'c', N: 'c', T: 'c', L: 'c' },
+    chests: 1,
+    depth: 2,
+  });
 }
 
 function makeNailTutorial() {
-  const face = scaleFace([
-    'oooooooo',
-    'oooooooo',
-    'ooRRRRoo',
-    'ooRRRRoo',
-    'cccccccc',
-    'cccccccc',
-  ], 2);
-  return tutorialBase(41, ['o', 'r', 'c'], face);
+  return makeShapedTutorial(41, ['o', 'r'], {
+    regionMap: { '#': 'o', E: 'r', N: 'r', H: 'r', T: 'o', L: 'o' },
+    lockClusters: 1,
+    depth: 2,
+  });
 }
 
 function makeBombTutorial() {
-  const face = scaleFace([
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'yyyyyyyy',
-    'rrrrrrrr',
-    'rrrrrrrr',
-    'cccccccc',
-    'cccccccc',
-  ], 2);
-  const bomb = scaleFace([
-    '........',
-    '........',
-    '...*....',
-    '........',
-    '........',
-    '........',
-    '........',
-    '........',
-  ], 2);
-  return tutorialBase(51, ['y', 'r', 'c'], face, null, { bomb });
+  return makeShapedTutorial(51, ['y', 'r'], {
+    regionMap: { '#': 'y', H: 'y', L: 'y', N: 'r', T: 'r', E: 'r' },
+    bombs: 1,
+    depth: 2,
+  });
 }
 
 function cellsFromFace(face, depth, extra = {}) {
@@ -998,6 +1198,8 @@ function specFor(id) {
     spec.ironGaps = t >= 6 ? 1 : 0;
   } else if (d === 2) {
     spec.paints = t <= 4 ? 1 : 2;
+  } else if (d === 3) {
+    spec.rescues = t === 0 ? 1 : 0;
   } else if (d === 4) {
     spec.lockClusters = 1 + Math.floor(t / 3);
   } else if (d === 5) {
@@ -1006,7 +1208,7 @@ function specFor(id) {
     spec.iron = t <= 4 ? 1 : 2;
     spec.lockClusters = t >= 3 ? 1 : 0;
     spec.ironGaps = t >= 7 ? 1 : 0;
-    spec.chests = t >= 1 ? 1 : 0;
+    spec.chests = 1;
   } else if (d === 7) {
     spec.paints = 1;
     spec.bombs = t >= 4 ? 1 : 0;
@@ -1127,8 +1329,29 @@ function mergeInnerShells(counts, minSize) {
   return remap;
 }
 
+const ACCENT_PREF = {
+  L: ['g', 'm', 'c'],
+  T: ['k', 'o', 'd', 'y'],
+  E: ['c', 's', 'v', 'p'],
+  W: ['v', 'r', 'p', 'a'],
+  H: ['y', 'd', 'o', 'p'],
+  N: ['d', 'y', 'o', 'k'],
+  R: ['r', 'p', 'a', 's'],
+};
+
+function pickAccent(kind, palette, used) {
+  const pref = ACCENT_PREF[kind] || [];
+  for (const token of pref) {
+    if (palette.includes(token) && !used.has(token)) return token;
+  }
+  for (const token of palette) {
+    if (!used.has(token)) return token;
+  }
+  return palette[1] || palette[0];
+}
+
 function buildShapedCells(id, size, palette) {
-  const { occ } = occupyShape(id, size.cols, size.rows);
+  const { occ, regions } = occupyShape(id, size.cols, size.rows);
   const inset = xyInset(occ, size.cols, size.rows);
   const depth = size.depth;
   const shells = [];
@@ -1160,18 +1383,31 @@ function buildShapedCells(id, size, palette) {
   for (let s = 0; s <= maxShell; s++) {
     if (counts[s] > 0) used += 1;
   }
-  const seq = peelSequence(palette, Math.max(2, used));
+  const seq = peelSequence(palette, Math.max(palette.length, used));
   const bandOf = new Array(maxShell + 1).fill(0);
   let band = 0;
   for (let s = 0; s <= maxShell; s++) {
     if (s > 0 && counts[s] > 0) band += 1;
     bandOf[s] = band;
   }
+  const outerToken = seq[0] ?? palette[0];
+  const taken = new Set([outerToken]);
+  const accentTok = {};
+  for (const ch of regions) {
+    if (!ch || ch === '.' || ch === '#' || accentTok[ch]) continue;
+    accentTok[ch] = pickAccent(ch, palette, taken);
+    taken.add(accentTok[ch]);
+  }
   const cells = [];
   for (let i = 0; i < shells.length; i++) {
     const stack = shells[i];
     if (!stack) {
       cells.push(null);
+      continue;
+    }
+    const accent = accentTok[regions[i]];
+    if (accent && accent !== outerToken) {
+      cells.push(makeCell(stack.map(() => accent)));
       continue;
     }
     const tokens = [];
@@ -1181,7 +1417,7 @@ function buildShapedCells(id, size, palette) {
     }
     cells.push(makeCell(tokens));
   }
-  return { cells, outerToken: seq[0] ?? palette[0] };
+  return { cells, outerToken };
 }
 
 function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits) {
@@ -1197,35 +1433,141 @@ function planUnitsForBoard(cells, cols, rows, rng, ironRows, ironGaps, minUnits)
   return { units, ironRows };
 }
 
-function growSparseColors(cells, minP = UNIT_POWER_MIN, reserved = null) {
+function donorTokens(counts, reserved) {
+  return [...counts.entries()]
+    .filter(([, n]) => n > UNIT_POWER_MIN)
+    .sort((a, b) => {
+      if (a[0] === reserved) return 1;
+      if (b[0] === reserved) return -1;
+      return b[1] - a[1];
+    })
+    .map(([token]) => token);
+}
+
+function paintColorCluster(cells, cols, rows, from, to, need) {
+  const starts = [];
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i];
+    if (!cell?.tokens?.some((t, z) => t === from && !cell.locked?.[z] && !cell.bomb?.[z] && !cell.paint?.[z])) {
+      continue;
+    }
+    starts.push(i);
+  }
+  if (!starts.length) return 0;
+  let painted = 0;
+  for (const origin of starts) {
+    if (painted >= need) break;
+    const seen = new Uint8Array(cells.length);
+    const queue = [origin];
+    seen[origin] = 1;
+    while (queue.length && painted < need) {
+      const i = queue.shift();
+      const cell = cells[i];
+      if (cell?.tokens) {
+        for (let z = 0; z < cell.tokens.length; z++) {
+          if (painted >= need) break;
+          if (cell.tokens[z] !== from) continue;
+          if (cell.locked?.[z] || cell.bomb?.[z] || cell.paint?.[z]) continue;
+          cell.tokens[z] = to;
+          painted += 1;
+        }
+      }
+      const x = i % cols;
+      const y = (i - x) / cols;
+      const next = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+      for (const [nx, ny] of next) {
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const j = ny * cols + nx;
+        if (seen[j]) continue;
+        seen[j] = 1;
+        queue.push(j);
+      }
+    }
+  }
+  if (painted >= need) return painted;
+  for (const cell of cells) {
+    if (painted >= need || !cell?.tokens) continue;
+    for (let z = 0; z < cell.tokens.length; z++) {
+      if (painted >= need) break;
+      if (cell.tokens[z] !== from) continue;
+      if (cell.locked?.[z] || cell.bomb?.[z] || cell.paint?.[z]) continue;
+      cell.tokens[z] = to;
+      painted += 1;
+    }
+  }
+  return painted;
+}
+
+function stealBricks(cells, from, to, need, allowSpecial = false) {
+  let painted = 0;
+  for (const cell of cells) {
+    if (!cell?.tokens || painted >= need) continue;
+    for (let z = 0; z < cell.tokens.length; z++) {
+      if (painted >= need) break;
+      if (cell.tokens[z] !== from) continue;
+      if (!allowSpecial && (cell.bomb?.[z] || cell.paint?.[z])) continue;
+      cell.tokens[z] = to;
+      painted += 1;
+    }
+  }
+  return painted;
+}
+
+function seedMissingColors(cells, cols, rows, palette, minP = UNIT_POWER_MIN, reserved = null) {
+  for (const token of palette) {
+    if ((countBricks(cells).get(token) ?? 0) > 0) continue;
+    const donors = donorTokens(countBricks(cells), reserved);
+    for (const donor of donors) {
+      if (donor === token) continue;
+      paintColorCluster(cells, cols, rows, donor, token, minP);
+      if ((countBricks(cells).get(token) ?? 0) > 0) break;
+    }
+    if ((countBricks(cells).get(token) ?? 0) > 0) continue;
+    for (const [from] of [...countBricks(cells).entries()].sort((a, b) => b[1] - a[1])) {
+      if (from === token) continue;
+      stealBricks(cells, from, token, minP, true);
+      if ((countBricks(cells).get(token) ?? 0) > 0) break;
+    }
+  }
+}
+
+function growSparseColors(cells, minP = UNIT_POWER_MIN) {
   const counts = countBricks(cells);
   let biggest = null;
   let biggestN = 0;
   for (const [token, n] of counts) {
-    if (token === reserved) continue;
     if (n > biggestN) {
       biggest = token;
       biggestN = n;
     }
   }
-  if (!biggest) return;
+  if (!biggest || biggestN <= minP) return;
+  let left = biggestN;
   for (const [token, n] of counts) {
-    if (n >= minP || n === 0 || token === biggest || token === reserved) continue;
+    if (n >= minP || n === 0 || token === biggest) continue;
     let need = minP - n;
     for (const cell of cells) {
-      if (need <= 0) break;
+      if (need <= 0 || left <= minP) break;
       if (!cell?.tokens?.length) continue;
       for (let z = 0; z < cell.tokens.length; z++) {
-        if (need <= 0) break;
+        if (need <= 0 || left <= minP) break;
         if (cell.tokens[z] !== biggest) continue;
-        if (cell.locked?.[z] || cell.bomb?.[z] || cell.paint?.[z]) continue;
-        const sameLayer = cells.some((other) => other?.tokens?.[z] === token);
-        if (!sameLayer) continue;
+        if (cell.bomb?.[z] || cell.paint?.[z]) continue;
         cell.tokens[z] = token;
         need -= 1;
+        left -= 1;
       }
     }
   }
+}
+
+function paletteComplete(level) {
+  const used = new Set();
+  for (const cell of level.cells) {
+    if (!cell) continue;
+    for (const token of cell.tokens) used.add(token);
+  }
+  return (level.palette || []).every((token) => used.has(token));
 }
 
 function makeDecadeLevel(id) {
@@ -1234,7 +1576,11 @@ function makeDecadeLevel(id) {
   for (let attempt = 0; attempt < 16; attempt++) {
     const rng = new Rng((id * 2654435761 + attempt * 9973) >>> 0);
     const level = buildDecadeLevel(id, rng);
-    level.units = padUnitPowers(level.units);
+    level.units = finalizeUnits(level.units, minUnitsFor(id));
+    if (!paletteComplete(level)) {
+      if (!best) best = level;
+      continue;
+    }
     if (isWinnable(level)) return level;
     best = level;
   }
@@ -1245,7 +1591,6 @@ function buildDecadeLevel(id, rng) {
   const size = sizeFor(id);
   const palette = paletteFor(id, size.colors, rng);
   const { cells, outerToken } = buildShapedCells(id, size, palette);
-  growSparseColors(cells, UNIT_POWER_MIN, outerToken);
   const spec = specFor(id);
   const extra = emptyLevelExtras();
   extra.brickMix = 0;
@@ -1254,6 +1599,14 @@ function buildDecadeLevel(id, rng) {
   if (spec.lockClusters) placeLocks(cells, size.cols, size.rows, spec.lockClusters, rng);
   if (spec.rescues) placeRescues(cells, size.cols, size.rows, spec.rescues, palette, rng);
   if (spec.chests) placeChests(cells, size.cols, size.rows, spec.chests, rng);
+  seedMissingColors(cells, size.cols, size.rows, palette, UNIT_POWER_MIN, outerToken);
+  growSparseColors(cells, UNIT_POWER_MIN);
+  seedMissingColors(cells, size.cols, size.rows, palette, UNIT_POWER_MIN, outerToken);
+  growSparseColors(cells, UNIT_POWER_MIN);
+  thickenCells(cells, minUnitsFor(id) * UNIT_POWER_AIM);
+  seedMissingColors(cells, size.cols, size.rows, palette, UNIT_POWER_MIN, outerToken);
+  growSparseColors(cells, UNIT_POWER_MIN);
+  balanceColorCounts(cells, palette, UNIT_POWER_MIN);
 
   let ironRows = chooseIronRows(cells, size.cols, size.rows, spec.iron);
   const ironGaps = chooseIronGaps(size.cols, spec.ironGaps);
@@ -1270,7 +1623,7 @@ function buildDecadeLevel(id, rng) {
   ironRows = planned.ironRows;
   extra.ironRows = ironRows;
   extra.ironRow = ironRows.length ? ironRows[ironRows.length - 1] : -1;
-  let units = planned.units;
+  let units = finalizeUnits(planned.units, minUnitsFor(id));
   if (spec.rescues) {
     const rescueTokens = new Set();
     for (const cell of cells) {
@@ -1289,17 +1642,18 @@ function buildDecadeLevel(id, rng) {
   };
 }
 
+function makeTeachLevel(id) {
+  if (id === 1) return makeAbsorbTutorial();
+  if (id === 2) return makeAbsorbTwo();
+  if (id === 11) return makeIronTutorial();
+  if (id === 21) return makePaintTutorial();
+  return null;
+}
+
 function makeLevel(id) {
-  let level;
-  if (id === 1) level = makeAbsorbTutorial();
-  else if (id === 2) level = makeAbsorbTwo();
-  else if (id === 11) level = makeIronTutorial();
-  else if (id === 21) level = makePaintTutorial();
-  else if (id === 41) level = makeNailTutorial();
-  else if (id === 51) level = makeBombTutorial();
-  else if (id === 61) level = makeChestTutorial();
-  else level = makeDecadeLevel(id);
-  level.units = padUnitPowers(level.units);
+  const teach = makeTeachLevel(id);
+  const level = teach ?? makeDecadeLevel(id);
+  level.units = finalizeUnits(level.units, minUnitsFor(id));
   return level;
 }
 
@@ -1369,6 +1723,17 @@ function bakeAll() {
     const level = makeLevel(id);
     levels.push(encodeLevel(level));
     const pal = level.palette || [];
+    if (!isOnboardLevel(id) && !isTeachLevel(id) && pal.length < 5) {
+      throw new Error(`L${id} palette ${pal.length} < 5`);
+    }
+    const used = new Set();
+    for (const cell of level.cells) {
+      if (!cell) continue;
+      for (const token of cell.tokens) used.add(token);
+    }
+    for (const token of pal) {
+      if (!used.has(token)) throw new Error(`L${id} unused color ${token}`);
+    }
     for (let i = 0; i < pal.length; i++) {
       for (let j = i + 1; j < pal.length; j++) {
         if (clashes(pal[i], pal[j])) {
@@ -1381,8 +1746,29 @@ function bakeAll() {
     const pmin = powers.length ? Math.min(...powers) : 0;
     const pmax = powers.length ? Math.max(...powers) : 0;
     const pavg = powers.length ? powers.reduce((a, b) => a + b, 0) / powers.length : 0;
-    if (pmin < UNIT_POWER_MIN) {
-      throw new Error(`L${id} unit power ${pmin} < ${UNIT_POWER_MIN}`);
+    if (!isOnboardLevel(id) && !isTeachLevel(id) && level.units.length < MIN_UNITS) {
+      throw new Error(`L${id} units ${level.units.length} < ${MIN_UNITS}`);
+    }
+    if (!isTeachLevel(id) && pmin < UNIT_POWER_FLOOR) {
+      throw new Error(`L${id} unit power ${pmin} < ${UNIT_POWER_FLOOR}`);
+    }
+    if (pmax > UNIT_POWER_MAX) {
+      throw new Error(`L${id} unit power ${pmax} > ${UNIT_POWER_MAX}`);
+    }
+    const front = level.units.slice(0, Math.min(BENCH_COLS, level.units.length));
+    const frontColors = new Set(front.map((u) => u[0]));
+    if (!isOnboardLevel(id) && !isTeachLevel(id) && pal.length >= 3 && front.length >= 4 && frontColors.size < 2) {
+      throw new Error(`L${id} bench front is monochrome ${front[0]?.[0]}`);
+    }
+    if (!isOnboardLevel(id) && !isTeachLevel(id)) {
+      for (let r = 0; r < Math.ceil(level.units.length / BENCH_COLS); r++) {
+        const row = level.units.slice(r * BENCH_COLS, r * BENCH_COLS + BENCH_COLS);
+        const same = new Map();
+        for (const u of row) same.set(u[0], (same.get(u[0]) ?? 0) + 1);
+        for (const [token, n] of same) {
+          if (n >= 4) throw new Error(`L${id} bench row ${r} has ${n}x ${token}`);
+        }
+      }
     }
     if (level.cells.some((c) => c?.rescue)) {
       const rp = level.rescuePower ?? 0;
@@ -1420,7 +1806,7 @@ function bakeAll() {
       ? ` layers=${(uniqSum / stacked).toFixed(1)} flips=${Math.round((100 * flips) / steps)}%`
       : '';
     console.log(
-      `L${String(id).padStart(3)} ${shape.name} ${level.cols}x${level.rows}x${depth} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length} power=${pmin}-${pmax} avg=${pavg.toFixed(1)}${peel}`,
+      `L${String(id).padStart(3)} ${shape.name} ${level.cols}x${level.rows}x${depth} pal=${pal.length}:${pal.join('')} front=${front.map((u) => u[0]).join('')} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length} power=${pmin}-${pmax} avg=${pavg.toFixed(1)}${peel}`,
     );
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });

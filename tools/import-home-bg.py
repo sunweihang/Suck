@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import the home illustration as a 1080x1920 cover background."""
+"""Import the home illustration as a 1080x2200 cover background."""
 
 from pathlib import Path
 
@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = Path("/Users/sunix/Desktop/游戏主界面.png")
 OUT = ROOT / "assets/resources/ui/bg-home.png"
 UUID = "e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e15"
-DESIGN_W, DESIGN_H = 1080, 1920
+DESIGN_W, DESIGN_H = 1080, 2200
 
 
 def write_meta(path: Path, uuid: str, w: int, h: int) -> None:

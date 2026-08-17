@@ -151,10 +151,11 @@ export function isTutorialLevel(id: number): boolean {
 
 export function showsPlayHint(id: number): boolean {
   const n = id | 0;
-  return n === 1 || n === 11 || n === 21 || n === 41 || n === 51 || n === 61;
+  return n === 1 || n === 2 || n === 11 || n === 21 || n === 41 || n === 51 || n === 61;
 }
 
 const SPECIAL_TITLE: Record<number, string> = {
+  2: '两种颜色',
   3: '解锁洗牌',
   5: '解锁合并',
   8: '解锁钩子',
