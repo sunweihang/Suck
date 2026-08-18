@@ -1,7 +1,7 @@
-import { assetManager, CCObject, Color, EffectAsset, Material, MeshRenderer, Node, gfx } from 'cc';
+import { assetManager, CCObject, Color, EffectAsset, Material, MeshRenderer, Node, gfx, resources } from 'cc';
 
 const SKIP = /^(Outline|Crease|BlobShadow|Power|Mouth|Eye|Pupil|Highlight|D\d|N\d|Lock|Hold|Trail|Chain|Text|BombTrim|Art)/;
-const FX_OUTLINE = '9d13ee10-0201-4a01-8001-000000000010';
+const FX_OUTLINE = 'fx/toy-outline';
 /** ~4px TCP2 hairline at play-camera FOV — reference left panel. */
 const STROKE = 0.0055;
 const HULL = 1.035;
@@ -44,10 +44,13 @@ export function preloadToyOutline(): Promise<void> {
   if (_outlineFx) return Promise.resolve();
   if (_outlineBoot) return _outlineBoot;
   _outlineBoot = new Promise((resolve) => {
-    assetManager.loadAny({ uuid: FX_OUTLINE }, (err, asset) => {
-      if (!err && asset) _outlineFx = asset as EffectAsset;
+    const done = (err: Error | null, asset: EffectAsset): void => {
+      if (!err && asset) _outlineFx = asset;
       resolve();
-    });
+    };
+    const bundle = assetManager.getBundle('resources');
+    if (bundle) bundle.load(FX_OUTLINE, EffectAsset, done);
+    else resources.load(FX_OUTLINE, EffectAsset, done);
   });
   return _outlineBoot;
 }
