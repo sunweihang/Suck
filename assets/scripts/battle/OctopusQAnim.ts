@@ -1,4 +1,4 @@
-import { Node } from 'cc';
+import { Node, Vec3 } from 'cc';
 
 type AnimState = 'bench' | 'drag' | 'walk' | 'attack';
 
@@ -47,6 +47,22 @@ function spring(x: number, v: number, dt: number): [number, number] {
 }
 
 const KEEP_OFF_RIG = new Set(['Power', 'Rig', 'LockNails']);
+/** Face (+Z mouth) toward the wall. Camera sits at +Z, 28° down. */
+const FACE_YAW = 180;
+/** Tilt the crown-face toward the 28° camera. */
+const FACE_PITCH = -26;
+const AIM_YAW_MAX = 72;
+const AIM_PITCH_LO = -22;
+const AIM_PITCH_HI = 14;
+const AIM_RATE = 14;
+const RAD2DEG = 180 / Math.PI;
+const _aimLocal = new Vec3();
+
+function wrapDeg(d: number): number {
+  while (d > 180) d -= 360;
+  while (d < -180) d += 360;
+  return d;
+}
 
 function ensureRig(root: Node): Node {
   let rig = root.getChildByName('Rig');
@@ -96,12 +112,18 @@ export class OctopusQAnim {
   private _jiggleWait = 2.4;
   private _appliedClose = 0;
 
+  private _aimYaw = FACE_YAW;
+  private _aimPitch = FACE_PITCH;
+  private _aimYawT = FACE_YAW;
+  private _aimPitchT = FACE_PITCH;
+
   private _eyeL: Face | null = null;
   private _eyeR: Face | null = null;
   private _pupilL: Face | null = null;
   private _pupilR: Face | null = null;
   private _hiL: Face | null = null;
   private _hiR: Face | null = null;
+  private _mouth: Face | null = null;
 
   bind(root: Node, seed: number): void {
     this._root = root;
@@ -117,6 +139,8 @@ export class OctopusQAnim {
     this._lookWait = 0.6 + Math.random() * 1.4;
     this._jiggleWait = 1.6 + Math.random() * 2.8;
     this._appliedClose = 0;
+    this._aimYaw = this._aimYawT = FACE_YAW;
+    this._aimPitch = this._aimPitchT = FACE_PITCH;
     const faceRoot = this._rig ?? root;
     this._eyeL = bindFace(faceRoot, 'EyeL');
     this._eyeR = bindFace(faceRoot, 'EyeR');
@@ -124,9 +148,10 @@ export class OctopusQAnim {
     this._pupilR = bindFace(faceRoot, 'PupilR');
     this._hiL = bindFace(faceRoot, 'HighlightL');
     this._hiR = bindFace(faceRoot, 'HighlightR');
+    this._mouth = bindFace(faceRoot, 'Mouth');
     root.setRotationFromEuler(0, 0, 0);
     this._rig.setScale(1, 1, 1);
-    this._rig.setRotationFromEuler(0, 0, 0);
+    this._rig.setRotationFromEuler(FACE_PITCH, FACE_YAW, 0);
   }
 
   punchPick(): void {
@@ -142,7 +167,24 @@ export class OctopusQAnim {
   }
 
   punchSpit(): void {
-    this._impulse(0.22, -0.62, -0.48, 7, (Math.random() - 0.5) * 3, 0);
+    const side = clamp(wrapDeg(this._aimYawT - FACE_YAW) * 0.08, -6, 6);
+    this._impulse(0.22, -0.62, -0.48, 7, side + (Math.random() - 0.5) * 2, -side * 0.45);
+  }
+
+  /** Point the mouth at a world-space brick. */
+  aimAt(world: Vec3): void {
+    const root = this._root;
+    if (!root?.isValid) return;
+    root.inverseTransformPoint(_aimLocal, world);
+    const dx = _aimLocal.x;
+    const dy = _aimLocal.y;
+    const dz = _aimLocal.z;
+    const horiz = Math.hypot(dx, dz);
+    if (horiz < 1e-4) return;
+    const yawOff = clamp(wrapDeg(Math.atan2(dx, dz) * RAD2DEG - FACE_YAW), -AIM_YAW_MAX, AIM_YAW_MAX);
+    const geoPitch = -Math.atan2(dy, horiz) * RAD2DEG;
+    this._aimYawT = FACE_YAW + yawOff;
+    this._aimPitchT = FACE_PITCH + clamp(geoPitch - FACE_PITCH, AIM_PITCH_LO, AIM_PITCH_HI);
   }
 
   punchEat(): void {
@@ -172,6 +214,8 @@ export class OctopusQAnim {
     this._ry = clamp(this._ry, -ROT_LIM, ROT_LIM);
     this._rz = clamp(this._rz, -ROT_LIM, ROT_LIM);
 
+    this._tickAim(step, state);
+
     const firing = state === 'attack' && inflight > 0;
     const excited = state === 'drag' || firing;
     const freq = state === 'drag' ? 5.2 : firing ? 8.4 : state === 'attack' ? 2.8 : 2.15;
@@ -179,22 +223,38 @@ export class OctopusQAnim {
     const breath = Math.sin(this._t * freq + this._phase);
     const side = Math.sin(this._t * (freq * 0.62) + this._phase * 1.37);
     const spit = firing ? 0.5 + 0.5 * Math.sin(this._t * 12.6 + this._phase) : 0;
+    const turn = wrapDeg(this._aimYaw - FACE_YAW);
 
     const sx = clamp(1 + breath * amp + side * amp * 0.22 + this._sx + spit * 0.03, SCALE_MIN, SCALE_MAX);
     const sy = clamp(1 - breath * amp * 1.05 + this._sy - spit * 0.04, SCALE_MIN, SCALE_MAX);
     const sz = clamp(1 + breath * amp * 0.7 - side * amp * 0.16 + this._sz + spit * 0.09, SCALE_MIN, SCALE_MAX);
-    const sway = state === 'drag' ? 7.5 : firing ? 2.4 : 3.6;
+    const sway = state === 'drag' ? 7.5 : firing ? 1.4 : 3.6;
     const lean = firing ? 9 + spit * 5 : state === 'attack' ? 4.5 : state === 'drag' ? -4.5 : 1.4;
     const pitch = clamp(lean + Math.sin(this._t * 1.15 + this._phase) * (excited ? 2.4 : 1.8) + this._rx, -16, 16);
     const yaw = clamp(Math.sin(this._t * 1.28 + this._phase * 0.7) * sway + this._ry, -16, 16);
-    const roll = clamp(Math.sin(this._t * 0.92 + this._phase * 1.8) * sway * 0.55 + this._rz, -12, 12);
+    const roll = clamp(
+      Math.sin(this._t * 0.92 + this._phase * 1.8) * sway * 0.55 + this._rz + turn * 0.12,
+      -14,
+      14,
+    );
     const rig = this._rig ?? root;
     rig.setScale(sx, sy, sz);
-    rig.setRotationFromEuler(pitch, yaw, roll);
+    rig.setRotationFromEuler(this._aimPitch + pitch, this._aimYaw + yaw, roll);
 
     this._tickIdleJiggle(step, state, firing);
     this._tickLook(step, state);
     this._tickBlink(step);
+    this._tickMouth(spit);
+  }
+
+  private _tickMouth(spit: number): void {
+    const mouth = this._mouth;
+    if (!mouth) return;
+    mouth.node.setScale(
+      mouth.sx * (1 + spit * 0.2),
+      mouth.sy * (1 + spit * 0.2),
+      mouth.sz * (1 + spit * 0.06),
+    );
   }
 
   private _impulse(dx: number, dy: number, dz: number, drx: number, dry: number, drz: number): void {
@@ -221,13 +281,26 @@ export class OctopusQAnim {
     );
   }
 
+  private _tickAim(dt: number, state: AnimState): void {
+    if (state !== 'attack') {
+      this._aimYawT = FACE_YAW;
+      this._aimPitchT = FACE_PITCH;
+    }
+    const k = 1 - Math.exp(-AIM_RATE * dt);
+    this._aimYaw += wrapDeg(this._aimYawT - this._aimYaw) * k;
+    this._aimPitch += (this._aimPitchT - this._aimPitch) * k;
+  }
+
   private _tickLook(dt: number, state: AnimState): void {
     this._lookWait -= dt;
-    if (this._lookWait <= 0) {
-      if (state === 'attack') {
-        this._lookTX = (Math.random() - 0.5) * 0.4;
+    if (state === 'attack') {
+      this._lookTX = clamp(wrapDeg(this._aimYaw - FACE_YAW) / 48, -0.85, 0.85);
+      if (this._lookWait <= 0) {
         this._lookTY = 0.22 + Math.random() * 0.4;
-      } else if (state === 'drag') {
+        this._lookWait = 0.7 + Math.random() * 1.8;
+      }
+    } else if (this._lookWait <= 0) {
+      if (state === 'drag') {
         this._lookTX = (Math.random() - 0.5) * 0.9;
         this._lookTY = 0.15 + Math.random() * 0.45;
       } else {

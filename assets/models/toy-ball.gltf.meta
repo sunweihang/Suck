@@ -3,12 +3,14 @@
   "importer": "gltf",
   "imported": true,
   "uuid": "7e22bb20-0313-4b02-8002-000000000003",
-  "files": [],
+  "files": [
+    ".json"
+  ],
   "subMetas": {
     "642dc": {
       "importer": "gltf-mesh",
       "uuid": "7e22bb20-0313-4b02-8002-000000000003@642dc",
-      "displayName": "",
+      "displayName": "ToyBall",
       "id": "642dc",
       "name": "ToyBall.mesh",
       "userData": {
@@ -19,22 +21,6 @@
       "imported": true,
       "files": [
         ".bin",
-        ".json"
-      ],
-      "subMetas": {}
-    },
-    "c2453": {
-      "importer": "gltf-scene",
-      "uuid": "7e22bb20-0313-4b02-8002-000000000003@c2453",
-      "displayName": "",
-      "id": "c2453",
-      "name": "toy-ball.prefab",
-      "userData": {
-        "gltfIndex": 0
-      },
-      "ver": "1.0.14",
-      "imported": true,
-      "files": [
         ".json"
       ],
       "subMetas": {}
@@ -52,27 +38,7 @@
       "skeletons": [],
       "textures": [],
       "materials": [],
-      "scenes": [
-        "7e22bb20-0313-4b02-8002-000000000003@c2453"
-      ]
-    },
-    "lods": {
-      "enable": false,
-      "hasBuiltinLOD": false,
-      "options": [
-        {
-          "screenRatio": 0.25,
-          "faceCount": 1
-        },
-        {
-          "screenRatio": 0.125,
-          "faceCount": 0.25
-        },
-        {
-          "screenRatio": 0.01,
-          "faceCount": 0.1
-        }
-      ]
+      "scenes": []
     }
   }
 }

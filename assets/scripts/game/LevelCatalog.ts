@@ -71,13 +71,21 @@ let LEVELS: LevelDef[] = [];
 let loadJob: Promise<void> | null = null;
 
 export function loadLevelIndex(): number {
-  const n = Number(sys.localStorage.getItem(SAVE_KEY));
-  if (!Number.isFinite(n)) return 1;
-  return Math.max(1, Math.min(LEVEL_COUNT, n | 0));
+  try {
+    const n = Number(sys.localStorage.getItem(SAVE_KEY));
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(LEVEL_COUNT, n | 0));
+  } catch {
+    return 1;
+  }
 }
 
 export function saveLevelIndex(n: number): void {
-  sys.localStorage.setItem(SAVE_KEY, String(Math.max(1, Math.min(LEVEL_COUNT, n | 0))));
+  try {
+    sys.localStorage.setItem(SAVE_KEY, String(Math.max(1, Math.min(LEVEL_COUNT, n | 0))));
+  } catch (e) {
+    console.warn('[LevelCatalog] save failed', e);
+  }
 }
 
 export function applyLevel(def: LevelDef): void {

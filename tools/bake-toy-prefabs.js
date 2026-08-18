@@ -30,12 +30,16 @@ const UUID = {
   MeshPowerJson: '7e22bb20-0304-4b02-8002-000000000004',
   MeshBellyJson: '7e22bb20-0305-4b02-8002-000000000005',
   MeshSuckersJson: '7e22bb20-0306-4b02-8002-000000000006',
+  MeshCylinderJson: '7e22bb20-0307-4b02-8002-000000000007',
+  MeshMouthJson: '7e22bb20-0308-4b02-8002-000000000008',
   GltfBlock: '7e22bb20-0311-4b02-8002-000000000001',
   GltfOctopus: '7e22bb20-0312-4b02-8002-000000000002',
   GltfBall: '7e22bb20-0313-4b02-8002-000000000003',
   GltfPower: '7e22bb20-0314-4b02-8002-000000000004',
   GltfBelly: '7e22bb20-0315-4b02-8002-000000000005',
   GltfSuckers: '7e22bb20-0316-4b02-8002-000000000006',
+  GltfCylinder: '7e22bb20-0317-4b02-8002-000000000007',
+  GltfMouth: '7e22bb20-0318-4b02-8002-000000000008',
   dirModels: 'c0110001-0001-4001-8001-000000000010',
   dirMeshes: 'c0110001-0001-4001-8001-000000000011',
 };
@@ -46,6 +50,8 @@ const MESH_BALL = `${UUID.GltfBall}@642dc`;
 const MESH_POWER = `${UUID.GltfPower}@cc693`;
 const MESH_BELLY = `${UUID.GltfBelly}@a2b3c`;
 const MESH_SUCKERS = `${UUID.GltfSuckers}@b3c4d`;
+const MESH_CYLINDER = `${UUID.GltfCylinder}@c711d`;
+const MESH_MOUTH = `${UUID.GltfMouth}@d822e`;
 const MESH_ID = {
   [UUID.GltfBlock]: { id: 'e1d15', name: 'ToyBlock', tris: 300 },
   [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 1800 },
@@ -53,6 +59,8 @@ const MESH_ID = {
   [UUID.GltfPower]: { id: 'cc693', name: 'ToyPower', tris: 2 },
   [UUID.GltfBelly]: { id: 'a2b3c', name: 'ToyBelly', tris: 224 },
   [UUID.GltfSuckers]: { id: 'b3c4d', name: 'ToySuckers', tris: 480 },
+  [UUID.GltfCylinder]: { id: 'c711d', name: 'ToyCylinder', tris: 64 },
+  [UUID.GltfMouth]: { id: 'd822e', name: 'ToyMouth', tris: 320 },
 };
 
 function bellyMatUuid(i) {
@@ -539,6 +547,129 @@ function bakeBall() {
   return packMesh(pos, nrm, uvs, idx, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], 0.5);
 }
 
+/** Unit cylinder along +Z, radius 0.5, length 1, centered at origin. */
+function bakeCylinder() {
+  const su = 16;
+  const pos = [];
+  const nrm = [];
+  const uvs = [];
+  const idx = [];
+  const r = 0.5;
+  const hz = 0.5;
+
+  for (let i = 0; i <= su; i++) {
+    const th = (i / su) * Math.PI * 2;
+    const cx = Math.cos(th);
+    const cy = Math.sin(th);
+    pos.push(cx * r, cy * r, -hz);
+    nrm.push(cx, cy, 0);
+    uvs.push(i / su, 0);
+    pos.push(cx * r, cy * r, hz);
+    nrm.push(cx, cy, 0);
+    uvs.push(i / su, 1);
+  }
+  for (let i = 0; i < su; i++) {
+    const i0 = i * 2;
+    idx.push(i0, i0 + 2, i0 + 1, i0 + 1, i0 + 2, i0 + 3);
+  }
+
+  const backCenter = pos.length / 3;
+  pos.push(0, 0, -hz);
+  nrm.push(0, 0, -1);
+  uvs.push(0.5, 0.5);
+  const backRing = pos.length / 3;
+  for (let i = 0; i <= su; i++) {
+    const th = (i / su) * Math.PI * 2;
+    const cx = Math.cos(th);
+    const cy = Math.sin(th);
+    pos.push(cx * r, cy * r, -hz);
+    nrm.push(0, 0, -1);
+    uvs.push(cx * 0.5 + 0.5, cy * 0.5 + 0.5);
+  }
+  for (let i = 0; i < su; i++) idx.push(backCenter, backRing + i + 1, backRing + i);
+
+  const frontCenter = pos.length / 3;
+  pos.push(0, 0, hz);
+  nrm.push(0, 0, 1);
+  uvs.push(0.5, 0.5);
+  const frontRing = pos.length / 3;
+  for (let i = 0; i <= su; i++) {
+    const th = (i / su) * Math.PI * 2;
+    const cx = Math.cos(th);
+    const cy = Math.sin(th);
+    pos.push(cx * r, cy * r, hz);
+    nrm.push(0, 0, 1);
+    uvs.push(cx * 0.5 + 0.5, cy * 0.5 + 0.5);
+  }
+  for (let i = 0; i < su; i++) idx.push(frontCenter, frontRing + i, frontRing + i + 1);
+
+  return packMesh(pos, nrm, uvs, idx, [-r, -r, -hz], [r, r, hz], Math.hypot(r, hz));
+}
+
+/** Chubby O sucker along +Z. Reads as a cute nozzle from a 28° overhead camera. */
+function bakeMouth() {
+  const segs = 20;
+  const profile = [
+    { z: -0.42, r: 0.20 },
+    { z: -0.16, r: 0.30 },
+    { z: 0.04, r: 0.36 },
+    { z: 0.20, r: 0.46 },
+    { z: 0.34, r: 0.50 },
+    { z: 0.44, r: 0.40 },
+    { z: 0.48, r: 0.24 },
+    { z: 0.26, r: 0.18 },
+    { z: -0.04, r: 0.15 },
+    { z: -0.08, r: 0.00 },
+  ];
+  const pos = [];
+  const nrm = [];
+  const uvs = [];
+  const idx = [];
+  const rings = profile.length;
+  const ring = segs + 1;
+  for (let i = 0; i < rings; i++) {
+    const prev = profile[Math.max(0, i - 1)];
+    const next = profile[Math.min(rings - 1, i + 1)];
+    const tz = next.z - prev.z;
+    const tr = next.r - prev.r;
+    const len = Math.hypot(tz, -tr) || 1;
+    const nR = tz / len;
+    const nZ = -tr / len;
+    for (let s = 0; s <= segs; s++) {
+      const th = (s / segs) * Math.PI * 2;
+      const c = Math.cos(th);
+      const si = Math.sin(th);
+      pos.push(c * profile[i].r, si * profile[i].r, profile[i].z);
+      nrm.push(c * nR, si * nR, nZ);
+      uvs.push(s / segs, i / (rings - 1));
+    }
+  }
+  for (let i = 0; i < rings - 1; i++) {
+    for (let s = 0; s < segs; s++) {
+      const a = i * ring + s;
+      const b = a + 1;
+      const c = a + ring;
+      const d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  let x0 = 1e9;
+  let y0 = 1e9;
+  let z0 = 1e9;
+  let x1 = -1e9;
+  let y1 = -1e9;
+  let z1 = -1e9;
+  for (let i = 0; i < pos.length; i += 3) {
+    x0 = Math.min(x0, pos[i]);
+    y0 = Math.min(y0, pos[i + 1]);
+    z0 = Math.min(z0, pos[i + 2]);
+    x1 = Math.max(x1, pos[i]);
+    y1 = Math.max(y1, pos[i + 1]);
+    z1 = Math.max(z1, pos[i + 2]);
+  }
+  return packMesh(pos, nrm, uvs, idx, [x0, y0, z0], [x1, y1, z1], 0.62);
+}
+
 function bakePowerQuad() {
   return packMesh(
     [-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0],
@@ -568,6 +699,7 @@ function bakeOctopus() {
   add(0, 0.02, -0.02, 0.086);
   add(0.04, 0.116, 0.108, 0.038);
   add(-0.04, 0.116, 0.108, 0.038);
+  add(0, 0.052, 0.096, 0.04);
 
   const D = Math.PI / 180;
   const tents = [
@@ -960,12 +1092,14 @@ function buildUnitPrefab(color, lift) {
   addMeshRenderer(doc, body.id, MESH_OCTOPUS, color.mat, true, true);
 
   const bits = [
-    { name: 'EyeL', x: -0.044, y: 0.118 + lift, z: 0.128, sx: 0.09, sy: 0.104, sz: 0.054, m: UUID.MatEye },
-    { name: 'EyeR', x: 0.044, y: 0.118 + lift, z: 0.128, sx: 0.09, sy: 0.104, sz: 0.054, m: UUID.MatEye },
-    { name: 'PupilL', x: -0.038, y: 0.11 + lift, z: 0.154, sx: 0.03, sy: 0.034, sz: 0.022, m: UUID.MatPupil },
-    { name: 'PupilR', x: 0.038, y: 0.11 + lift, z: 0.154, sx: 0.03, sy: 0.034, sz: 0.022, m: UUID.MatPupil },
-    { name: 'HighlightL', x: -0.054, y: 0.128 + lift, z: 0.168, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
-    { name: 'HighlightR', x: 0.03, y: 0.128 + lift, z: 0.168, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
+    { name: 'EyeL', x: -0.052, y: 0.168 + lift, z: 0.072, sx: 0.082, sy: 0.098, sz: 0.05, m: UUID.MatEye },
+    { name: 'EyeR', x: 0.052, y: 0.168 + lift, z: 0.072, sx: 0.082, sy: 0.098, sz: 0.05, m: UUID.MatEye },
+    { name: 'PupilL', x: -0.046, y: 0.16 + lift, z: 0.094, sx: 0.032, sy: 0.038, sz: 0.022, m: UUID.MatPupil },
+    { name: 'PupilR', x: 0.046, y: 0.16 + lift, z: 0.094, sx: 0.032, sy: 0.038, sz: 0.022, m: UUID.MatPupil },
+    { name: 'HighlightL', x: -0.062, y: 0.178 + lift, z: 0.104, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
+    { name: 'HighlightR', x: 0.034, y: 0.178 + lift, z: 0.104, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
+    { name: 'CheekL', x: -0.078, y: 0.118 + lift, z: 0.086, sx: 0.036, sy: 0.028, sz: 0.024, m: UUID.MatCheek },
+    { name: 'CheekR', x: 0.078, y: 0.118 + lift, z: 0.086, sx: 0.036, sy: 0.028, sz: 0.024, m: UUID.MatCheek },
   ];
   for (const p of bits) {
     const n = addNode(doc, { ...p, parentId: root.id });
@@ -973,7 +1107,34 @@ function buildUnitPrefab(color, lift) {
     addMeshRenderer(doc, n.id, MESH_BALL, p.m, true, false);
   }
 
-  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: 0.18, z: -0.18 });
+  /* Face sits on the crown-front so the 28° camera and yaw-aim still read. */
+  const mouth = addNode(doc, {
+    name: 'Mouth',
+    parentId: root.id,
+    x: 0,
+    y: 0.108 + lift,
+    z: 0.146,
+    rx: -28,
+    sx: 0.058,
+    sy: 0.058,
+    sz: 0.05,
+  });
+  addPrefabInfo(doc, mouth.id, assetRef, false);
+  addMeshRenderer(doc, mouth.id, MESH_MOUTH, UUID.MatSucker, true, true);
+  const hole = addNode(doc, {
+    name: 'MouthHole',
+    parentId: mouth.id,
+    x: 0,
+    y: 0,
+    z: 0.4,
+    sx: 0.55,
+    sy: 0.55,
+    sz: 0.26,
+  });
+  addPrefabInfo(doc, hole.id, assetRef, false);
+  addMeshRenderer(doc, hole.id, MESH_BALL, UUID.MatPupil, true, false);
+
+  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: 0.4, z: -0.06 });
   addPrefabInfo(doc, power.id, assetRef, false);
   for (let i = 0; i < 3; i++) {
     const slot = addNode(doc, {
@@ -1004,7 +1165,7 @@ function writeToyLook() {
 import { SPECIAL_SPAN } from '../game/GameConfig';
 
 export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, 0.18, -0.18);
+export const OCTO_POWER_LOCAL = new Vec3(0, 0.4, -0.06);
 /** Body centroid. Keep Z at 0 so the blob stays in the window, not behind the wall. */
 export const OCTO_BODY_LOCAL = new Vec3(0, 0.26716, 0);
 /** Main blob radius from bake-toy-prefabs. */
@@ -1067,13 +1228,19 @@ function main() {
 
   const block = bakeBlock();
   const ball = bakeBall();
+  const cylinder = bakeCylinder();
+  const mouth = bakeMouth();
   const powerQuad = bakePowerQuad();
   const { mesh: octopus, lift } = bakeOctopus();
   MESH_ID[UUID.GltfOctopus].tris = octopus.i.length / 3;
   MESH_ID[UUID.GltfBlock].tris = block.i.length / 3;
+  MESH_ID[UUID.GltfCylinder].tris = cylinder.i.length / 3;
+  MESH_ID[UUID.GltfMouth].tris = mouth.i.length / 3;
   console.log(`block verts=${block.p.length / 3} tris=${block.i.length / 3}`);
   console.log(`octopus verts=${octopus.p.length / 3} tris=${octopus.i.length / 3} lift=${lift}`);
   console.log(`ball verts=${ball.p.length / 3}`);
+  console.log(`cylinder verts=${cylinder.p.length / 3} tris=${cylinder.i.length / 3}`);
+  console.log(`mouth verts=${mouth.p.length / 3} tris=${mouth.i.length / 3}`);
 
   write(path.join(ASSETS, 'models.meta'), dirMeta(UUID.dirModels));
   write(path.join(ASSETS, 'resources/meshes.meta'), dirMeta(UUID.dirMeshes));
@@ -1082,11 +1249,15 @@ function main() {
   writeGltf(path.join(ASSETS, 'models/toy-octopus'), 'ToyOctopus', octopus, UUID.GltfOctopus);
   writeGltf(path.join(ASSETS, 'models/toy-ball'), 'ToyBall', ball, UUID.GltfBall);
   writeGltf(path.join(ASSETS, 'models/toy-power'), 'ToyPower', powerQuad, UUID.GltfPower);
+  writeGltf(path.join(ASSETS, 'models/toy-cylinder'), 'ToyCylinder', cylinder, UUID.GltfCylinder);
+  writeGltf(path.join(ASSETS, 'models/toy-mouth'), 'ToyMouth', mouth, UUID.GltfMouth);
 
   writeMeshJson('toy-block', block, UUID.MeshBlockJson);
   writeMeshJson('toy-octopus', octopus, UUID.MeshOctopusJson);
   writeMeshJson('toy-ball', ball, UUID.MeshBallJson);
   writeMeshJson('toy-power', powerQuad, UUID.MeshPowerJson);
+  writeMeshJson('toy-cylinder', cylinder, UUID.MeshCylinderJson);
+  writeMeshJson('toy-mouth', mouth, UUID.MeshMouthJson);
 
   for (let d = 0; d < 10; d++) {
     const imgUuid = powerImgUuid(d);
@@ -1105,6 +1276,10 @@ function main() {
   write(path.join(ASSETS, 'materials/MatEye.mtl.meta'), mtlMeta(UUID.MatEye));
   write(path.join(ASSETS, 'materials/MatPupil.mtl'), clayMaterial('MatPupil', [22, 24, 30], 0.28, 0.04));
   write(path.join(ASSETS, 'materials/MatPupil.mtl.meta'), mtlMeta(UUID.MatPupil));
+  write(path.join(ASSETS, 'materials/MatSucker.mtl'), clayMaterial('MatSucker', [255, 110, 72], 0.3, 0.14));
+  write(path.join(ASSETS, 'materials/MatSucker.mtl.meta'), mtlMeta(UUID.MatSucker));
+  write(path.join(ASSETS, 'materials/MatCheek.mtl'), clayMaterial('MatCheek', [255, 148, 168], 0.32, 0.1));
+  write(path.join(ASSETS, 'materials/MatCheek.mtl.meta'), mtlMeta(UUID.MatCheek));
   COLORS.forEach((c) => {
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.34, 0.12));
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl.meta`), mtlMeta(c.mat));

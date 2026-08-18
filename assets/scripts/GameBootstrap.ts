@@ -33,7 +33,7 @@ import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME } from './game/GameConfig';
-import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, saveLevelIndex, type ItemId } from './game/LevelCatalog';
+import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, type ItemId } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -132,7 +132,7 @@ export class GameBootstrap extends Component {
     initWxShare();
     initGameCircle();
     this._holdHostSplash();
-    this._resetToFirst();
+    this._restoreProgress();
     this._stripLeftovers();
     input.on(Input.EventType.KEY_DOWN, this._onKeyDown, this);
     this._uiJob = this._bootUi();
@@ -931,10 +931,9 @@ export class GameBootstrap extends Component {
     this._ensureAudio().startBgm();
   }
 
-  private _resetToFirst(): void {
-    this._level = 1;
+  private _restoreProgress(): void {
+    this._level = loadLevelIndex();
     this._builtLevel = 0;
-    saveLevelIndex(1);
   }
 
   private _setGoldVisible(on: boolean): void {
@@ -953,7 +952,6 @@ export class GameBootstrap extends Component {
 
   private _showHome(): void {
     this._unlockAudio();
-    this._resetToFirst();
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.show();
     this._settings?.hide();
@@ -1010,7 +1008,7 @@ export class GameBootstrap extends Component {
   }
 
   private _restartPlay(): void {
-    this._resetToFirst();
+    this._builtLevel = 0;
     this._enterPlay();
   }
 

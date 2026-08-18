@@ -1,0 +1,44 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0317-4b02-8002-000000000007",
+  "files": [
+    ".json"
+  ],
+  "subMetas": {
+    "c711d": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0317-4b02-8002-000000000007@c711d",
+      "displayName": "ToyCylinder",
+      "id": "c711d",
+      "name": "ToyCylinder.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 64
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0317-4b02-8002-000000000007@c711d"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": []
+    }
+  }
+}

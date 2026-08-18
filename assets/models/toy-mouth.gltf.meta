@@ -1,0 +1,44 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0318-4b02-8002-000000000008",
+  "files": [
+    ".json"
+  ],
+  "subMetas": {
+    "d822e": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0318-4b02-8002-000000000008@d822e",
+      "displayName": "ToyMouth",
+      "id": "d822e",
+      "name": "ToyMouth.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 360
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0318-4b02-8002-000000000008@d822e"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": []
+    }
+  }
+}

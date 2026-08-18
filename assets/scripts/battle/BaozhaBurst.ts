@@ -3,7 +3,7 @@ import { PREFAB_UUID } from './PrefabCatalog';
 import { playPooledBurst } from './VfxPool';
 
 const LIFE_MS = 2000;
-const SCALE = 0.95;
+const SCALE = 1.65;
 
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
@@ -36,7 +36,7 @@ export function playBaozhaBurst(host: Node, world: Vec3, delayMs = 0, scale = SC
     if (!host?.isValid || !_prefab) return;
     const spawn = (): void => {
       if (!host.isValid || !_prefab) return;
-      playPooledBurst('Baozha', _prefab, host, pos, scale, LIFE_MS, 6);
+      playPooledBurst('Baozha', _prefab, host, pos, scale, LIFE_MS, 10);
     };
     if (delayMs > 0) setTimeout(spawn, delayMs);
     else spawn();

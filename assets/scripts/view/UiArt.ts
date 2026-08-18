@@ -2,7 +2,6 @@ import {
   AssetManager,
   Color,
   Graphics,
-  ImageAsset,
   Label,
   Layers,
   Mask,
@@ -134,7 +133,7 @@ function stashFrame(key: string, sf: SpriteFrame | null | undefined): boolean {
   return true;
 }
 
-function loadPath(path: string, type: typeof SpriteFrame | typeof ImageAsset): Promise<unknown> {
+function loadPath(path: string, type: typeof SpriteFrame): Promise<unknown> {
   return new Promise((resolve) => {
     const bundle = resBundle();
     const done = (err: Error | null, asset: unknown): void => {
@@ -175,28 +174,8 @@ function missingLvh(): string[] {
   return LVH_DIGITS.filter((d) => !frames.get(`lvh${d}`));
 }
 
-function frameFromImage(img: ImageAsset): SpriteFrame {
-  const tex = new Texture2D();
-  tex.image = img;
-  sharpenUiTex(tex);
-  const sf = new SpriteFrame();
-  sf.texture = tex;
-  return sf;
-}
-
 async function loadOneLvh(digit: string): Promise<void> {
-  const key = `lvh${digit}`;
-  if (frames.get(key)) return;
-  const img = (await loadPath(`ui/lvh-${digit}`, ImageAsset)) as ImageAsset | null;
-  if (img) {
-    const bundle = resBundle();
-    const cached = bundle?.get(`ui/lvh-${digit}/spriteFrame`, SpriteFrame);
-    if (stashFrame(key, cached)) return;
-    stashFrame(key, frameFromImage(img));
-    return;
-  }
-  const sf = (await loadPath(`ui/lvh-${digit}/spriteFrame`, SpriteFrame)) as SpriteFrame | null;
-  stashFrame(key, sf);
+  await loadArtRetry(`lvh${digit}` as ArtKey);
 }
 
 function loadLvhDir(): Promise<void> {
@@ -557,6 +536,32 @@ function assembleHomeDigits(root: Node, level: number, glyphH: number): void {
   }
 }
 
+function paintLevelFallback(root: Node, text: string, glyphH: number): void {
+  for (let i = 0; i < 8; i++) {
+    const n = root.getChildByName(`G_${i}`);
+    if (n) n.active = false;
+  }
+  let labN = root.getChildByName('Fallback');
+  if (!labN) {
+    labN = new Node('Fallback');
+    root.addChild(labN);
+    labN.layer = Layers.Enum.UI_2D;
+    labN.addComponent(UITransform);
+    labN.addComponent(Label);
+  }
+  labN.active = true;
+  const ut = root.getComponent(UITransform);
+  labN.getComponent(UITransform)?.setContentSize(ut?.contentSize.width ?? 160, glyphH);
+  const lab = labN.getComponent(Label);
+  if (lab) {
+    lab.string = text;
+    styleLevelBadge(lab, Math.max(36, glyphH));
+    lab.color = Color.WHITE;
+    lab.outlineColor = new Color(72, 48, 140, 255);
+    lab.outlineWidth = Math.max(4, Math.round(glyphH * 0.1));
+  }
+}
+
 export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: number): void {
   if (!root) return;
   const digits = [...String(Math.max(0, level | 0)).padStart(2, '0')];
@@ -565,12 +570,7 @@ export function paintHomeLevelDigits(root: Node | null, level: number, glyphH: n
     assembleHomeDigits(root, level, glyphH);
     return;
   }
-  const fallback = root.getChildByName('Fallback');
-  if (fallback) fallback.active = false;
-  for (let i = 0; i < 8; i++) {
-    const n = root.getChildByName(`G_${i}`);
-    if (n) n.active = false;
-  }
+  paintLevelFallback(root, digits.join(''), glyphH);
   const i = pendingHome.findIndex((job) => job.root === root);
   if (i >= 0) pendingHome[i] = { root, level, glyphH };
   else pendingHome.push({ root, level, glyphH });
@@ -586,26 +586,7 @@ export function paintLevelTitle(root: Node | null, level: number, glyphH: number
   const digitSfs = [...digits].map((ch) => frames.get(`lv${ch}`));
   const ready = !!prefixSf && digitSfs.every(Boolean);
   if (!ready) {
-    for (let i = 0; i < 8; i++) {
-      const n = root.getChildByName(`G_${i}`);
-      if (n) n.active = false;
-    }
-    let labN = root.getChildByName('Fallback');
-    if (!labN) {
-      labN = new Node('Fallback');
-      root.addChild(labN);
-      labN.layer = Layers.Enum.UI_2D;
-      labN.addComponent(UITransform);
-      labN.addComponent(Label);
-    }
-    labN.active = true;
-    const ut = root.getComponent(UITransform);
-    labN.getComponent(UITransform)?.setContentSize(ut?.contentSize.width ?? 160, glyphH);
-    const lab = labN.getComponent(Label);
-    if (lab) {
-      lab.string = levelBadgeText(level);
-      styleLevelBadge(lab, Math.max(36, glyphH));
-    }
+    paintLevelFallback(root, levelBadgeText(level), glyphH);
     return;
   }
 

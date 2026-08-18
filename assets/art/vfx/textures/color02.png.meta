@@ -35,8 +35,8 @@
   },
   "userData": {
     "compressSettings": {
-      "useCompressTexture": false,
-      "presetId": "ttAstcUi"
+      "useCompressTexture": true,
+      "presetId": "webOpaque"
     },
     "type": "texture",
     "fixAlphaTransparencyArtifacts": false,

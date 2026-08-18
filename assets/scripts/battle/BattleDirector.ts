@@ -9,7 +9,6 @@ import {
   input,
   Input,
   instantiate,
-  Layers,
   Node,
   Prefab,
   Quat,
@@ -45,7 +44,7 @@ import { itemUnlocked, showsPlayHint, UnitSpec, type ItemId } from '../game/Leve
 import { SLOT_PAD_TOP } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
-import { InkShot } from './InkShot';
+import { createInkShot, InkShot } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
@@ -535,14 +534,15 @@ export class BattleDirector extends Component {
   }
 
   private _canShovel(): boolean {
-    if (!this._shortestBenchSeat()) return false;
+    if (!this._bench) return false;
     for (const s of this._slots) {
       if (s.occupant?.usable) return true;
     }
     return false;
   }
 
-  private _shortestBenchSeat(): { col: number; rank: number } | null {
+  /** Shortest column’s next seat. Rank may exceed the visible 6 — the queue itself is not capped. */
+  private _shortestBenchSeat(): { col: number; rank: number } {
     let bestCol = 0;
     let bestN = 1e9;
     for (let c = 0; c < BENCH.cols; c++) {
@@ -557,7 +557,6 @@ export class BattleDirector extends Component {
         bestCol = c;
       }
     }
-    if (bestN >= BENCH.rows) return null;
     return { col: bestCol, rank: bestN };
   }
 
@@ -983,9 +982,10 @@ export class BattleDirector extends Component {
       if (u.lockedCol < 0 || u.traveling) continue;
       u.suckWait -= dt;
       u.state = 'attack';
+      const block = this._bestBlock(u);
+      if (block) u.aimAt(block.worldPos(_world));
       if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
       if (flying >= GAME.suckMaxFlightTotal) continue;
-      const block = this._bestBlock(u);
       if (!block) {
         if (this._nudgeCool <= 0) {
           this._nudgeLocked(u.colorId);
@@ -1060,7 +1060,7 @@ export class BattleDirector extends Component {
     if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
     block.beginIncoming();
     u.inflight += 1;
-    u.node.getWorldPosition(_tmp);
+    u.mouthWorld(_tmp);
     block.node.getWorldPosition(_world);
     const cam = this._cam;
     if (cam?.node?.isValid) {
@@ -1075,9 +1075,10 @@ export class BattleDirector extends Component {
     const dy = _world.y - _tmp.y;
     const dz = _world.z - _tmp.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
-    _tmp.x += (dx / dist) * 0.16;
-    _tmp.y += (dy / dist) * 0.16 + 0.12;
-    _tmp.z += (dz / dist) * 0.16;
+    _tmp.x += (dx / dist) * 0.03;
+    _tmp.y += (dy / dist) * 0.03;
+    _tmp.z += (dz / dist) * 0.03;
+    u.aimAt(_world);
     const dur = Math.min(GAME.shotMaxSec, Math.max(GAME.shotMinSec, dist / GAME.shotSpeed));
     this._nextShot().fire(_tmp, _world, tokenOfColorId(u.colorId), dur, GAME.shotArc, () => {
       if (boom || paint) {
@@ -1136,9 +1137,9 @@ export class BattleDirector extends Component {
     return counted;
   }
 
-  private _burstDebris(from: Vec3, token: ColorToken, count = 3): void {
+  private _burstDebris(from: Vec3, token: ColorToken, count = 5): void {
     const busy = this._debrisBusy();
-    const n = busy > 40 ? 1 : busy > 24 ? 2 : count;
+    const n = busy > 70 ? 2 : busy > 48 ? 3 : count;
     for (let i = 0; i < n; i++) {
       const bit = this._nextDebris();
       if (!bit) break;
@@ -1151,12 +1152,8 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._shots.length; i++) {
       if (!this._shots[i].busy) return this._shots[i];
     }
-    const n = new Node(`Shot_${this._shots.length}`);
-    n.layer = Layers.Enum.UI_3D;
-    n.setScale(0, 0, 0);
-    (this._flyRoot ?? this.node).addChild(n);
-    const shot = n.addComponent(InkShot);
-    n.active = false;
+    const shot = createInkShot(this._flyRoot ?? this.node);
+    shot.node.name = `Shot_${this._shots.length}`;
     this._shots.push(shot);
     return shot;
   }
@@ -1399,7 +1396,7 @@ export class BattleDirector extends Component {
   /** 3x3 blast; extra bricks fly in free and can chain into other bombs. */
   private _detonate(u: UnitActor, bomb: BlockCell): void {
     bomb.node.getWorldPosition(_world);
-    playBaozhaBurst(this.node, _world, 0, 1.15);
+    playBaozhaBurst(this.node, _world, 0, 1.95);
     gameAudio()?.playBoom();
     this._popBomb(bomb);
     forSpecialRing(bomb.col, bomb.row, (x, y) => {
@@ -1835,7 +1832,7 @@ export class BattleDirector extends Component {
     this.scheduleOnce(() => {
       if (!u.isValid || !u.node.isValid) return;
       u.node.getWorldPosition(_world);
-      playBaozhaBurst(this.node, _world, 0, 0.82);
+      playBaozhaBurst(this.node, _world, 0, 1.35);
       clearLockLook(u.node);
       gameAudio()?.playBoom();
       this.scheduleOnce(() => {
@@ -2179,8 +2176,8 @@ export class BattleDirector extends Component {
 
   private _shovelToBench(unit: UnitActor): boolean {
     const bench = this._bench;
+    if (!bench) return false;
     const seat = this._shortestBenchSeat();
-    if (!bench || !seat) return false;
     let owned = false;
     for (const s of this._slots) {
       if (s.occupant === unit) {

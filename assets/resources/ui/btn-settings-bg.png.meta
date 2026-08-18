@@ -133,7 +133,8 @@
     "maxWidth": 512,
     "maxHeight": 512,
     "compressSettings": {
-      "useCompressTexture": false
+      "useCompressTexture": true,
+      "presetId": "webUi"
     }
   }
 }

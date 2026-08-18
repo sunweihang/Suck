@@ -133,7 +133,8 @@
     "maxWidth": 1080,
     "maxHeight": 2200,
     "compressSettings": {
-      "useCompressTexture": false
+      "useCompressTexture": true,
+      "presetId": "webOpaque"
     }
   }
 }

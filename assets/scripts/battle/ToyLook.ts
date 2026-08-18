@@ -2,7 +2,7 @@ import { Vec3 } from 'cc';
 import { SPECIAL_SPAN } from '../game/GameConfig';
 
 export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, 0.18, -0.18);
+export const OCTO_POWER_LOCAL = new Vec3(0, 0.4, -0.06);
 /** Body centroid. Keep Z at 0 so the blob stays in the window, not behind the wall. */
 export const OCTO_BODY_LOCAL = new Vec3(0, 0.26716, 0);
 /** Main blob radius from bake-toy-prefabs. */

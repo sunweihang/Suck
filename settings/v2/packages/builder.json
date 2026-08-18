@@ -4,7 +4,61 @@
     "startScene": "4528bbb6-d6a3-a0b2-f729-9b144877ab60",
     "mainBundleCompressionType": "subpackage",
     "mainBundleIsRemote": false,
-    "skipCompressTexture": true
+    "skipCompressTexture": false
+  },
+  "textureCompressConfig": {
+    "genMipmaps": false,
+    "customConfigs": {},
+    "userPreset": {
+      "webUi": {
+        "name": "web-ui",
+        "options": {
+          "web": {
+            "webp": { "quality": 80 },
+            "png": { "quality": 80 }
+          },
+          "miniGame": {
+            "astc_6x6": { "quality": "medium" },
+            "etc2_rgba": { "quality": "fast" },
+            "png": { "quality": 80 }
+          },
+          "android": {
+            "astc_6x6": { "quality": "medium" },
+            "etc2_rgba": { "quality": "fast" },
+            "png": { "quality": 80 }
+          },
+          "ios": {
+            "astc_6x6": { "quality": "medium" },
+            "pvrtc_4bits_rgba": { "quality": "normal" },
+            "png": { "quality": 80 }
+          }
+        }
+      },
+      "webOpaque": {
+        "name": "web-opaque",
+        "options": {
+          "web": {
+            "webp": { "quality": 80 },
+            "jpg": { "quality": 80 }
+          },
+          "miniGame": {
+            "astc_6x6": { "quality": "medium" },
+            "etc2_rgb": { "quality": "fast" },
+            "jpg": { "quality": 80 }
+          },
+          "android": {
+            "astc_6x6": { "quality": "medium" },
+            "etc2_rgb": { "quality": "fast" },
+            "jpg": { "quality": 80 }
+          },
+          "ios": {
+            "astc_6x6": { "quality": "medium" },
+            "pvrtc_4bits_rgb": { "quality": "normal" },
+            "jpg": { "quality": 80 }
+          }
+        }
+      }
+    }
   },
   "bundleConfig": {
     "custom": {

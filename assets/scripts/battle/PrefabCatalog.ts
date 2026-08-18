@@ -17,6 +17,7 @@ export const PREFAB_UUID = {
   Baozha: '758f9311-08b5-4b56-928a-b6c60a832690',
   Xingxing: 'd72d75b5-3b32-42c2-9eff-33153126dca6',
   Shuaxin: '29821b8d-1014-439d-81ef-9f11e3487797',
+  InkShot: '7e22bb20-0035-4b02-8002-000000000035',
 } as const;
 
 export const BLOCK_PREFAB: Record<ColorToken, string> = {

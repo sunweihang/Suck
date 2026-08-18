@@ -49,6 +49,7 @@ export class UnitActor extends Component {
   private _powerTag: Node | null = null;
   private _shownPower = -1;
   private _powerOn = false;
+  private _muzzle: Node | null = null;
 
   onLoad(): void {
     applyToyCaster(this.node, false, false);
@@ -59,12 +60,25 @@ export class UnitActor extends Component {
     this._parseName();
     this.node.getPosition(this.homePos);
     this._q.bind(this.node, this.index);
+    this._bindMuzzle();
     this._ensurePowerLabel();
     this.refreshPowerVisible();
     this._prevState = this.state;
     this._prevPower = this.power;
     this._prevInflight = this.inflight;
     this._armed = false;
+  }
+
+  mouthWorld(out: Vec3): Vec3 {
+    if (!this._muzzle?.isValid) this._bindMuzzle();
+    if (this._muzzle?.isValid) return this._muzzle.getWorldPosition(out);
+    this.node.getWorldPosition(out);
+    out.y += 0.12;
+    return out;
+  }
+
+  aimAt(world: Vec3): void {
+    this._q.aimAt(world);
   }
 
   setPowerVisible(on: boolean): void {
@@ -259,6 +273,13 @@ export class UnitActor extends Component {
 
   applySpecialLook(): void {
     if (this.ghost) applyGhostLook(this.node);
+  }
+
+  private _bindMuzzle(): void {
+    const rig = this.node.getChildByName('Rig');
+    const host = rig ?? this.node;
+    const mouth = host.getChildByName('Mouth') ?? this.node.getChildByName('Mouth');
+    this._muzzle = mouth?.getChildByName('MouthHole') ?? mouth;
   }
 
   private _ensurePowerLabel(): void {

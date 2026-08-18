@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "506f92b3-0090-4a16-a1ed-c4873c37118c",
+  "files": [],
+  "subMetas": {
+    "29906": {
+      "importer": "gltf-mesh",
+      "uuid": "506f92b3-0090-4a16-a1ed-c4873c37118c@29906",
+      "displayName": "",
+      "id": "29906",
+      "name": "ShotStreak.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 4
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "cdfc7": {
+      "importer": "gltf-scene",
+      "uuid": "506f92b3-0090-4a16-a1ed-c4873c37118c@cdfc7",
+      "displayName": "",
+      "id": "cdfc7",
+      "name": "shot-streak.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "506f92b3-0090-4a16-a1ed-c4873c37118c@29906"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "506f92b3-0090-4a16-a1ed-c4873c37118c@cdfc7"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    }
+  }
+}

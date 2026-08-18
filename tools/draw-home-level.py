@@ -124,7 +124,10 @@ def write_meta(path: Path, uuid: str, w: int, h: int) -> None:
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
-    "redirect": "{uuid}@6c48a"
+    "redirect": "{uuid}@6c48a",
+    "compressSettings": {{
+      "useCompressTexture": false
+    }}
   }}
 }}
 """,
