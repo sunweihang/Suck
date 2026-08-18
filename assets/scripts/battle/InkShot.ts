@@ -36,11 +36,13 @@ const _axisZ = new Vec3();
 const _rot = new Quat();
 const _fallback = new Vec3(0, 0, -1);
 
-/** Billboard orb. Texture has padding, so visual core is a bit smaller. */
-const BALL = 0.15;
+/** Soft comet: small orb + short faded tail. Original video streak ~88px. */
+const BALL = 0.11;
 const GLOW = 0.22;
-const TRAIL_W = 0.068;
+const TRAIL_W = 0.048;
 const HAZE_W = 0.13;
+const TRAIL_LEN = 0.68;
+const HAZE_LEN = 0.5;
 const MUZZLE = 0.13;
 const HIT_LIFE = 0.14;
 const HIT_S0 = 0.16;
@@ -104,13 +106,13 @@ function glowQuad(): Mesh {
   return _glowQuad;
 }
 
-/** Thin glowing thread. U stops at 0.62 so the line stays visible back to the muzzle. */
+/** Soft comet ribbon. U runs head→tail so the texture fade can die out. */
 function trailQuad(): Mesh {
   if (_trailQuad) return _trailQuad;
   _trailQuad = utils.MeshUtils.createMesh({
     positions: [-0.5, 0, 0, 0.5, 0, 0, 0.5, -1, 0, -0.5, -1, 0],
     normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-    uvs: [0, 1, 0, 0, 0.62, 0, 0.62, 1],
+    uvs: [0, 1, 0, 0, 1, 0, 1, 1],
     indices: [0, 1, 2, 0, 2, 3],
     minPos: new Vec3(-0.5, -1, 0),
     maxPos: new Vec3(0.5, 0, 0),
@@ -170,7 +172,7 @@ function addMat(tex: Texture2D | null, alpha: number, additive: boolean): Materi
     },
   });
   if (tex) mat.setProperty('mainTexture', tex);
-  mat.setProperty('mainColor', new Color(255, 255, 255, alpha));
+  mat.setProperty('mainColor', new Color(248, 246, 255, alpha));
   return mat;
 }
 
@@ -256,14 +258,14 @@ export function preloadInkShot(): Promise<void> {
     loadImage('fx/bullet-trail').then((img) => {
       if (!img) return;
       const tex = texFrom(img);
-      _trailMat = addMat(tex, 170, true);
-      _hazeMat = addMat(tex, 80, true);
+      _trailMat = addMat(tex, 105, true);
+      _hazeMat = addMat(tex, 42, true);
     }),
     loadImage('fx/bullet-glow').then((img) => {
-      if (img) _glowMat = addMat(texFrom(img), 200, true);
+      if (img) _glowMat = addMat(texFrom(img), 95, true);
     }),
     loadImage('fx/bullet-ball').then((img) => {
-      if (img) _ballMat = addMat(texFrom(img), 255, true);
+      if (img) _ballMat = addMat(texFrom(img), 190, true);
     }),
     loadImage('fx/muzzle-flash').then((img) => {
       if (img) _muzzleTex = texFrom(img);
@@ -568,10 +570,11 @@ export class InkShot extends Component {
     camPos(_camP, _pos);
     if (_dir.lengthSqr() < 1e-8) _dir.set(_fallback);
 
-    const fade = u > 0.93 ? (1 - u) / 0.07 : 1;
+    const fade = u > 0.88 ? (1 - u) / 0.12 : 1;
     const flown = Math.hypot(dx, dy, dz) * u;
-    const trailLen = Math.max(0, flown - 0.02);
-    const showTrail = trailLen > 0.01;
+    const trailLen = Math.min(TRAIL_LEN, Math.max(0, flown * 0.72));
+    const hazeLen = Math.min(HAZE_LEN, Math.max(0, flown * 0.58));
+    const showTrail = trailLen > 0.03;
 
     if (this._ball?.isValid) {
       faceCam(this._ball, _camP);
@@ -585,7 +588,7 @@ export class InkShot extends Component {
       this._haze.active = showTrail && !!_hazeMat;
       if (showTrail) {
         faceTrail(this._haze, _dir, _camP);
-        this._haze.setScale(HAZE_W * fade, trailLen, 1);
+        this._haze.setScale(HAZE_W * fade, hazeLen, 1);
       }
     }
     if (this._trail?.isValid) {

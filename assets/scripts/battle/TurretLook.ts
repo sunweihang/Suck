@@ -13,8 +13,8 @@ import { applyTurretPose } from './TurretPose';
 import { TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
 import { applyBlobShadow, applyToyOutline, preloadToyOutline } from './ToyOutline';
 
-/** Shooter_Hidden is ~1.010 wide; keep queue cubes at the previous turret width. */
-export const UNIT_CUBE_SCALE = (0.4 * 1.52) / 1.010196328;
+/** Shooter_Hidden is ~1.010 wide; keep queue cubes a touch smaller than live turrets. */
+export const UNIT_CUBE_SCALE = (0.4 * 1.34) / 1.010196328;
 const _fireP = new Vec3();
 
 type MeshPack = {

@@ -126,6 +126,8 @@ export class GameBootstrap extends Component {
   private _uiJob: Promise<void> | null = null;
   private _clearGold = 0;
   private _doubleBusy = false;
+  /** Built level already settled; blocks repeat onWin while the panel is up. */
+  private _settledBuilt = -1;
   /** Host splash stays until HomePanel has painted once. */
   private _homeDrawn = false;
 
@@ -302,6 +304,8 @@ export class GameBootstrap extends Component {
   }
 
   private _onLevelCleared(): void {
+    if (this._settledBuilt === this._builtLevel) return;
+    this._settledBuilt = this._builtLevel;
     const cleared = this._level;
     if (this._level < LEVEL_COUNT) this._level += 1;
     saveLevelIndex(this._level);
@@ -410,6 +414,8 @@ export class GameBootstrap extends Component {
   }
 
   private _onLevelFailed(): void {
+    if (this._settledBuilt === this._builtLevel) return;
+    this._settledBuilt = this._builtLevel;
     this._clearGold = GOLD.fail;
     this._home?.hide();
     this._settings?.hide();
@@ -1014,6 +1020,7 @@ export class GameBootstrap extends Component {
   }
 
   private _enterPlay(): void {
+    this._settledBuilt = -1;
     this._unlockAudio();
     void this._ensureWorld().then(() => {
       this._setWorldLive(true);

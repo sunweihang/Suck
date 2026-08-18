@@ -75,10 +75,11 @@ const _seekP = new Vec3();
 const _camP = new Vec3();
 const _screen = new Vec3();
 const PICK_R2 = 0.38 * 0.38;
-const SPIN_THRESH_PX = 12;
+const SPIN_THRESH_PX = 8;
 const SPIN_FRICTION = 6.2;
-const SPIN_BOX_PAD = 0.32;
-const TURRET_PAD_PX = 56;
+const SPIN_BOX_PAD = 0.95;
+const SPIN_SCREEN_PAD_PX = 180;
+const TURRET_PAD_PX = 28;
 const _boxMin = new Vec3();
 const _boxMax = new Vec3();
 const _spinDq = new Quat();
@@ -372,6 +373,7 @@ export class BattleDirector extends Component {
   }
 
   private _unstickCombat(): void {
+    if (this._won || this._lost) return;
     if (this._units.length === 0) this._walkGather(UnitActor, this._units);
     if (this._blocks.length === 0) this._walkGather(BlockCell, this._blocks);
     let alive = 0;
@@ -380,9 +382,7 @@ export class BattleDirector extends Component {
       if (b.node?.isValid && b.node.active && b.hp > 0) alive += 1;
     }
     if (alive <= 0) return;
-    this._won = false;
-    this._lost = false;
-    if (this.node.activeInHierarchy) this._playing = true;
+    if (this.node.activeInHierarchy && !this._playing) this._playing = true;
     let flying = 0;
     for (let i = 0; i < this._shots.length; i++) {
       if (this._shots[i].busy) flying += 1;
@@ -807,8 +807,9 @@ export class BattleDirector extends Component {
   }
 
   private _canSpinAt(e: PointerEvt): boolean {
+    if (this._hitsFieldModel(e)) return true;
     if (this._inTurretBand(e.getLocation())) return false;
-    return this._hitsFieldModel(e);
+    return this._nearFieldScreen(e.getLocation());
   }
 
   private _inTurretBand(loc: { x: number; y: number }): boolean {
@@ -844,10 +845,40 @@ export class BattleDirector extends Component {
     if (!field || !this._aimRay(e)) return false;
     this._fieldLocalBox(_boxMin, _boxMax);
     field.inverseTransformPoint(_tmp, _ray.o);
-    Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 8);
+    Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 80);
     field.inverseTransformPoint(_world, _world);
     _world.subtract(_tmp);
     return rayHitsAabb(_tmp, _world, _boxMin, _boxMax);
+  }
+
+  private _nearFieldScreen(loc: { x: number; y: number }): boolean {
+    const cam = this._cam;
+    const field = this._field;
+    if (!cam || !field) return false;
+    this._fieldLocalBox(_boxMin, _boxMax);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      _tmp.set(
+        i & 1 ? _boxMax.x : _boxMin.x,
+        i & 2 ? _boxMax.y : _boxMin.y,
+        i & 4 ? _boxMax.z : _boxMin.z,
+      );
+      Vec3.transformMat4(_world, _tmp, field.worldMatrix);
+      cam.worldToScreen(_world, _screen);
+      if (_screen.x < minX) minX = _screen.x;
+      if (_screen.y < minY) minY = _screen.y;
+      if (_screen.x > maxX) maxX = _screen.x;
+      if (_screen.y > maxY) maxY = _screen.y;
+    }
+    return (
+      loc.x >= minX - SPIN_SCREEN_PAD_PX &&
+      loc.x <= maxX + SPIN_SCREEN_PAD_PX &&
+      loc.y >= minY - SPIN_SCREEN_PAD_PX &&
+      loc.y <= maxY + SPIN_SCREEN_PAD_PX
+    );
   }
 
   private _fieldLocalBox(min: Vec3, max: Vec3): void {
@@ -1006,7 +1037,7 @@ export class BattleDirector extends Component {
   }
 
   private _tickCombat(dt: number): void {
-    if (this._platesBreaking) return;
+    if (!this._playing || this._won || this._lost || this._platesBreaking) return;
     this._maybeAutoPlace();
     if (this._remain <= 0) this._remain = this._countAlive();
     if (this._remain === 0) {
@@ -1282,9 +1313,9 @@ export class BattleDirector extends Component {
     return counted;
   }
 
-  private _burstDebris(from: Vec3, token: ColorToken, count = 3): void {
+  private _burstDebris(from: Vec3, token: ColorToken, count = 6): void {
     const busy = this._debrisBusy();
-    const n = busy > 40 ? 1 : busy > 24 ? 2 : count;
+    const n = busy > 40 ? 2 : busy > 24 ? 4 : count;
     for (let i = 0; i < n; i++) {
       const bit = this._nextDebris();
       if (!bit) break;
