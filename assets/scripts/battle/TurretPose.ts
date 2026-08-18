@@ -1,5 +1,7 @@
-import { Node } from 'cc';
-import { TURRET_FIRE_LOCAL, TURRET_PITCH_DEG, TURRET_YAW_DEG } from './ToyLook';
+import { Node, Vec3 } from 'cc';
+import { TURRET_PITCH_DEG, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
+
+const _fireP = new Vec3();
 
 const turretEuler = { x: TURRET_PITCH_DEG, y: TURRET_YAW_DEG, z: 0 };
 
@@ -35,6 +37,6 @@ export function applyTurretPose(host: Node): void {
   const mouth = mouthOf(host);
   if (!mouth || !body) return;
   if (mouth.parent !== body) mouth.setParent(body, false);
-  mouth.setPosition(TURRET_FIRE_LOCAL);
+  mouth.setPosition(turretFireLocal(_fireP));
   mouth.setRotationFromEuler(0, 0, 0);
 }

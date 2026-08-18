@@ -42,7 +42,6 @@ export class BlockCell extends Component {
   private _sucking = false;
   private _claimed = false;
   private _priming = false;
-  private _blown = false;
   private _suckT = 0;
   private _suckDur = GAME.suckFlightSec;
   private _onLand: (() => void) | null = null;
@@ -69,12 +68,11 @@ export class BlockCell extends Component {
     this._sucking = false;
     this._claimed = false;
     this._priming = false;
-    this._blown = false;
     this._target = null;
     this._onLand = null;
     this._nudgeT = 0;
     this._moveDur = 0;
-    this.enabled = true;
+    this.enabled = false;
   }
 
   beginMove(x: number, y: number, duration = 0.22): void {
@@ -88,7 +86,7 @@ export class BlockCell extends Component {
   }
 
   get alive(): boolean {
-    return this.node.active && this.hp > 0 && !this._sucking && !this._claimed && !this._blown;
+    return this.node.active && this.hp > 0 && !this._sucking && !this._claimed;
   }
 
   get suckable(): boolean {
@@ -116,7 +114,7 @@ export class BlockCell extends Component {
   }
 
   get inFlight(): boolean {
-    return this._sucking || this._claimed || this._blown;
+    return this._sucking || this._claimed;
   }
 
   worldPos(out: Vec3): Vec3 {
@@ -134,43 +132,11 @@ export class BlockCell extends Component {
     this._claimed = false;
     this._sucking = false;
     this._priming = false;
-    this._blown = false;
     this._target = null;
     this._onLand = null;
     this.enabled = false;
     this.node.active = false;
     onDone?.();
-  }
-
-  /** Original VoxelDestroy: the cube itself tumbles away, then despawns. */
-  blowOff(kick?: Vec3): void {
-    this.hp = 0;
-    this._claimed = false;
-    this._sucking = false;
-    this._priming = false;
-    this._blown = true;
-    this._target = null;
-    this._onLand = null;
-    this._moveDur = 0;
-    this._nudgeT = 0;
-    this.node.getWorldPosition(this._from);
-    this.node.getWorldRotation(this._q);
-    const kx = kick?.x ?? 0;
-    const ky = kick?.y ?? 0;
-    const kz = kick?.z ?? 0;
-    this._vel.set(
-      kx * 2.4 + (Math.random() - 0.5) * 3.8,
-      ky * 1.2 + 2.6 + Math.random() * 3.4,
-      kz * 2.4 + (Math.random() - 0.5) * 3.2 + 0.8,
-    );
-    this._axis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
-    if (this._axis.lengthSqr() < 1e-6) this._axis.set(1, 0.35, 0.2);
-    this._axis.normalize();
-    this._spin = (420 + Math.random() * 520) * (Math.random() < 0.5 ? -1 : 1);
-    this._grain = 1;
-    this._suckT = 0;
-    this._suckDur = 0.48 + Math.random() * 0.18;
-    this.enabled = true;
   }
 
   /** Stay put: swell, shake, then boom. */
@@ -247,10 +213,6 @@ export class BlockCell extends Component {
       );
       return;
     }
-    if (this._blown) {
-      this._tickBlow(dt);
-      return;
-    }
     if (!this._sucking) return;
     this._suckT += dt;
     const u = Math.min(1, this._suckT / this._suckDur);
@@ -297,26 +259,6 @@ export class BlockCell extends Component {
       this.node.active = false;
       done?.();
     }
-  }
-
-  private _tickBlow(dt: number): void {
-    this._suckT += dt;
-    const u = Math.min(1, this._suckT / this._suckDur);
-    const t = this._suckT;
-    const x = this._from.x + this._vel.x * t;
-    const y = this._from.y + this._vel.y * t - 0.5 * 22 * t * t;
-    const z = this._from.z + this._vel.z * t;
-    this.node.setWorldPosition(x, y, z);
-    Quat.fromAxisAngle(_dq, this._axis, this._spin * dt * (Math.PI / 180));
-    Quat.multiply(_qOut, _dq, this._q);
-    this._q.set(_qOut);
-    this.node.setWorldRotation(this._q);
-    const keep = u < 0.62 ? 1 : Math.max(0.04, 1 - (u - 0.62) / 0.38);
-    this.node.setScale(this._baseScale.x * keep, this._baseScale.y * keep, this._baseScale.z * keep);
-    if (u < 1) return;
-    this._blown = false;
-    this.enabled = false;
-    this.node.active = false;
   }
 
   private _tickPrime(dt: number): void {

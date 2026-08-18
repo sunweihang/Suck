@@ -1,6 +1,6 @@
-import { Node, Quat, Vec3 } from 'cc';
+import { Camera, Node, Quat, Vec3, director } from 'cc';
 import { CLIP_DIE, CLIP_IDLE, CLIP_JUMP, CLIP_SHOT } from './TurretClips';
-import { TURRET_FIRE_LOCAL, TURRET_MUZZLE_LOCAL, TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG } from './ToyLook';
+import { TURRET_MUZZLE_LOCAL, TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
 
 type AnimState = 'bench' | 'drag' | 'walk' | 'attack';
 
@@ -26,8 +26,24 @@ const _slerpA = new Quat();
 const _slerpB = new Quat();
 const _scale = new Vec3();
 const _pos = new Vec3();
+const _aimDir = new Vec3();
+const _aimFrom = new Vec3();
+const _viewAxis = new Vec3();
+const _camRight = new Vec3();
+const _camUp = new Vec3();
+const _spinQ = new Quat();
 const _ident = new Quat();
+let _playCam: Camera | null = null;
 Quat.fromEuler(_restQ, TURRET_PITCH_DEG, TURRET_YAW_DEG, 0);
+
+function playCam(): Camera | null {
+  if (_playCam?.node?.isValid) return _playCam;
+  const scene = director.getScene();
+  _playCam = scene?.getChildByName('Main Camera')?.getComponent(Camera)
+    ?? scene?.getComponentInChildren(Camera)
+    ?? null;
+  return _playCam;
+}
 
 function ensureRig(root: Node): Node {
   let rig = root.getChildByName('Rig');
@@ -113,6 +129,8 @@ export class TurretAnim {
   private _oneshotT = 0;
   private _hold = false;
   private _onDone: (() => void) | null = null;
+  private readonly _aimP = new Vec3();
+  private readonly _aimQ = new Quat();
   private _hasAim = false;
 
   rest(): void {
@@ -144,14 +162,26 @@ export class TurretAnim {
     this._oneshotT = 0;
     this._hold = false;
     this._onDone = null;
+    this._hasAim = false;
     this._rig.setScale(1, 1, 1);
     this._rig.setRotationFromEuler(0, 0, 0);
     root.setRotationFromEuler(0, 0, 0);
     if (this._body?.isValid) this._body.setRotation(_restQ);
   }
 
-  /** Body stays at the 45° rest pitch; InkShot still owns the bullet path. */
-  aimAt(_world: Vec3): void {
+  /** Keep the 45° sit; spin that pose in the camera plane only. */
+  aimAt(world: Vec3): void {
+    this._aimP.set(world);
+    this._hasAim = true;
+    this._lookTo(this._aimQ);
+    const body = this._body;
+    if (body?.isValid) {
+      body.setRotation(this._aimQ);
+      this._placeMuzzle();
+    }
+  }
+
+  clearAim(): void {
     this._hasAim = false;
   }
 
@@ -210,15 +240,16 @@ export class TurretAnim {
     }
 
     const lock = _state === 'bench' || _state === 'attack';
+    const pose = this._aimPose(body, _state, step);
     if (_state === 'attack') {
       rig.setRotation(_ident);
       if (this._oneshot) {
         evalClip(this._oneshot, this._oneshotT, false, _clipQ, _scale, _pos);
-        Quat.multiply(_clipQ, _restQ, _clipQ);
+        Quat.multiply(_clipQ, pose, _clipQ);
         body.setRotation(_clipQ);
         body.setScale(_scale);
       } else {
-        body.setRotation(_restQ);
+        body.setRotation(pose);
         body.setScale(1, 1, 1);
         _scale.set(1, 1, 1);
       }
@@ -246,6 +277,49 @@ export class TurretAnim {
     if (finished) finished();
   }
 
+  private _aimPose(body: Node, state: AnimState, dt: number): Quat {
+    if (this._hasAim && state === 'attack') return this._lookTo(this._aimQ);
+    if (state !== 'attack') return _restQ;
+    Quat.slerp(this._aimQ, body.rotation, _restQ, 1 - Math.exp(-14 * dt));
+    return this._aimQ;
+  }
+
+  private _lookTo(out: Quat): Quat {
+    const root = this._root;
+    if (!root?.isValid) {
+      Quat.copy(out, _restQ);
+      return out;
+    }
+    root.getWorldPosition(_aimFrom);
+    _aimDir.set(this._aimP.x - _aimFrom.x, this._aimP.y - _aimFrom.y, this._aimP.z - _aimFrom.z);
+    if (_aimDir.lengthSqr() < 1e-8) {
+      Quat.copy(out, _restQ);
+      return out;
+    }
+    Vec3.normalize(_aimDir, _aimDir);
+    const cam = playCam()?.node;
+    if (cam?.isValid) {
+      cam.getWorldPosition(_viewAxis);
+      _viewAxis.subtract(_aimFrom);
+      if (_viewAxis.lengthSqr() < 1e-8) {
+        Quat.copy(out, _restQ);
+        return out;
+      }
+      Vec3.normalize(_viewAxis, _viewAxis);
+      Vec3.transformQuat(_camRight, Vec3.UNIT_X, cam.worldRotation);
+      Vec3.transformQuat(_camUp, Vec3.UNIT_Y, cam.worldRotation);
+    } else {
+      _viewAxis.set(0, 0, 1);
+      _camRight.set(1, 0, 0);
+      _camUp.set(0, 1, 0);
+    }
+    const sx = _aimDir.x * _camRight.x + _aimDir.y * _camRight.y + _aimDir.z * _camRight.z;
+    const sy = _aimDir.x * _camUp.x + _aimDir.y * _camUp.y + _aimDir.z * _camUp.z;
+    Quat.fromAxisAngle(_spinQ, _viewAxis, -Math.atan2(sx, sy));
+    Quat.multiply(out, _spinQ, _restQ);
+    return out;
+  }
+
   private _play(clip: Clip): void {
     this._oneshot = clip;
     this._oneshotT = 0;
@@ -258,7 +332,10 @@ export class TurretAnim {
     const body = this._body;
     if (!mouth?.isValid || !body?.isValid) return;
     if (mouth.parent !== body) mouth.setParent(body, false);
-    mouth.setPosition(TURRET_FIRE_LOCAL);
+    const cam = playCam()?.node;
+    if (cam?.isValid) Vec3.transformQuat(_camUp, Vec3.UNIT_Y, cam.worldRotation);
+    else _camUp.set(0, 0.9063, -0.4226);
+    mouth.setPosition(turretFireLocal(_aimDir, _camUp));
     mouth.setRotation(_ident);
   }
 }

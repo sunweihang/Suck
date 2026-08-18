@@ -570,8 +570,8 @@ export class InkShot extends Component {
 
     const fade = u > 0.93 ? (1 - u) / 0.07 : 1;
     const flown = Math.hypot(dx, dy, dz) * u;
-    const trailLen = Math.max(0, flown - 0.16);
-    const showTrail = trailLen > 0.05;
+    const trailLen = Math.max(0, flown - 0.02);
+    const showTrail = trailLen > 0.01;
 
     if (this._ball?.isValid) {
       faceCam(this._ball, _camP);

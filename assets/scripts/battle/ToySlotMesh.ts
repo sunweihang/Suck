@@ -383,5 +383,5 @@ export function applyToyHand(root: Node): void {
   blob(root, 'Finger2', 0.1, -0.045, 0, 0.045, 0.07, 0.045, skin);
   blob(root, 'Finger3', -0.07, -0.04, 0.03, 0.055, 0.08, 0.055, skin);
   blob(root, 'Tip', 0.015, -0.24, 0.02, 0.048, 0.05, 0.048, nail);
-  root.setRotationFromEuler(-18, 20, 8);
+  root.setRotationFromEuler(0, 0, 0);
 }

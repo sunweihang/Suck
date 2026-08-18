@@ -1,15 +1,11 @@
-import { Color, EffectAsset, Material, MeshRenderer, Node, Vec3, assetManager } from 'cc';
+import { Color, Material, MeshRenderer, Node, Vec3 } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
 import { applyToyCaster } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
-const FX_CLAY = '9d13ee10-0200-4a01-8001-000000000001';
-
 const _mats = new Map<string, Material>();
-let _clayFx: EffectAsset | null = null;
-let _clayBoot: Promise<void> | null = null;
 
 function usable(mat: Material | null | undefined): mat is Material {
   return !!mat?.passes?.length;
@@ -33,8 +29,21 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return new Color(rgb[0], rgb[1], rgb[2], 255);
 }
 
-function paintUnlit(inst: Material, color: Color): void {
-  inst.setProperty('mainColor', color);
+/** Yesterday prefab mats: roughness 0.34, metal 0.04, emit 0.12. */
+function brickMat(rgb: readonly [number, number, number]): Material {
+  const key = `brick-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const color = colorOf(rgb);
+  const mat = new Material();
+  mat.initialize({ effectName: 'builtin-standard' });
+  mat.setProperty('mainColor', color);
+  mat.setProperty('roughness', 0.34);
+  mat.setProperty('metallic', 0.04);
+  mat.setProperty('emissive', color);
+  mat.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
+  _mats.set(key, mat);
+  return mat;
 }
 
 function skipPaint(name: string): boolean {
@@ -91,60 +100,16 @@ function blob(
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
-function pixelMat(look: VoxelLook): Material | null {
-  const key = `unlit-${look.rgb[0]}-${look.rgb[1]}-${look.rgb[2]}`;
-  const hit = _mats.get(key);
-  if (usable(hit)) return hit;
-  const fx = _clayFx ?? EffectAsset.get('toy-clay');
-  const mat = new Material();
-  if (fx) {
-    try {
-      mat.initialize({ effectAsset: fx, techniqueIndex: 0 });
-    } catch {
-      /* effect failed to compile */
-    }
-  }
-  if (!usable(mat)) {
-    try {
-      mat.initialize({ effectName: 'toy-clay' });
-    } catch {
-      /* name lookup failed */
-    }
-  }
-  if (!usable(mat)) mat.initialize({ effectName: 'builtin-unlit' });
-  if (!usable(mat)) return null;
-  paintUnlit(mat, colorOf(look.rgb));
-  _mats.set(key, mat);
-  return mat;
-}
-
 function paintLook(root: Node, look: VoxelLook): void {
-  const mat = pixelMat(look);
-  if (mat) {
-    for (const mr of root.getComponentsInChildren(MeshRenderer)) {
-      if (skipPaint(mr.node.name)) continue;
-      mr.setSharedMaterial(mat, 0);
-    }
-    return;
-  }
-  const color = colorOf(look.rgb);
+  const mat = brickMat(look.rgb);
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (skipPaint(mr.node.name)) continue;
-    const inst = mr.getMaterialInstance(0);
-    if (inst) paintUnlit(inst, color);
+    mr.setSharedMaterial(mat, 0);
   }
 }
 
 export function preloadVoxelLook(): Promise<void> {
-  if (_clayFx) return Promise.resolve();
-  if (_clayBoot) return _clayBoot;
-  _clayBoot = new Promise((resolve) => {
-    assetManager.loadAny({ uuid: FX_CLAY }, (err, asset) => {
-      if (!err && asset) _clayFx = asset as EffectAsset;
-      resolve();
-    });
-  });
-  return _clayBoot;
+  return Promise.resolve();
 }
 
 /** Recolor without material instances so same-color debris stay batched. */
@@ -194,7 +159,15 @@ export function applyMagnetLook(root: Node): void {
 }
 
 export function applySandLook(root: Node): void {
-  paintLook(root, lookOfRgb([195, 175, 113]));
+  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+    if (skipPaint(mr.node.name)) continue;
+    const inst = mr.getMaterialInstance(0);
+    if (!inst) continue;
+    inst.setProperty('roughness', 0.78);
+    inst.setProperty('metallic', 0);
+    inst.setProperty('emissive', new Color(210, 150, 70, 255));
+    inst.setProperty('emissiveScale', new Vec3(0.08, 0.05, 0.02));
+  }
 }
 
 export function applyGhostLook(root: Node): void {
@@ -204,11 +177,15 @@ export function applyGhostLook(root: Node): void {
     if (!inst) continue;
     const cur = inst.getProperty('mainColor');
     const c = cur instanceof Color ? cur : new Color(220, 230, 240, 255);
-    inst.setProperty('mainColor', new Color(
+    const washed = new Color(
       Math.min(255, c.r + 70),
       Math.min(255, c.g + 80),
       Math.min(255, c.b + 90),
       255,
-    ));
+    );
+    inst.setProperty('mainColor', washed);
+    inst.setProperty('emissive', new Color(220, 240, 255, 255));
+    inst.setProperty('emissiveScale', new Vec3(0.28, 0.32, 0.36));
+    inst.setProperty('roughness', 0.12);
   }
 }

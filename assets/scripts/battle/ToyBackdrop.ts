@@ -221,7 +221,7 @@ function placeCatcher(root: Node, name: string, pos: Vec3, euler: Vec3, scale: V
 
 /** Invisible planes that only draw the shadow map, right under each stand. */
 export function spawnShadowCatchers(root: Node): void {
-  const benchZ = BENCH.startZ + ((BENCH.rows - 1) * BENCH.stepZ) * 0.5;
+  const benchZ = shooterStandZ() + ((BENCH.rows - 1) * BENCH.stepZ) * 0.5;
   placeCatcher(
     root,
     'ShadowFloor',

@@ -1,11 +1,21 @@
-import { JsonAsset, Mesh, MeshRenderer, Node, Vec3, resources, utils } from 'cc';
+import {
+  JsonAsset,
+  Mesh,
+  MeshRenderer,
+  Node,
+  Vec3,
+  resources,
+  utils,
+} from 'cc';
 import { ColorId } from '../game/GameConfig';
 import { applyToyCaster } from './ToyBlockMesh';
 import { applyTurretPose } from './TurretPose';
-import { TURRET_FIRE_LOCAL, TURRET_SCALE } from './ToyLook';
+import { TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
 import { applyBlobShadow, applyToyOutline, preloadToyOutline } from './ToyOutline';
 
-export const UNIT_CUBE_SCALE = 0.40;
+/** Shooter_Hidden is ~1.010 wide; keep queue cubes at the previous turret width. */
+export const UNIT_CUBE_SCALE = (0.4 * 1.52) / 1.010196328;
+const _fireP = new Vec3();
 
 type MeshPack = {
   p: number[];
@@ -24,8 +34,9 @@ const FACE = [
 
 let _mesh: Mesh | null = null;
 let _cube: Mesh | null = null;
+let _hidden: Mesh | null = null;
 let _boot: Promise<void> | null = null;
-const CUBE_SCALE = 0.40;
+const HIDDEN_SCALE = UNIT_CUBE_SCALE;
 
 function meshFrom(pack: MeshPack): Mesh | null {
   return utils.MeshUtils.createMesh({
@@ -43,22 +54,25 @@ export function getShooterMesh(): Mesh | null {
   return _mesh;
 }
 
+function loadPack(path: string, set: (mesh: Mesh) => void): Promise<void> {
+  return new Promise((resolve) => {
+    resources.load(path, JsonAsset, (err, asset) => {
+      if (!err && asset?.json) {
+        const mesh = meshFrom(asset.json as MeshPack);
+        if (mesh) set(mesh);
+      }
+      resolve();
+    });
+  });
+}
+
 export function preloadTurretLooks(): Promise<void> {
-  if (_mesh) return preloadToyOutline();
+  if (_mesh && _hidden) return preloadToyOutline();
   if (_boot) return _boot;
   _boot = Promise.all([
-    new Promise<void>((resolve) => {
-      resources.load('meshes/toy-shooter', JsonAsset, (err, asset) => {
-        if (!err && asset?.json) _mesh = meshFrom(asset.json as MeshPack);
-        resolve();
-      });
-    }),
-    new Promise<void>((resolve) => {
-      resources.load('meshes/toy-block', JsonAsset, (err, asset) => {
-        if (!err && asset?.json) _cube = meshFrom(asset.json as MeshPack);
-        resolve();
-      });
-    }),
+    loadPack('meshes/toy-shooter', (m) => { _mesh = m; }),
+    loadPack('meshes/toy-block', (m) => { _cube = m; }),
+    loadPack('meshes/hidden-shooter', (m) => { _hidden = m; }),
     preloadToyOutline(),
   ]).then(() => undefined);
   return _boot;
@@ -89,7 +103,7 @@ function placeMuzzle(host: Node): void {
   }
   mouth.active = true;
   mouth.layer = host.layer;
-  mouth.setPosition(TURRET_FIRE_LOCAL);
+  mouth.setPosition(turretFireLocal(_fireP));
   mouth.setRotationFromEuler(0, 0, 0);
   mouth.setScale(1, 1, 1);
   const mr = mouth.getComponent(MeshRenderer);
@@ -127,10 +141,10 @@ export function applyTurretLook(host: Node, _colorId: ColorId): void {
   });
 }
 
-/** Bench cubes stay level with the slot bar. */
+/** Same 45° sit as live turrets so the lid tilts toward the camera. */
 export function lockQueueBlockPose(host: Node): void {
   host.setRotationFromEuler(0, 0, 0);
-  host.setScale(CUBE_SCALE, CUBE_SCALE, CUBE_SCALE);
+  host.setScale(HIDDEN_SCALE, HIDDEN_SCALE, HIDDEN_SCALE);
   const rig = host.getChildByName('Rig');
   if (rig) {
     rig.setPosition(0, 0, 0);
@@ -140,12 +154,12 @@ export function lockQueueBlockPose(host: Node): void {
   const body = bodyOf(host);
   if (!body) return;
   body.setPosition(0, 0, 0);
-  body.setRotationFromEuler(0, 0, 0);
+  body.setRotationFromEuler(TURRET_PITCH_DEG, TURRET_YAW_DEG, 0);
   body.setScale(1, 1, 1);
 }
 
-/** Queued bench units: original waiting stack is cubes, not full shooters. */
-export function applyQueueBlockLook(host: Node): void {
+/** Queued / unactivated: original Shooter_Hidden + T_Hidden_Pattern. */
+export function applyQueueBlockLook(host: Node, _colorId: ColorId = 0): void {
   hideFace(host);
   const body = bodyOf(host);
   if (!body) return;
@@ -161,13 +175,15 @@ export function applyQueueBlockLook(host: Node): void {
     });
     applyBlobShadow(host);
   };
-  if (_cube) {
-    apply(_cube);
+  const mesh = _hidden ?? _cube;
+  if (mesh) {
+    apply(mesh);
     applyToyCaster(host, false, true);
     return;
   }
   preloadTurretLooks().then(() => {
-    if (_cube) apply(_cube);
+    const ready = _hidden ?? _cube;
+    if (ready) apply(ready);
     if (host.isValid) applyToyCaster(host, false, true);
   });
 }

@@ -86,6 +86,10 @@ export class UnitActor extends Component {
     this._q.aimAt(world);
   }
 
+  clearAim(): void {
+    this._q.clearAim();
+  }
+
   setPowerVisible(on: boolean): void {
     this._powerOn = on;
     this.refreshPowerVisible();
@@ -285,7 +289,7 @@ export class UnitActor extends Component {
   refreshSeatLook(): void {
     if (this._queued()) {
       this._q.rest();
-      applyQueueBlockLook(this.node);
+      applyQueueBlockLook(this.node, this.colorId);
     } else {
       applyTurretLook(this.node, this.colorId);
     }
@@ -294,8 +298,8 @@ export class UnitActor extends Component {
   }
 
   private _bindMuzzle(): void {
-    this._muzzle = this.node.getChildByName('Body')?.getChildByName('Mouth')
-      ?? this.node.getChildByName('Rig')?.getChildByName('Body')?.getChildByName('Mouth')
+    this._muzzle = this.node.getChildByName('Rig')?.getChildByName('Body')?.getChildByName('Mouth')
+      ?? this.node.getChildByName('Body')?.getChildByName('Mouth')
       ?? this.node.getChildByName('Mouth')
       ?? this.node.getChildByName('Rig')?.getChildByName('Mouth')
       ?? null;

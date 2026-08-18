@@ -2,10 +2,12 @@ export const GAME = {
   designWidth: 1080,
   designHeight: 1920,
 
+  /** Original Game Camera: ortho, local euler X = -25°. */
   worldCamPitchDeg: 25,
   worldCamYawDeg: 0,
   worldCamDist: 38.7,
   worldCamFovDeg: 16,
+  worldCamOrthoHeight: 5.45,
   worldCamNear: 0.1,
   worldCamFar: 80,
   worldCamLookAtX: 0,
@@ -40,8 +42,11 @@ export const GAME = {
   wallRows: 20,
   wallDepth: 4,
   blockStep: 0.38,
-  /** Original Voxel_0 is 1 cell; keep size = step so faces sit flush. */
-  blockSize: 0.38,
+  /**
+   * Original Voxel_0: mesh extent 0.5, prefab scale 1, grid step 1 (size == spacing).
+   * Our clay mesh corners sit at 0.4155, so scale the cube by 0.5/0.4155 to fill that cell.
+   */
+  blockSize: 0.457,
   wallFrontZ: -2.08,
   slotStandY: 2.88,
   slotStandZ: -1.38,
@@ -61,7 +66,7 @@ export const PLAY = {
   blockSize: GAME.blockSize,
   wallBaseY: 3.2,
   slotStandY: 2.88,
-  benchStandY: 1.50,
+  benchStandY: 2.10,
   palette: ['o', 'y', 'c', 'g', 'p', 'r'] as ColorToken[],
   brickMix: 1,
   ironRow: -1,
@@ -96,7 +101,7 @@ export const STAGE = {
   liftY: 0.55,
   sculptureY: 5.35,
   slotY: GAME.slotStandY,
-  benchY: 1.50,
+  benchY: 2.10,
 } as const;
 
 /** Shrink step/size, then pin the whole stage from one set of anchors. */
@@ -251,10 +256,13 @@ export function wallColAtX(x: number): number {
 export const BENCH = {
   cols: 4,
   rows: 6,
-  stepX: 1.05,
-  stepZ: 1.76,
+  /** Same as slotSpacing so each column sits under a turret. */
+  stepX: 0.78,
+  stepZ: 1.70,
+  /** First bench row sits below the pads, not on them. */
+  frontGap: 0.82,
   startZ: 0.50,
-  standY: 1.50,
+  standY: 2.10,
 } as const;
 
 export function benchSeatY(): number {
@@ -270,11 +278,12 @@ export function benchRankOf(index: number): number {
 }
 
 export function benchSeatX(col: number): number {
-  return -((BENCH.cols - 1) * BENCH.stepX) / 2 + col * BENCH.stepX;
+  const side = (GAME.slotMax - GAME.slotStart) >> 1;
+  return slotX(side + col);
 }
 
 export function benchSeatZ(rank: number): number {
-  return BENCH.startZ + rank * BENCH.stepZ;
+  return shooterStandZ() + BENCH.frontGap + rank * BENCH.stepZ;
 }
 
 export const ColorId = {

@@ -31,7 +31,7 @@ import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
 import { applyBombs, preloadBombs } from './Bombs';
-import { applyMagnetLook, applyPaintLook, applySandLook, paintNodeColor, paintUnitColor, paintVoxelId, preloadVoxelLook } from './BrickSpecials';
+import { applyMagnetLook, applyPaintLook, applySandLook, paintUnitColor, paintVoxelId, preloadVoxelLook } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
@@ -169,11 +169,10 @@ export async function buildPlayWorld(
     const depth = PLAY.wallDepth;
     const originX = -((cols - 1) * step) / 2;
     const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
-    const brickPf = blockPfs.get('r') ?? blockPfs.get('o')!;
     for (const v of level.voxels) {
       const token = v.token;
       const n = spawn(
-        brickPf,
+        blockPfs.get(isColorToken(token) ? token : 'r') ?? blockPfs.get('o')!,
         wall,
         `Blk_${token}_${v.x}_${v.y}_${v.z}`,
         new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step),
@@ -215,7 +214,6 @@ export async function buildPlayWorld(
           ),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
-        paintNodeColor(n, token);
         if (locked && z === 0) applyLockNails(n);
         if (bombed) applyBombs(n, token);
         if (paint) applyPaintLook(n, token);

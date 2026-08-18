@@ -47,7 +47,7 @@ import { itemUnlocked, showsPlayHint, UnitSpec, type ItemId } from '../game/Leve
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
-import { createInkShot, InkShot, playHitFlash, playMuzzleFlash } from './InkShot';
+import { createInkShot, InkShot, playMuzzleFlash } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
@@ -1052,6 +1052,7 @@ export class BattleDirector extends Component {
       if (u.lockedCol >= 0) u.state = 'attack';
       const block = this._bestBlock(u);
       if (block) u.aimAt(block.worldPos(_world));
+      else u.clearAim();
       if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
       if (flying >= GAME.suckMaxFlightTotal) continue;
       if (!block) {
@@ -1189,15 +1190,7 @@ export class BattleDirector extends Component {
     if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
     block.beginIncoming();
     u.inflight += 1;
-    u.mouthWorld(_tmp);
     this._brickFace(block, _world);
-    const dx = _world.x - _tmp.x;
-    const dy = _world.y - _tmp.y;
-    const dz = _world.z - _tmp.z;
-    const dist = Math.hypot(dx, dy, dz) || 1;
-    _tmp.x += (dx / dist) * 0.03;
-    _tmp.y += (dy / dist) * 0.03;
-    _tmp.z += (dz / dist) * 0.03;
     const jx = (Math.random() - 0.5) * 0.03;
     const jy = (Math.random() - 0.5) * 0.02;
     _world.x += jx;
@@ -1206,6 +1199,14 @@ export class BattleDirector extends Component {
     const hitY = _world.y;
     const hitZ = _world.z;
     u.aimAt(_world);
+    u.mouthWorld(_tmp);
+    const dx = _world.x - _tmp.x;
+    const dy = _world.y - _tmp.y;
+    const dz = _world.z - _tmp.z;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    _tmp.x += (dx / dist) * 0.02;
+    _tmp.y += (dy / dist) * 0.02;
+    _tmp.z += (dz / dist) * 0.02;
     _hitDir.set(dx, dy, dz);
     const dur = Math.min(GAME.shotMaxSec, Math.max(GAME.shotMinSec, dist / GAME.shotSpeed));
     _seekP.set(_world);
@@ -1268,20 +1269,22 @@ export class BattleDirector extends Component {
     if (u.power <= 0) this._retireUnit(u);
   }
 
-  private _shatterBrick(block: BlockCell, _token: ColorToken): boolean {
+  private _shatterBrick(block: BlockCell, token: ColorToken): boolean {
     if (!block?.node?.isValid) return false;
-    const counted = block.node.active && block.hp > 0 && !block.inFlight;
-    this._brickFace(block, _world);
-    playHitFlash(this._flyRoot ?? this.node, _world);
-    block.blowOff();
-    if (counted) this._remain = Math.max(0, this._remain - 1);
+    const counted = block.node.active && block.hp > 0;
+    block.node.getWorldPosition(_world);
+    block.shatter();
+    if (counted) {
+      this._burstDebris(_world, token);
+      this._remain = Math.max(0, this._remain - 1);
+    }
     this._lookDirty = true;
     return counted;
   }
 
-  private _burstDebris(from: Vec3, token: ColorToken, count = 5): void {
+  private _burstDebris(from: Vec3, token: ColorToken, count = 3): void {
     const busy = this._debrisBusy();
-    const n = busy > 70 ? 2 : busy > 48 ? 3 : count;
+    const n = busy > 40 ? 1 : busy > 24 ? 2 : count;
     for (let i = 0; i < n; i++) {
       const bit = this._nextDebris();
       if (!bit) break;

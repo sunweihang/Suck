@@ -637,8 +637,9 @@ export class GameBootstrap extends Component {
       look.y + dist * Math.sin(pitch),
       look.z + dist * Math.cos(yaw) * Math.cos(pitch),
     );
-    camNode.lookAt(look);
-    cam.projection = Camera.ProjectionType.PERSPECTIVE;
+    camNode.lookAt(look, Vec3.UNIT_Y);
+    cam.projection = Camera.ProjectionType.ORTHO;
+    cam.orthoHeight = GAME.worldCamOrthoHeight;
     cam.fov = GAME.worldCamFovDeg;
     cam.near = GAME.worldCamNear;
     cam.far = GAME.worldCamFar;
@@ -654,22 +655,38 @@ export class GameBootstrap extends Component {
     const scene = this.node.scene;
     if (!scene) return;
     const shadows = scene.globals?.shadows;
-    if (shadows) shadows.enabled = false;
+    if (shadows) {
+      shadows.enabled = true;
+      shadows.type = 1;
+      shadows.shadowMapSize = 512;
+      shadows.shadowColor = new Color(32, 48, 68, 200);
+    }
     const ambient = scene.globals?.ambient;
     if (ambient) {
-      ambient.skyIllum = 42000;
-      ambient.skyColor = new Color(255, 248, 240, 255);
-      ambient.groundAlbedo = new Color(210, 196, 230, 255);
+      ambient.skyIllum = 26000;
+      ambient.skyColor = new Color(254, 250, 220, 255);
+      ambient.groundAlbedo = new Color(176, 226, 236, 255);
     }
     const lightNode = scene.getChildByName('Directional Light');
     const light = lightNode?.getComponent(DirectionalLight);
     if (light && lightNode) {
-      lightNode.setPosition(6, 14, -8);
-      lightNode.setRotationFromEuler(-32, 22, 0);
-      light.color = new Color(255, 244, 228, 255);
-      light.illuminance = 210000;
-      light.shadowEnabled = false;
+      lightNode.setPosition(8, 16, 10);
+      lightNode.setRotationFromEuler(-58, 46, 0);
+      light.color = new Color(255, 232, 204, 255);
+      light.illuminance = 215000;
+      light.shadowEnabled = true;
+      light.shadowPcf = 1;
+      light.shadowBias = 0.0006;
+      light.shadowNormalBias = 0.16;
+      light.shadowSaturation = 0.64;
+      light.shadowDistance = 20;
+      light.shadowFixedArea = true;
+      light.shadowNear = 0.5;
+      light.shadowFar = 28;
+      light.shadowOrthoSize = 7;
     }
+    const fillNode = scene.getChildByName('Fill Light');
+    if (fillNode) fillNode.active = false;
   }
 
   private _ensureLetterboxCam(): void {

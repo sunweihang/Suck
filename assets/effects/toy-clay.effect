@@ -5,7 +5,8 @@ CCEffect %{
     - vert: clay-vs:vert
       frag: clay-fs:frag
       properties:
-        mainColor: { value: [1.0, 1.0, 1.0, 1.0], linear: true, editor: { type: color } }
+        mainTexture: { value: grey }
+        mainColor:   { value: [1.0, 1.0, 1.0, 1.0], linear: true, editor: { type: color } }
       depthStencilState:
         depthTest: true
         depthWrite: true
@@ -19,15 +20,18 @@ CCProgram clay-vs %{
   #include <builtin/uniforms/cc-global>
   #include <legacy/local-batch>
 
-  out vec2 v_uv;
+  out vec3 v_viewNormal;
 
   vec4 vert () {
     StandardVertInput In;
     CCVertInput(In);
+
     mat4 matWorld, matWorldIT;
     CCGetWorldMatrixFull(matWorld, matWorldIT);
-    v_uv = a_texCoord;
-    return cc_matProj * cc_matView * (matWorld * In.position);
+
+    vec3 worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+    v_viewNormal = (cc_matView * vec4(worldN, 0.0)).xyz;
+    return cc_matProj * (cc_matView * matWorld) * In.position;
   }
 }%
 
@@ -35,16 +39,17 @@ CCProgram clay-fs %{
   precision highp float;
   #include <legacy/output-standard>
 
-  in vec2 v_uv;
+  in vec3 v_viewNormal;
+  uniform sampler2D mainTexture;
   uniform Constant {
     vec4 mainColor;
   };
 
   vec4 frag () {
-    /* Official look is unlit albedo + a little emission. No dir light, no spec. */
-    float edge = min(min(v_uv.x, v_uv.y), min(1.0 - v_uv.x, 1.0 - v_uv.y));
-    float ao = mix(0.86, 1.0, smoothstep(0.0, 0.07, edge));
-    vec3 col = mainColor.rgb * ao;
-    return CCFragOutput(vec4(col, mainColor.a));
+    vec3 n = normalize(v_viewNormal);
+    vec2 uv = clamp(n.xy * 0.5 + 0.5, 0.0, 1.0);
+    vec4 tex = texture(mainTexture, uv);
+    tex.rgb = SRGBToLinear(tex.rgb);
+    return CCFragOutput(tex * mainColor);
   }
 }%
