@@ -99,15 +99,11 @@ export function applyShadowReceiver(node: { getComponent: (t: typeof MeshRendere
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.ON;
 }
 
-const SKIP_CAST = /^(Eye|Pupil|Highlight|Power|D\d|N\d|Lock|Hold|Trail|Chain|Text|BombTrim)/;
+const SKIP_CAST = /^(Eye|Pupil|Highlight|Power|D\d|N\d|Lock|Hold|Trail|Chain|Text|BombTrim|Outline|BlobShadow)/;
 
-/** Keep shared materials so same-color bricks stay instanced. Shadows stay off. */
+/** Original VoxelModelBuilder.DisableShadows — cubes do not cast long shadows. */
 export function applyBrickPlastic(node: Node): void {
-  for (const mr of node.getComponentsInChildren(MeshRenderer)) {
-    if (mr.node.name === 'HoldRim' || mr.node.name.startsWith('Lock')) continue;
-    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
-    mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
-  }
+  applyToyCaster(node, false, false);
 }
 
 export function applyToyCaster(node: Node, receive = false, cast = true): void {

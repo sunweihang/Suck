@@ -3,15 +3,13 @@
   "importer": "gltf",
   "imported": true,
   "uuid": "7e22bb20-0318-4b02-8002-000000000008",
-  "files": [
-    ".json"
-  ],
+  "files": [],
   "subMetas": {
-    "d822e": {
+    "cea72": {
       "importer": "gltf-mesh",
-      "uuid": "7e22bb20-0318-4b02-8002-000000000008@d822e",
-      "displayName": "ToyMouth",
-      "id": "d822e",
+      "uuid": "7e22bb20-0318-4b02-8002-000000000008@cea72",
+      "displayName": "",
+      "id": "cea72",
       "name": "ToyMouth.mesh",
       "userData": {
         "gltfIndex": 0,
@@ -24,6 +22,22 @@
         ".json"
       ],
       "subMetas": {}
+    },
+    "34dd6": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0318-4b02-8002-000000000008@34dd6",
+      "displayName": "",
+      "id": "34dd6",
+      "name": "toy-mouth.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
     }
   },
   "userData": {
@@ -33,12 +47,32 @@
     "addVertexColor": false,
     "assetFinder": {
       "meshes": [
-        "7e22bb20-0318-4b02-8002-000000000008@d822e"
+        "7e22bb20-0318-4b02-8002-000000000008@cea72"
       ],
       "skeletons": [],
       "textures": [],
       "materials": [],
-      "scenes": []
+      "scenes": [
+        "7e22bb20-0318-4b02-8002-000000000008@34dd6"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
     }
   }
 }

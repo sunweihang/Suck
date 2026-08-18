@@ -32,6 +32,8 @@ const UUID = {
   MeshSuckersJson: '7e22bb20-0306-4b02-8002-000000000006',
   MeshCylinderJson: '7e22bb20-0307-4b02-8002-000000000007',
   MeshMouthJson: '7e22bb20-0308-4b02-8002-000000000008',
+  MeshShooterJson: '7e22bb20-0309-4b02-8002-000000000009',
+  MeshBulletJson: '7e22bb20-030a-4b02-8002-00000000000a',
   GltfBlock: '7e22bb20-0311-4b02-8002-000000000001',
   GltfOctopus: '7e22bb20-0312-4b02-8002-000000000002',
   GltfBall: '7e22bb20-0313-4b02-8002-000000000003',
@@ -40,6 +42,8 @@ const UUID = {
   GltfSuckers: '7e22bb20-0316-4b02-8002-000000000006',
   GltfCylinder: '7e22bb20-0317-4b02-8002-000000000007',
   GltfMouth: '7e22bb20-0318-4b02-8002-000000000008',
+  GltfShooter: '7e22bb20-0319-4b02-8002-000000000009',
+  GltfBullet: '7e22bb20-031a-4b02-8002-00000000000a',
   dirModels: 'c0110001-0001-4001-8001-000000000010',
   dirMeshes: 'c0110001-0001-4001-8001-000000000011',
 };
@@ -51,7 +55,8 @@ const MESH_POWER = `${UUID.GltfPower}@cc693`;
 const MESH_BELLY = `${UUID.GltfBelly}@a2b3c`;
 const MESH_SUCKERS = `${UUID.GltfSuckers}@b3c4d`;
 const MESH_CYLINDER = `${UUID.GltfCylinder}@c711d`;
-const MESH_MOUTH = `${UUID.GltfMouth}@d822e`;
+const MESH_MOUTH = `${UUID.GltfMouth}@cea72`;
+const MESH_SHOOTER = `${UUID.GltfShooter}@s7a01`;
 const MESH_ID = {
   [UUID.GltfBlock]: { id: 'e1d15', name: 'ToyBlock', tris: 300 },
   [UUID.GltfOctopus]: { id: '9d64e', name: 'ToyOctopus', tris: 1800 },
@@ -60,7 +65,9 @@ const MESH_ID = {
   [UUID.GltfBelly]: { id: 'a2b3c', name: 'ToyBelly', tris: 224 },
   [UUID.GltfSuckers]: { id: 'b3c4d', name: 'ToySuckers', tris: 480 },
   [UUID.GltfCylinder]: { id: 'c711d', name: 'ToyCylinder', tris: 64 },
-  [UUID.GltfMouth]: { id: 'd822e', name: 'ToyMouth', tris: 320 },
+  [UUID.GltfMouth]: { id: 'cea72', name: 'ToyMouth', tris: 360 },
+  [UUID.GltfShooter]: { id: 's7a01', name: 'ToyShooter', tris: 1940 },
+  [UUID.GltfBullet]: { id: 'b7a02', name: 'ToyBullet', tris: 168 },
 };
 
 function bellyMatUuid(i) {
@@ -434,9 +441,84 @@ function addScript(doc, nodeId, uuid, asPrefab, extra) {
 
 /* ---------- mesh bake (ported from ToyBlockMesh / ToyOctopusMesh) ---------- */
 
+function parseObjMesh(file) {
+  const txt = fs.readFileSync(file, 'utf8').replace(/\r/g, '');
+  const pos = [];
+  const nrm = [];
+  const uvs = [];
+  const faces = [];
+  for (const raw of txt.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('v ')) {
+      const p = line.split(/\s+/);
+      pos.push([+p[1], +p[2], +p[3]]);
+    } else if (line.startsWith('vn ')) {
+      const p = line.split(/\s+/);
+      nrm.push([+p[1], +p[2], +p[3]]);
+    } else if (line.startsWith('vt ')) {
+      const p = line.split(/\s+/);
+      uvs.push([+p[1], +p[2]]);
+    } else if (line.startsWith('f ')) {
+      const parts = line.split(/\s+/).slice(1).map((tok) => {
+        const [v, t, n] = tok.split('/');
+        return { v: (+v || 1) - 1, t: t ? (+t || 1) - 1 : -1, n: n ? (+n || 1) - 1 : -1 };
+      });
+      for (let i = 1; i + 1 < parts.length; i++) faces.push([parts[0], parts[i], parts[i + 1]]);
+    }
+  }
+  const p = [];
+  const n = [];
+  const u = [];
+  const idx = [];
+  const map = new Map();
+  for (const tri of faces) {
+    for (const f of tri) {
+      const key = `${f.v}/${f.t}/${f.n}`;
+      let i = map.get(key);
+      if (i == null) {
+        i = p.length / 3;
+        map.set(key, i);
+        const vp = pos[f.v] || [0, 0, 0];
+        p.push(vp[0], vp[1], vp[2]);
+        const np = f.n >= 0 && nrm[f.n] ? nrm[f.n] : [0, 1, 0];
+        n.push(np[0], np[1], np[2]);
+        const tp = f.t >= 0 && uvs[f.t] ? uvs[f.t] : [0, 0];
+        u.push(tp[0], tp[1]);
+      }
+      idx.push(i);
+    }
+  }
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < p.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      min[k] = Math.min(min[k], p[i + k]);
+      max[k] = Math.max(max[k], p[i + k]);
+    }
+  }
+  const r = Math.hypot(
+    Math.max(Math.abs(min[0]), Math.abs(max[0])),
+    Math.max(Math.abs(min[1]), Math.abs(max[1])),
+    Math.max(Math.abs(min[2]), Math.abs(max[2])),
+  );
+  return packMesh(p, n, u, idx, min, max, r);
+}
+
 function bakeBlock() {
+  const src = path.join(
+    process.env.USERPROFILE || '',
+    'Documents',
+    'leidian14',
+    'Pictures',
+    'Shoot a Cube Puzzle!',
+    'exported',
+    'resources',
+    'meshes',
+    'Voxel_0.obj',
+  );
+  if (fs.existsSync(src)) return parseObjMesh(src);
   const HALF = 0.5;
-  const RADIUS = 0.2;
+  const RADIUS = 0.12;
   const SEG = 5;
   const pos = [];
   const nrm = [];
@@ -684,35 +766,24 @@ function bakePowerQuad() {
 
 function bakeOctopus() {
   const ISO = 1;
-  const NX = 26;
+  const NX = 24;
   const NY = 24;
-  const NZ = 26;
+  const NZ = 18;
+  const FLAT = 0.56;
   const blobs = [];
   const add = (x, y, z, r) => blobs.push([x, y, z, r]);
 
-  add(0, 0.082, 0.01, 0.148);
-  add(0, 0.138, 0.016, 0.112);
-  add(0, 0.046, 0.004, 0.122);
-  add(0.068, 0.076, 0.068, 0.072);
-  add(-0.068, 0.076, 0.068, 0.072);
-  add(0, 0.034, 0.064, 0.064);
-  add(0, 0.02, -0.02, 0.086);
-  add(0.04, 0.116, 0.108, 0.038);
-  add(-0.04, 0.116, 0.108, 0.038);
-  add(0, 0.052, 0.096, 0.04);
-
-  const D = Math.PI / 180;
-  const tents = [
-    { a: 24 * D, reach: 0.158, drop: 0.136, curl: 0.02, fat: 0.052 },
-    { a: 66 * D, reach: 0.172, drop: 0.144, curl: 0.014, fat: 0.056 },
-    { a: 110 * D, reach: 0.18, drop: 0.148, curl: -0.01, fat: 0.058 },
-    { a: 156 * D, reach: 0.186, drop: 0.15, curl: 0.012, fat: 0.058 },
-    { a: 204 * D, reach: 0.186, drop: 0.15, curl: -0.012, fat: 0.058 },
-    { a: 250 * D, reach: 0.18, drop: 0.148, curl: 0.01, fat: 0.058 },
-    { a: 294 * D, reach: 0.172, drop: 0.144, curl: -0.014, fat: 0.056 },
-    { a: 336 * D, reach: 0.158, drop: 0.136, curl: -0.02, fat: 0.052 },
-  ];
-  for (const t of tents) addTentacle(add, t.a, t.reach, t.drop, t.curl, t.fat);
+  /* Rounded-square token + two top guns + bottom nub. */
+  const cy = 0.14;
+  const step = 0.068;
+  const r = 0.064;
+  for (const x of [-step, 0, step]) {
+    for (const y of [cy - step, cy, cy + step]) add(x, y, 0, r);
+  }
+  add(0, cy, 0, 0.08);
+  add(-0.09, cy + step + 0.055, 0, 0.034);
+  add(0.09, cy + step + 0.055, 0, 0.034);
+  add(0, cy - step - 0.048, 0, 0.028);
 
   let lo = 1e9;
   for (const [, y, , r] of blobs) lo = Math.min(lo, y - r);
@@ -738,15 +809,17 @@ function bakeOctopus() {
     z1 = Math.max(z1, z + pad);
   }
 
+  const bodyY = cy + lift;
+
   function field(x, y, z) {
     let v = 0;
     for (let i = 0; i < blobs.length; i++) {
       const b = blobs[i];
       const dx = x - b[0];
       const dy = y - b[1];
-      const dz = z - b[2];
+      const dz = (z - b[2]) / FLAT;
       const d2 = dx * dx + dy * dy + dz * dz;
-      const R = b[3] * 1.62;
+      const R = b[3] * 1.55;
       if (d2 >= R * R) continue;
       v += (b[3] * b[3]) / Math.max(d2, 1e-5);
     }
@@ -1089,52 +1162,18 @@ function buildUnitPrefab(color, lift) {
 
   const body = addNode(doc, { name: 'Body', parentId: root.id });
   addPrefabInfo(doc, body.id, assetRef, false);
-  addMeshRenderer(doc, body.id, MESH_OCTOPUS, color.mat, true, true);
+  addMeshRenderer(doc, body.id, MESH_SHOOTER, color.mat, true, true);
 
-  const bits = [
-    { name: 'EyeL', x: -0.052, y: 0.168 + lift, z: 0.072, sx: 0.082, sy: 0.098, sz: 0.05, m: UUID.MatEye },
-    { name: 'EyeR', x: 0.052, y: 0.168 + lift, z: 0.072, sx: 0.082, sy: 0.098, sz: 0.05, m: UUID.MatEye },
-    { name: 'PupilL', x: -0.046, y: 0.16 + lift, z: 0.094, sx: 0.032, sy: 0.038, sz: 0.022, m: UUID.MatPupil },
-    { name: 'PupilR', x: 0.046, y: 0.16 + lift, z: 0.094, sx: 0.032, sy: 0.038, sz: 0.022, m: UUID.MatPupil },
-    { name: 'HighlightL', x: -0.062, y: 0.178 + lift, z: 0.104, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
-    { name: 'HighlightR', x: 0.034, y: 0.178 + lift, z: 0.104, sx: 0.016, sy: 0.018, sz: 0.012, m: UUID.MatHighlight },
-    { name: 'CheekL', x: -0.078, y: 0.118 + lift, z: 0.086, sx: 0.036, sy: 0.028, sz: 0.024, m: UUID.MatCheek },
-    { name: 'CheekR', x: 0.078, y: 0.118 + lift, z: 0.086, sx: 0.036, sy: 0.028, sz: 0.024, m: UUID.MatCheek },
-  ];
-  for (const p of bits) {
-    const n = addNode(doc, { ...p, parentId: root.id });
-    addPrefabInfo(doc, n.id, assetRef, false);
-    addMeshRenderer(doc, n.id, MESH_BALL, p.m, true, false);
-  }
-
-  /* Face sits on the crown-front so the 28° camera and yaw-aim still read. */
   const mouth = addNode(doc, {
     name: 'Mouth',
     parentId: root.id,
     x: 0,
-    y: 0.108 + lift,
-    z: 0.146,
-    rx: -28,
-    sx: 0.058,
-    sy: 0.058,
-    sz: 0.05,
+    y: 0.376,
+    z: 0.023,
   });
   addPrefabInfo(doc, mouth.id, assetRef, false);
-  addMeshRenderer(doc, mouth.id, MESH_MOUTH, UUID.MatSucker, true, true);
-  const hole = addNode(doc, {
-    name: 'MouthHole',
-    parentId: mouth.id,
-    x: 0,
-    y: 0,
-    z: 0.4,
-    sx: 0.55,
-    sy: 0.55,
-    sz: 0.26,
-  });
-  addPrefabInfo(doc, hole.id, assetRef, false);
-  addMeshRenderer(doc, hole.id, MESH_BALL, UUID.MatPupil, true, false);
 
-  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: 0.4, z: -0.06 });
+  const power = addNode(doc, { name: 'Power', parentId: root.id, x: 0, y: 0.18, z: -0.18 });
   addPrefabInfo(doc, power.id, assetRef, false);
   for (let i = 0; i < 3; i++) {
     const slot = addNode(doc, {
@@ -1164,12 +1203,12 @@ function writeToyLook() {
   write(path.join(ASSETS, 'scripts/battle/ToyLook.ts'), `import { Vec3 } from 'cc';
 import { SPECIAL_SPAN } from '../game/GameConfig';
 
-export const OCTOPUS_STAND_Y = 0.012;
-export const OCTO_POWER_LOCAL = new Vec3(0, 0.4, -0.06);
+export const OCTOPUS_STAND_Y = 0.018;
+export const OCTO_POWER_LOCAL = new Vec3(0, 0.159, 0.257);
+export const TURRET_MUZZLE_LOCAL = new Vec3(0, 0.376, 0.023);
 /** Body centroid. Keep Z at 0 so the blob stays in the window, not behind the wall. */
-export const OCTO_BODY_LOCAL = new Vec3(0, 0.26716, 0);
-/** Main blob radius from bake-toy-prefabs. */
-const OCTO_BODY_R = 0.148;
+export const OCTO_BODY_LOCAL = new Vec3(0, 0.188, 0);
+const OCTO_BODY_R = 0.2;
 /** How much of the 4-cell cage the body should fill. */
 const OCTO_CAGE_FILL = 0.86;
 export const OCTO_CAGE_SCALE = (SPECIAL_SPAN * OCTO_CAGE_FILL) / (2 * OCTO_BODY_R);
@@ -1281,7 +1320,7 @@ function main() {
   write(path.join(ASSETS, 'materials/MatCheek.mtl'), clayMaterial('MatCheek', [255, 148, 168], 0.32, 0.1));
   write(path.join(ASSETS, 'materials/MatCheek.mtl.meta'), mtlMeta(UUID.MatCheek));
   COLORS.forEach((c) => {
-    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.34, 0.12));
+    write(path.join(ASSETS, `materials/Mat${c.name}.mtl`), clayMaterial(`Mat${c.name}`, c.rgb, 0.62, 0));
     write(path.join(ASSETS, `materials/Mat${c.name}.mtl.meta`), mtlMeta(c.mat));
   });
 
@@ -1302,4 +1341,13 @@ function main() {
   console.log(`wrote ${COLORS.length} block + ${COLORS.length} unit prefabs`);
 }
 
-main();
+function bakeBlockOnly() {
+  const block = bakeBlock();
+  MESH_ID[UUID.GltfBlock].tris = block.i.length / 3;
+  writeGltf(path.join(ASSETS, 'models/toy-block'), 'ToyBlock', block, UUID.GltfBlock);
+  writeMeshJson('toy-block', block, UUID.MeshBlockJson);
+  console.log(`block verts=${block.p.length / 3} tris=${block.i.length / 3}`);
+}
+
+if (process.argv.includes('--block-only')) bakeBlockOnly();
+else main();

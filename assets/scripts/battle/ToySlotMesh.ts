@@ -1,11 +1,36 @@
-import { Color, Material, Mesh, MeshRenderer, Node, Vec3, utils } from 'cc';
+import {
+  Color,
+  ImageAsset,
+  Material,
+  Mesh,
+  MeshRenderer,
+  Node,
+  Texture2D,
+  Vec3,
+  gfx,
+  resources,
+  utils,
+} from 'cc';
+import { GAME } from '../game/GameConfig';
 
 let _ball: Mesh | null = null;
 let _floor: Mesh | null = null;
 let _rim: Mesh | null = null;
+let _padQuad: Mesh | null = null;
+let _baseTex: Texture2D | null = null;
+let _plusTex: Texture2D | null = null;
+let _baseMat: Material | null = null;
+let _plusMat: Material | null = null;
+let _slotBoot: Promise<void> | null = null;
 const _mats = new Map<string, Material>();
 
 export const SLOT_PAD_TOP = 0.012;
+const SLOT_PAD_SIZE = 0.69;
+/** Local -Z after the pad faces the camera: sit behind the turret. */
+export const SLOT_PAD_BACK = -0.18;
+/** Turret lift / forward from the slot origin when seated. */
+export const SLOT_UNIT_LIFT = 0.04;
+export const SLOT_UNIT_FWD = 0.12;
 
 function glossy(key: string, color: Color, roughness: number, emit: number): Material {
   let mat = _mats.get(key);
@@ -241,44 +266,111 @@ function blob(
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
-const KEEP = new Set(['Floor', 'Rim', 'SignPost', 'SignBoard', 'SignX0', 'SignX1']);
+const KEEP = new Set(['Pad']);
+
+function texFrom(img: ImageAsset): Texture2D {
+  const tex = new Texture2D();
+  tex.image = img;
+  tex.setWrapMode(Texture2D.WrapMode.CLAMP_TO_EDGE, Texture2D.WrapMode.CLAMP_TO_EDGE);
+  tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+  return tex;
+}
+
+function loadImage(path: string): Promise<ImageAsset | null> {
+  return new Promise((resolve) => {
+    resources.load(path, ImageAsset, (err, img) => resolve(!err && img ? img : null));
+  });
+}
+
+function padMat(tex: Texture2D): Material {
+  const mat = new Material();
+  mat.initialize({
+    effectName: 'builtin-unlit',
+    technique: 0,
+    defines: { USE_TEXTURE: true },
+    states: {
+      depthStencilState: {
+        depthTest: true,
+        depthWrite: false,
+        depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
+      },
+      rasterizerState: {
+        cullMode: gfx.CullMode.NONE,
+      },
+      blendState: {
+        targets: [{
+          blend: true,
+          blendSrc: gfx.BlendFactor.SRC_ALPHA,
+          blendDst: gfx.BlendFactor.ONE_MINUS_SRC_ALPHA,
+          blendSrcAlpha: gfx.BlendFactor.ONE,
+          blendDstAlpha: gfx.BlendFactor.ONE_MINUS_SRC_ALPHA,
+        }],
+      },
+    },
+  });
+  mat.setProperty('mainTexture', tex);
+  mat.setProperty('mainColor', Color.WHITE);
+  return mat;
+}
+
+function padQuad(): Mesh | null {
+  if (_padQuad) return _padQuad;
+  _padQuad = utils.MeshUtils.createMesh({
+    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    uvs: [0, 1, 1, 1, 1, 0, 0, 0],
+    indices: [0, 1, 2, 0, 2, 3],
+    minPos: new Vec3(-0.5, -0.5, 0),
+    maxPos: new Vec3(0.5, 0.5, 0),
+    boundingRadius: Math.SQRT1_2,
+  });
+  return _padQuad;
+}
+
+export function preloadToySlots(): Promise<void> {
+  if (_baseMat && _plusMat) return Promise.resolve();
+  if (_slotBoot) return _slotBoot;
+  _slotBoot = Promise.all([loadImage('toys/slot-base'), loadImage('toys/slot-plus')]).then(([base, plus]) => {
+    if (base) {
+      _baseTex = texFrom(base);
+      _baseMat = padMat(_baseTex);
+    }
+    if (plus) {
+      _plusTex = texFrom(plus);
+      _plusMat = padMat(_plusTex);
+    }
+  });
+  return _slotBoot;
+}
 
 export function applyToySlot(root: Node, locked = false): void {
   root.setScale(1, 1, 1);
   const body = root.getComponent(MeshRenderer);
   if (body) body.enabled = false;
+  root.removeComponent('RenderRoot2D');
   for (const n of root.children) {
     if (!KEEP.has(n.name)) n.active = false;
   }
 
-  const rim = locked
-    ? glossy('rimLock', new Color(120, 124, 148, 255), 0.36, 0.1)
-    : glossy('rimOpen', new Color(255, 246, 232, 255), 0.28, 0.2);
-  const floor = locked
-    ? glossy('floorLock', new Color(88, 92, 114, 255), 0.48, 0.08)
-    : glossy('floorOpen', new Color(236, 210, 186, 255), 0.42, 0.14);
-  dress(part(root, 'Floor'), getFloor(), floor, 0);
-  dress(part(root, 'Rim'), getRim(), rim, 0);
-
-  const post = part(root, 'SignPost');
-  const board = part(root, 'SignBoard');
-  const x0 = part(root, 'SignX0');
-  const x1 = part(root, 'SignX1');
-  if (!locked) {
-    post.active = false;
-    board.active = false;
-    x0.active = false;
-    x1.active = false;
-    return;
+  const pad = part(root, 'Pad');
+  pad.setSiblingIndex(0);
+  pad.setPosition(0, 0, SLOT_PAD_BACK);
+  pad.setRotationFromEuler(-GAME.worldCamPitchDeg, 0, 0);
+  pad.setScale(SLOT_PAD_SIZE, SLOT_PAD_SIZE, 1);
+  pad.removeComponent('Sprite');
+  pad.removeComponent('UITransform');
+  const mr = pad.getComponent(MeshRenderer);
+  const mesh = padQuad();
+  const mat = locked ? _plusMat : _baseMat;
+  if (mr && mesh && mat) {
+    mr.enabled = true;
+    mr.mesh = mesh;
+    mr.setSharedMaterial(mat, 0);
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+    mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  } else if (mr) {
+    mr.enabled = false;
   }
-
-  const wood = glossy('signWood', new Color(168, 112, 64, 255), 0.48, 0.12);
-  const orange = glossy('signBoard', new Color(255, 132, 28, 255), 0.48, 0.18);
-  const red = glossy('signXRed', new Color(220, 32, 40, 255), 0.36, 0.22);
-  blob(root, 'SignPost', 0, 0.1, 0, 0.04, 0.15, 0.04, wood);
-  blob(root, 'SignBoard', 0, 0.24, 0.01, 0.26, 0.2, 0.05, orange);
-  blob(root, 'SignX0', 0, 0.24, 0.034, 0.2, 0.05, 0.036, red, 0, 0, 38);
-  blob(root, 'SignX1', 0, 0.24, 0.034, 0.2, 0.05, 0.036, red, 0, 0, -38);
 }
 
 export function applyToyHand(root: Node): void {

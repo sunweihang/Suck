@@ -1,0 +1,64 @@
+CCEffect %{
+  techniques:
+  - name: transparent
+    passes:
+    - vert: crease-vs:vert
+      frag: crease-fs:frag
+      properties:
+        outlineColor: { value: [0.10, 0.06, 0.05, 1.0], linear: true, editor: { type: color } }
+      depthStencilState:
+        depthTest: true
+        depthWrite: false
+        depthFunc: less_equal
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: back
+}%
+
+CCProgram crease-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/local-batch>
+
+  out vec3 v_viewN;
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+
+    vec3 worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+    v_viewN = (cc_matView * vec4(worldN, 0.0)).xyz;
+    vec3 worldP = (matWorld * In.position).xyz;
+    return cc_matProj * cc_matView * vec4(worldP, 1.0);
+  }
+}%
+
+CCProgram crease-fs %{
+  precision highp float;
+  #include <legacy/output-standard>
+
+  in vec3 v_viewN;
+
+  uniform Constant {
+    vec4 outlineColor;
+  };
+
+  vec4 frag () {
+    vec3 n = normalize(v_viewN);
+    float rim = 1.0 - abs(n.z);
+    float a = smoothstep(0.42, 0.78, rim);
+    if (a < 0.04) discard;
+    vec3 col = SRGBToLinear(outlineColor.rgb);
+    return CCFragOutput(vec4(col, a * 0.92));
+  }
+}%

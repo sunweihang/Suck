@@ -156,9 +156,12 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const raw = body.level || io.loadCatalogLevel(id);
     const level = io.decodeLevel({ ...raw, id });
-    const ordered = solveInOrder(level);
-    const greedy = ordered.ok ? { ok: true, steps: ordered.steps } : solveLevel(level);
+    const allowUnlock = body.allowUnlock !== false;
+    const opts = { allowUnlock };
+    const ordered = solveInOrder(level, opts);
+    const greedy = ordered.ok ? { ok: true, steps: ordered.steps } : solveLevel(level, opts);
     send(res, 200, {
+      allowUnlock,
       order: { ok: !!ordered.ok, steps: ordered.steps, reason: ordered.reason, remain: ordered.remain },
       greedy: { ok: !!greedy.ok, steps: greedy.steps, reason: greedy.reason, remain: greedy.remain },
     });

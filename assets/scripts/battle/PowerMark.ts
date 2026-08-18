@@ -8,9 +8,9 @@ import {
   UITransform,
   gfx,
 } from 'cc';
-import { OCTO_POWER_LOCAL } from './ToyLook';
+import { TURRET_POWER_LOCAL } from './ToyLook';
 
-const POWER_SCALE = 0.011;
+const POWER_SCALE = 0.0054;
 let _depthMat: Material | null = null;
 
 function powerDepthMat(): Material | null {
@@ -47,10 +47,19 @@ function ensureBenchRoot(host: Node): void {
 }
 
 function findPower(host: Node): Node | null {
-  const direct = host.getChildByName('Power');
-  if (direct) return direct;
-  const body = host.getChildByName('Rig')?.getChildByName('Body') ?? host.getChildByName('Body');
-  return body?.getChildByName('Power') ?? null;
+  const rig = host.getChildByName('Rig');
+  return host.getChildByName('Power')
+    ?? rig?.getChildByName('Power')
+    ?? rig?.getChildByName('Body')?.getChildByName('Power')
+    ?? host.getChildByName('Body')?.getChildByName('Power')
+    ?? null;
+}
+
+function powerParent(host: Node): Node {
+  return host.getChildByName('Rig')?.getChildByName('Body')
+    ?? host.getChildByName('Body')
+    ?? host.getChildByName('Rig')
+    ?? host;
 }
 
 function stripMeshJunk(tag: Node): void {
@@ -64,13 +73,13 @@ function stripMeshJunk(tag: Node): void {
 }
 
 function styleLabel(lab: Label): void {
-  lab.fontSize = 18;
-  lab.lineHeight = 20;
+  lab.fontSize = 26;
+  lab.lineHeight = 28;
   lab.isBold = true;
-  lab.color = new Color(255, 252, 246, 255);
+  lab.color = new Color(255, 255, 255, 255);
   lab.enableOutline = true;
   lab.outlineWidth = 2;
-  lab.outlineColor = new Color(20, 24, 32, 220);
+  lab.outlineColor = new Color(28, 20, 22, 255);
   lab.horizontalAlign = Label.HorizontalAlign.CENTER;
   lab.verticalAlign = Label.VerticalAlign.CENTER;
   lab.overflow = Label.Overflow.NONE;
@@ -89,13 +98,14 @@ export function bindPowerLayer(canvas: Node): void {
 }
 
 export function syncPowerMarks(_cam: unknown): void {
-  /* labels stay on the octopus */
+  /* labels stay on the shooter */
 }
 
 export function bindPowerMark(host: Node): Node {
   ensureBenchRoot(host);
+  const parent = powerParent(host);
   let tag = findPower(host);
-  if (tag && tag.parent !== host) tag.setParent(host, false);
+  if (tag && tag.parent !== parent) tag.setParent(parent, false);
   if (tag && !tag.getChildByName('Text')) {
     tag.removeFromParent();
     tag.destroy();
@@ -103,7 +113,7 @@ export function bindPowerMark(host: Node): Node {
   }
   if (!tag) {
     tag = new Node('Power');
-    host.addChild(tag);
+    parent.addChild(tag);
     const tagUt = tag.addComponent(UITransform);
     tagUt.setContentSize(48, 24);
     tagUt.hitTest = () => false;
@@ -125,8 +135,8 @@ export function bindPowerMark(host: Node): Node {
   if (text) text.layer = Layers.Enum.UI_3D;
   tag.active = true;
   tag.setSiblingIndex(0);
-  tag.setPosition(OCTO_POWER_LOCAL);
-  tag.setRotationFromEuler(0, 0, 0);
+  tag.setPosition(TURRET_POWER_LOCAL);
+  tag.setRotationFromEuler(-90, 0, 0);
   tag.setScale(POWER_SCALE, POWER_SCALE, POWER_SCALE);
   return tag;
 }

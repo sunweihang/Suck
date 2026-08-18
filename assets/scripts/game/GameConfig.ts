@@ -2,7 +2,7 @@ export const GAME = {
   designWidth: 1080,
   designHeight: 1920,
 
-  worldCamPitchDeg: 28,
+  worldCamPitchDeg: 25,
   worldCamYawDeg: 0,
   worldCamDist: 38.7,
   worldCamFovDeg: 16,
@@ -28,11 +28,11 @@ export const GAME = {
   suckMaxInterval: 0.16,
   /** First shot after an octopus lands in a pit. */
   suckLandDelay: 0.18,
-  shotSpeed: 12,
-  shotMinSec: 0.11,
-  shotMaxSec: 0.28,
+  shotSpeed: 7.6,
+  shotMinSec: 0.16,
+  shotMaxSec: 0.44,
   shotArc: 0.02,
-  wallSpinPeriod: 28,
+  wallSpinPeriod: 22,
   /** Swipe: degrees of field yaw/pitch per screen pixel. */
   wallSpinDragDeg: 0.38,
 
@@ -40,8 +40,10 @@ export const GAME = {
   wallRows: 20,
   wallDepth: 4,
   blockStep: 0.38,
-  blockSize: 0.374,
+  /** Original Voxel_0 is 1 cell; keep size = step so faces sit flush. */
+  blockSize: 0.38,
   wallFrontZ: -2.08,
+  slotStandY: 2.88,
   slotStandZ: -1.38,
   slotRowStep: 0.58,
   slotStart: 4,
@@ -57,7 +59,9 @@ export const PLAY = {
   wallDepth: GAME.wallDepth,
   blockStep: GAME.blockStep,
   blockSize: GAME.blockSize,
-  wallBaseY: 1.48,
+  wallBaseY: 3.2,
+  slotStandY: 2.88,
+  benchStandY: 1.50,
   palette: ['o', 'y', 'c', 'g', 'p', 'r'] as ColorToken[],
   brickMix: 1,
   ironRow: -1,
@@ -72,6 +76,8 @@ export const PLAY = {
   raftH: 0,
   raftTravel: 0,
   raftPeriod: 2.5,
+  tints: {} as Partial<Record<ColorToken, readonly [number, number, number]>>,
+  fieldYawDeg: 0,
 };
 
 /** World box that stays inside the fixed play camera (28x20 @ ~0.19). */
@@ -79,20 +85,42 @@ const WALL_SAFE_HALF_W = 2.85;
 const WALL_SAFE_H = 4.18;
 /** World Y the play camera can still see; a peeking brick still counts. */
 export const VIEW_Y_MIN = 0.95;
-export const VIEW_Y_MAX = 1.48 + WALL_SAFE_H + 0.08;
+export const VIEW_Y_MAX = 8.6;
 const BLOCK_SIZE_RATIO = GAME.blockSize / GAME.blockStep;
 
-/** Shrink step/size so this grid stays inside the current camera frustum. */
-export function fitPlayLayout(cols: number, rows: number, _depth = 1): void {
+/**
+ * One play-stage. `liftY` moves sculpture, pits, and bench together.
+ * Every level's voxel volume is centered on `sculptureY + liftY`.
+ */
+export const STAGE = {
+  liftY: 0.55,
+  sculptureY: 5.35,
+  slotY: GAME.slotStandY,
+  benchY: 1.50,
+} as const;
+
+/** Shrink step/size, then pin the whole stage from one set of anchors. */
+export function fitPlayLayout(cols: number, rows: number, depth = 1): void {
   const spanX = Math.max(1, cols - 1 + BLOCK_SIZE_RATIO);
   const spanY = Math.max(1, rows - 1 + BLOCK_SIZE_RATIO);
-  const step = Math.min(GAME.blockStep, (2 * WALL_SAFE_HALF_W) / spanX, WALL_SAFE_H / spanY);
+  const spanZ = Math.max(1, depth - 1 + BLOCK_SIZE_RATIO);
+  const step = Math.min(
+    GAME.blockStep,
+    (2 * WALL_SAFE_HALF_W) / spanX,
+    WALL_SAFE_H / spanY,
+    3.2 / spanZ,
+  );
   PLAY.blockStep = step;
   PLAY.blockSize = step * BLOCK_SIZE_RATIO;
+  const lift = STAGE.liftY;
+  const height = Math.max(0, rows - 1) * step;
+  PLAY.wallBaseY = STAGE.sculptureY + lift - height * 0.5;
+  PLAY.slotStandY = STAGE.slotY + lift;
+  PLAY.benchStandY = STAGE.benchY + lift;
 }
 
 export function slotSpacing(_count: number): number {
-  return 0.76;
+  return 0.78;
 }
 
 export function slotColOf(index: number): number {
@@ -112,8 +140,23 @@ export function slotX(index: number, count: number = GAME.slotMax): number {
   return -((count - 1) * slotSpacing(count)) / 2 + col * slotSpacing(count);
 }
 
+export function slotY(_index?: number): number {
+  return PLAY.slotStandY;
+}
+
+/** Camera-facing face of the voxel volume (world Z, before Field spin). */
+export function voxelFrontZ(): number {
+  const step = PLAY.blockStep;
+  return GAME.worldCamLookAtZ + Math.max(0, PLAY.wallDepth - 1) * step * 0.5 + PLAY.blockSize * 0.5;
+}
+
+/** Turrets sit in front of that face, same as the original foreground guns. */
+export function shooterStandZ(): number {
+  return voxelFrontZ() + 0.48;
+}
+
 export function slotZ(index: number): number {
-  return GAME.slotStandZ + slotRowOf(index) * GAME.slotRowStep;
+  return shooterStandZ() + slotRowOf(index) * GAME.slotRowStep;
 }
 
 export function slotLocked(index: number): boolean {
@@ -208,10 +251,15 @@ export function wallColAtX(x: number): number {
 export const BENCH = {
   cols: 4,
   rows: 6,
-  stepX: 0.72,
-  stepZ: 0.74,
-  startZ: 0.62,
+  stepX: 1.05,
+  stepZ: 1.76,
+  startZ: 0.50,
+  standY: 1.50,
 } as const;
+
+export function benchSeatY(): number {
+  return PLAY.benchStandY;
+}
 
 export function benchColOf(index: number): number {
   return index % BENCH.cols;

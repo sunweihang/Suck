@@ -1,0 +1,61 @@
+CCEffect %{
+  techniques:
+  - name: opaque
+    passes:
+    - vert: outline-vs:vert
+      frag: outline-fs:frag
+      phase: default
+      properties:
+        outlineColor: { value: [0.08, 0.05, 0.04, 1.0], linear: true, editor: { type: color } }
+        outlineWidth: { value: 0.0055, target: outlineParams.x }
+      depthStencilState:
+        depthTest: true
+        depthWrite: false
+        depthFunc: less_equal
+      rasterizerState:
+        cullMode: front
+}%
+
+CCProgram outline-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/local-batch>
+
+  uniform Constant {
+    vec4 outlineParams;
+    vec4 outlineColor;
+  };
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+
+    vec3 worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+    vec4 clip = cc_matProj * cc_matView * (matWorld * In.position);
+    vec3 viewN = normalize((cc_matView * vec4(worldN, 0.0)).xyz);
+    float w = max(abs(clip.w), 0.02);
+    vec2 push = viewN.xy;
+    float len = length(push);
+    if (len > 0.0001) push /= len;
+    clip.xy += push * outlineParams.x * w;
+    return clip;
+  }
+}%
+
+CCProgram outline-fs %{
+  precision highp float;
+  #include <legacy/output-standard>
+
+  uniform Constant {
+    vec4 outlineParams;
+    vec4 outlineColor;
+  };
+
+  vec4 frag () {
+    return CCFragOutput(vec4(SRGBToLinear(outlineColor.rgb), 1.0));
+  }
+}%

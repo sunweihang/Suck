@@ -2,10 +2,8 @@
   "ver": "2.3.14",
   "importer": "gltf",
   "imported": true,
-  "uuid": "7e22bb20-0317-4b02-8002-000000000007",
-  "files": [
-    ".json"
-  ],
+  "uuid": "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6",
+  "files": [],
   "subMetas": {
     "c711d": {
       "importer": "gltf-mesh",
@@ -24,6 +22,40 @@
         ".json"
       ],
       "subMetas": {}
+    },
+    "1d5e9": {
+      "importer": "gltf-mesh",
+      "uuid": "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6@1d5e9",
+      "displayName": "",
+      "id": "1d5e9",
+      "name": "ToyCylinder.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 64
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "582ed": {
+      "importer": "gltf-scene",
+      "uuid": "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6@582ed",
+      "displayName": "",
+      "id": "582ed",
+      "name": "toy-cylinder.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
     }
   },
   "userData": {
@@ -33,12 +65,32 @@
     "addVertexColor": false,
     "assetFinder": {
       "meshes": [
-        "7e22bb20-0317-4b02-8002-000000000007@c711d"
+        "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6@1d5e9"
       ],
       "skeletons": [],
       "textures": [],
       "materials": [],
-      "scenes": []
+      "scenes": [
+        "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6@582ed"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
     }
   }
 }

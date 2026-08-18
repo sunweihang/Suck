@@ -1,6 +1,6 @@
 'use strict';
 
-/** Offline level generator. Writes assets/resources/levels/catalog.json */
+/** Offline procedural generator. Overwrites the voxel catalog from tools/import-voxel-levels.js. */
 const fs = require('fs');
 const path = require('path');
 

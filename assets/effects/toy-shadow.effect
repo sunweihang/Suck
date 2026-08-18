@@ -1,0 +1,59 @@
+CCEffect %{
+  techniques:
+  - name: transparent
+    passes:
+    - vert: shadow-vs:vert
+      frag: shadow-fs:frag
+      properties:
+        mainColor: { value: [0.07, 0.05, 0.08, 0.34], linear: true, editor: { type: color } }
+      depthStencilState:
+        depthTest: true
+        depthWrite: false
+        depthFunc: less_equal
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+}%
+
+CCProgram shadow-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/local-batch>
+
+  out vec2 v_uv;
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+    v_uv = a_texCoord;
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+    return cc_matProj * cc_matView * (matWorld * In.position);
+  }
+}%
+
+CCProgram shadow-fs %{
+  precision highp float;
+  #include <legacy/output-standard>
+
+  in vec2 v_uv;
+
+  uniform Constant {
+    vec4 mainColor;
+  };
+
+  vec4 frag () {
+    vec2 d = v_uv - vec2(0.5, 0.5);
+    float a = 1.0 - smoothstep(0.18, 0.5, length(d) * 2.0);
+    if (a < 0.02) discard;
+    vec3 col = SRGBToLinear(mainColor.rgb);
+    return CCFragOutput(vec4(col, a * mainColor.a));
+  }
+}%

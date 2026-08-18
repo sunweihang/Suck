@@ -1,11 +1,14 @@
 import { JsonAsset, resources, sys } from 'cc';
 import {
   ColorToken,
+  GAME,
   PLAY,
   fitPlayLayout,
+  isColorToken,
 } from './GameConfig';
+import { assignVoxelTokens, rgbOfVoxel } from './VoxelPalette';
 
-export const LEVEL_COUNT = 100;
+export let LEVEL_COUNT = 100;
 
 export type LevelCell = {
   tokens: ColorToken[];
@@ -27,6 +30,9 @@ export type LevelDef = {
   units: ReadonlyArray<UnitSpec>;
   palette: readonly ColorToken[];
   brickMix: number;
+  tints: Partial<Record<ColorToken, readonly [number, number, number]>>;
+  voxels: ReadonlyArray<{ x: number; y: number; z: number; token: ColorToken; colorId: number }>;
+  fieldYaw: number;
   /** Highest plate row; -1 means none. */
   ironRow: number;
   /** Plate rows, low to high. Bricks at y >= row sit above that plate. */
@@ -60,6 +66,10 @@ type RawLevel = {
   raftPeriod?: number;
   brickMix?: number;
   palette: string;
+  tints?: Record<string, [number, number, number]>;
+  fieldYaw?: number;
+  depth?: number;
+  voxels?: number[];
   units: Array<[string, number] | [string, number, string]>;
   cells: Array<string | null>;
 };
@@ -93,11 +103,19 @@ export function applyLevel(def: LevelDef): void {
   PLAY.wallCols = def.cols;
   PLAY.wallRows = def.rows;
   let depth = 1;
-  for (const cell of def.cells) {
-    if (cell) depth = Math.max(depth, cell.tokens.length);
+  if (def.voxels.length) {
+    for (const v of def.voxels) depth = Math.max(depth, v.z + 1);
+  } else {
+    for (const cell of def.cells) {
+      if (cell) depth = Math.max(depth, cell.tokens.length);
+    }
   }
   PLAY.wallDepth = depth;
   PLAY.palette = def.palette.slice();
+  const tints = { ...(def.tints ?? {}) };
+  for (const v of def.voxels) tints[v.token] = rgbOfVoxel(v.colorId);
+  PLAY.tints = tints;
+  PLAY.fieldYawDeg = def.fieldYaw ?? 0;
   PLAY.brickMix = def.brickMix;
   PLAY.ironRows = (def.ironRows ?? []).slice().sort((a, b) => a - b);
   PLAY.ironRow = PLAY.ironRows.length ? PLAY.ironRows[PLAY.ironRows.length - 1] : -1;
@@ -128,6 +146,7 @@ export function ensureLevels(): Promise<void> {
         return;
       }
       LEVELS = pack.levels.map(decodeLevel);
+      LEVEL_COUNT = LEVELS.length;
       resolve();
     });
   });
@@ -153,32 +172,16 @@ export function itemUnlocked(id: ItemId, level: number): boolean {
   return (level | 0) >= ITEM_UNLOCK_LEVEL[id];
 }
 
-export function isTutorialLevel(id: number): boolean {
-  return (id | 0) === 1;
+export function isTutorialLevel(_id: number): boolean {
+  return false;
 }
 
-export function showsPlayHint(id: number): boolean {
-  const n = id | 0;
-  return n === 1 || n === 2 || n === 11 || n === 21 || n === 41 || n === 51 || n === 61;
+export function showsPlayHint(_id: number): boolean {
+  return false;
 }
-
-const SPECIAL_TITLE: Record<number, string> = {
-  2: '两种颜色',
-  3: '解锁洗牌',
-  5: '解锁合并',
-  8: '解锁钩子',
-  10: '解锁铲子',
-  11: '挡板',
-  21: '染色',
-  41: '钉子锁',
-  51: '炸弹',
-  61: '拯救宝箱',
-};
 
 export function levelTitle(id: number): string {
-  if (isTutorialLevel(id)) return '新手引导';
-  const special = SPECIAL_TITLE[id | 0];
-  return special ? special : `第 ${id} 关`;
+  return `第 ${id} 关`;
 }
 
 export function levelBadgeText(id: number): string {
@@ -229,6 +232,52 @@ function decodeCell(raw: string | null): LevelCell | null {
   return cell;
 }
 
+function decodeVoxels(
+  raw: number[] | undefined,
+  palette: string,
+  tints?: Partial<Record<ColorToken, readonly [number, number, number]>>,
+): Array<{ x: number; y: number; z: number; token: ColorToken; colorId: number }> {
+  const out: Array<{ x: number; y: number; z: number; token: ColorToken; colorId: number }> = [];
+  if (!raw?.length) return out;
+  const counts: Record<number, number> = {};
+  for (let i = 0; i + 3 < raw.length; i += 4) {
+    const id = raw[i + 3] | 0;
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  const mapped = assignVoxelTokens(counts).map;
+  const byRgb = new Map<string, ColorToken>();
+  if (tints) {
+    for (const key of Object.keys(tints)) {
+      if (!isColorToken(key)) continue;
+      const rgb = tints[key];
+      if (!rgb) continue;
+      byRgb.set(`${rgb[0] | 0},${rgb[1] | 0},${rgb[2] | 0}`, key);
+    }
+  }
+  for (let i = 0; i + 3 < raw.length; i += 4) {
+    const colorId = raw[i + 3] | 0;
+    const rgb = rgbOfVoxel(colorId);
+    const fromTint = byRgb.get(`${rgb[0]},${rgb[1]},${rgb[2]}`);
+    const fromId = mapped[colorId];
+    const fromPal = palette[colorId];
+    const token = fromTint ?? fromId ?? (isColorToken(fromPal) ? fromPal : 'o');
+    out.push({ x: raw[i] | 0, y: raw[i + 1] | 0, z: raw[i + 2] | 0, token, colorId });
+  }
+  return out;
+}
+
+function decodeTints(
+  raw?: Record<string, [number, number, number]>,
+): Partial<Record<ColorToken, readonly [number, number, number]>> {
+  const out: Partial<Record<ColorToken, readonly [number, number, number]>> = {};
+  if (!raw) return out;
+  for (const [key, rgb] of Object.entries(raw)) {
+    if (!isColorToken(key) || !rgb || rgb.length < 3) continue;
+    out[key] = [rgb[0] | 0, rgb[1] | 0, rgb[2] | 0];
+  }
+  return out;
+}
+
 function decodeIronRows(raw: RawLevel): number[] {
   if (raw.ironRows?.length) return raw.ironRows.filter((n) => n >= 0).sort((a, b) => a - b);
   if ((raw.ironRow ?? -1) >= 0) return [raw.ironRow as number];
@@ -237,6 +286,7 @@ function decodeIronRows(raw: RawLevel): number[] {
 
 function decodeLevel(raw: RawLevel): LevelDef {
   const ironRows = decodeIronRows(raw);
+  const tints = decodeTints(raw.tints);
   return {
     id: raw.id,
     cols: raw.cols,
@@ -253,6 +303,9 @@ function decodeLevel(raw: RawLevel): LevelDef {
     raftTravel: raw.raftTravel ?? 0,
     raftPeriod: raw.raftPeriod ?? 2.5,
     brickMix: raw.brickMix ?? 0,
+    tints,
+    fieldYaw: raw.fieldYaw ?? 0,
+    voxels: decodeVoxels(raw.voxels, raw.palette, tints),
     palette: [...raw.palette] as ColorToken[],
     units: raw.units.map((u) => {
       const token = u[0] as ColorToken;

@@ -9,6 +9,9 @@
     r: '红', s: '蓝', k: '珊瑚', m: '薄荷', a: '品红', d: '金',
   };
   const ALL = Object.keys(TOKEN_RGB);
+  const BENCH_COLS = 4;
+  const BENCH_ROWS = 6;
+  const BENCH_SEATS = BENCH_COLS * BENCH_ROWS;
   const TOOLS = [
     ['paint', '画笔'],
     ['erase', '橡皮'],
@@ -59,6 +62,7 @@
   let hist = [];
   let histN = -1;
   let strokeOpen = false;
+  let baseline = '';
 
   function rgb(token) {
     const c = TOKEN_RGB[token] || [180, 180, 180];
@@ -179,6 +183,10 @@
     histN = 0;
   }
 
+  function markBaseline() {
+    baseline = snap();
+  }
+
   function pushHist() {
     if (!state.raw) return;
     const s = snap();
@@ -218,6 +226,17 @@
     if (histN >= hist.length - 1) return;
     histN += 1;
     applySnap(hist[histN]);
+  }
+
+  function revertAll() {
+    if (!state.raw || !baseline) return;
+    if (snap() === baseline) return;
+    if (!confirm('撤销本关全部未保存修改，回到上次保存或打开时的状态？')) return;
+    applySnap(baseline);
+    setDirty(false);
+    resetHist();
+    $('solve').textContent = '已撤销全部修改';
+    $('solve').className = 'solve';
   }
 
   function beginStroke() {
@@ -608,19 +627,11 @@
   }
 
   function updateStats() {
-    let bricks = 0;
-    let filled = 0;
     let depth = 0;
-    const counts = {};
     for (const cell of state.cells) {
       if (!cell) continue;
-      filled += 1;
-      bricks += cell.tokens?.length || 0;
       depth = Math.max(depth, cell.tokens?.length || 0);
-      for (const t of cell.tokens || []) counts[t] = (counts[t] || 0) + 1;
     }
-    const parts = Object.keys(counts).map((t) => `${TOKEN_NAME[t] || t}${counts[t]}`).join(' ');
-    $('stats').textContent = `${state.raw.cols}×${state.raw.rows} 格${filled} 砖${bricks} 深${depth}  ${parts}`;
     $('layer').max = String(Math.max(7, depth));
   }
 
@@ -761,11 +772,6 @@
         return;
       }
       const hit = canvasPos(ev);
-      const cell = hit.gx >= 0 && hit.gy >= 0 ? cellAt(hit.gx, hit.gy) : null;
-      const tok = cell?.tokens?.[state.layer] || cell?.rescue || (cell?.chest ? '$' : '');
-      $('hover').textContent = hit.gx >= 0 && hit.gy >= 0
-        ? `${hit.gx},${hit.gy} ${tok || '空'}`
-        : '左键绘制 · 右键旋转 · 中键/空格平移 · 滚轮缩放';
       if (!state.painting) return;
       if (hit.gx < 0 || hit.gy < 0) return;
       paintCell(hit.gx, hit.gy);
@@ -825,13 +831,23 @@
     box.innerHTML = '';
     const units = state.raw.units || [];
     units.forEach((u, i) => {
-      const row = document.createElement('div');
-      row.className = 'unit';
-      row.innerHTML = `<div class="dot" style="background:${rgb(u[0])}"></div>
+      if (i === BENCH_SEATS) {
+        const split = document.createElement('div');
+        split.className = 'unit-split';
+        split.textContent = '候补 · 上场后按列补位';
+        box.appendChild(split);
+      }
+      const card = document.createElement('div');
+      const rank = Math.floor(i / BENCH_COLS);
+      card.className = `unit${i < BENCH_COLS ? ' front' : ''}${i >= BENCH_SEATS ? ' reserve' : ''}`;
+      card.title = i >= BENCH_SEATS ? `候补 ${i + 1}` : `第 ${rank + 1} 排 · 第 ${(i % BENCH_COLS) + 1} 列`;
+      card.innerHTML = `<div class="unit-top">
+          <div class="dot" style="background:${rgb(u[0])}">${i + 1}</div>
+          <button data-i="${i}" data-k="x" type="button">×</button>
+        </div>
         <select data-i="${i}" data-k="c">${ALL.map((t) => `<option value="${t}" ${t === u[0] ? 'selected' : ''}>${TOKEN_NAME[t] || t}</option>`).join('')}</select>
-        <input data-i="${i}" data-k="n" type="number" min="1" max="120" value="${u[1]}" />
-        <button data-i="${i}" data-k="x" type="button">×</button>`;
-      box.appendChild(row);
+        <input data-i="${i}" data-k="n" type="number" min="1" max="120" value="${u[1]}" />`;
+      box.appendChild(card);
     });
     box.onchange = (ev) => {
       const el = ev.target;
@@ -915,6 +931,51 @@
     draw();
   }
 
+  function addLayer() {
+    if (!state.raw) return;
+    const srcZ = state.layer;
+    const hits = state.cells.filter((cell) => cell?.tokens?.length && srcZ < cell.tokens.length);
+    if (!hits.length) return;
+    pushHist();
+    for (const cell of hits) {
+      const insertAt = srcZ + 1;
+      const srcTok = cell.tokens[srcZ];
+      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => {
+        if (cell[k]) ensureFlags(cell, k, cell.tokens.length);
+      });
+      cell.tokens.splice(insertAt, 0, srcTok);
+      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => {
+        if (!cell[k]) return;
+        cell[k].splice(insertAt, 0, !!cell[k][srcZ]);
+      });
+    }
+    if ($('view-iso')) $('view-iso').checked = true;
+    if ($('show-all')) $('show-all').checked = true;
+    syncViewButtons();
+    setDirty(true);
+    setLayer(srcZ + 1);
+  }
+
+  function removeLayer() {
+    if (!state.raw) return;
+    const z = state.layer;
+    const hits = [];
+    for (let i = 0; i < state.cells.length; i++) {
+      const cell = state.cells[i];
+      if (cell?.tokens?.length && z < cell.tokens.length) hits.push(i);
+    }
+    if (!hits.length) return;
+    pushHist();
+    for (const i of hits) {
+      const cell = state.cells[i];
+      cell.tokens.splice(z, 1);
+      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => cell[k]?.splice(z, 1));
+      if (!cell.tokens.length && !cell.chest && !cell.rescue) state.cells[i] = null;
+    }
+    setDirty(true);
+    setLayer(z > 0 ? z - 1 : 0);
+  }
+
   async function api(url, opts) {
     const res = await fetch(url, opts);
     const data = await res.json();
@@ -930,6 +991,7 @@
     setDirty(false);
     applyRaw(data.level, data.title, data.shape);
     resetHist();
+    markBaseline();
     $('solve').textContent = '';
     $('solve').className = 'solve';
   }
@@ -942,6 +1004,8 @@
       body: JSON.stringify({ level: raw }),
     });
     setDirty(false);
+    markBaseline();
+    resetHist();
     state.raw.hand = true;
     const item = state.levels.find((l) => l.id === state.id);
     if (item) item.hand = true;
@@ -950,8 +1014,29 @@
     $('solve').className = 'solve ok';
   }
 
+  function setSim(text, ok) {
+    const el = $('sim');
+    if (el) {
+      el.textContent = text;
+      el.className = ok == null ? 'hint sim' : ok ? 'hint sim ok' : 'hint sim fail';
+    }
+    $('solve').textContent = text;
+    $('solve').className = ok == null ? 'solve' : ok ? 'solve ok' : 'solve fail';
+  }
+
+  function simReason(reason, remain) {
+    const left = remain != null ? ` 剩${remain}砖` : '';
+    if (reason === 'order-slots' || reason === 'stuck-slots' || reason === 'no-empty-can-eat' || reason === 'forced-dead') {
+      return `4坑卡死${left}`;
+    }
+    if (reason === 'order-not-front') return `前排对不上顺序${left}`;
+    if (reason === 'no-units') return `单位用尽${left}`;
+    if (reason === 'order-max' || reason === 'max-steps') return `步数耗尽${left}`;
+    return `${reason || '不过'}${left}`;
+  }
+
   async function solveLevel() {
-    $('solve').textContent = '验关中…';
+    setSim('验关中…');
     const data = await api(`/api/level/${state.id}/solve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -959,8 +1044,23 @@
     });
     const ok = data.order.ok || data.greedy.ok;
     const how = data.order.ok ? `顺序可过 ${data.order.steps}步` : data.greedy.ok ? `需策略（贪心 ${data.greedy.steps}步）` : `不过 剩${data.greedy.remain ?? data.order.remain}`;
-    $('solve').textContent = how;
-    $('solve').className = ok ? 'solve ok' : 'solve fail';
+    setSim(how, ok);
+  }
+
+  async function simulateStrict() {
+    setSim('模拟中… 4坑·无道具');
+    const data = await api(`/api/level/${state.id}/solve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: encodeRaw(), allowUnlock: false }),
+    });
+    const ok = data.order.ok || data.greedy.ok;
+    const how = data.order.ok
+      ? `可过 · 按队列顺序 ${data.order.steps}步（4坑·无道具）`
+      : data.greedy.ok
+        ? `可过 · 需调整上场顺序 ${data.greedy.steps}步（4坑·无道具）`
+        : `不过 · ${simReason(data.greedy.reason || data.order.reason, data.greedy.remain ?? data.order.remain)}`;
+    setSim(how, ok);
   }
 
   async function recalc() {
@@ -973,6 +1073,7 @@
     state.raw.units = data.units;
     renderUnits();
     setDirty(true);
+    setSim(`已分配 ${data.units.length} 只到 4 列席位`);
   }
 
   async function stamp() {
@@ -1023,6 +1124,8 @@
       $('layer-lab').textContent = String(state.layer);
       draw();
     };
+    if ($('btn-add-layer')) $('btn-add-layer').onclick = addLayer;
+    if ($('btn-del-layer')) $('btn-del-layer').onclick = removeLayer;
     $('show-all').onchange = draw;
     if ($('view-iso')) {
       $('view-iso').onchange = () => {
@@ -1033,6 +1136,8 @@
     $('btn-save').onclick = () => saveLevel().catch(showErr);
     $('btn-solve').onclick = () => solveLevel().catch(showErr);
     $('btn-units').onclick = () => recalc().catch(showErr);
+    if ($('btn-auto-units')) $('btn-auto-units').onclick = () => recalc().catch(showErr);
+    if ($('btn-sim')) $('btn-sim').onclick = () => simulateStrict().catch(showErr);
     $('btn-stamp').onclick = () => stamp().catch(showErr);
     $('btn-gen').onclick = () => generate().catch(showErr);
     $('btn-resize').onclick = resizeGrid;
@@ -1076,6 +1181,7 @@
     $('btn-next').onclick = () => loadLevel(Math.min(100, state.id + 1));
     if ($('btn-undo')) $('btn-undo').onclick = undo;
     if ($('btn-redo')) $('btn-redo').onclick = redo;
+    if ($('btn-revert')) $('btn-revert').onclick = revertAll;
     if ($('btn-flat')) $('btn-flat').onclick = setFlatView;
     if ($('btn-cam')) $('btn-cam').onclick = resetCam;
     syncViewButtons();

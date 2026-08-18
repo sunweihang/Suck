@@ -1,16 +1,23 @@
 import {
   Camera,
   Canvas,
+  Color,
+  EffectAsset,
   ImageAsset,
+  Material,
+  MeshRenderer,
   Node,
   Sprite,
   SpriteFrame,
   Texture2D,
   UITransform,
+  Vec3,
   Widget,
   assetManager,
   resources,
+  utils,
 } from 'cc';
+import { BENCH, PLAY, shooterStandZ } from '../game/GameConfig';
 import { applyPortraitCameraRect, coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 
 const BG_IMAGE_UUID = '2dd19bfe-8cac-486f-9e72-ba1499869c97';
@@ -135,4 +142,98 @@ export async function spawnToyBackdrop(scene: Node): Promise<Node> {
 
 export function applyToyGround(node: Node): void {
   node.active = false;
+}
+
+const FX_CATCHER = '9d13ee10-0202-4a01-8001-000000000013';
+
+let _catcherFx: EffectAsset | null = null;
+let _catcherBoot: Promise<void> | null = null;
+let _catcherMat: Material | null = null;
+let _catcherQuad: ReturnType<typeof utils.MeshUtils.createMesh> = null;
+
+export function preloadShadowCatchers(): Promise<void> {
+  if (_catcherFx) return Promise.resolve();
+  if (_catcherBoot) return _catcherBoot;
+  _catcherBoot = new Promise((resolve) => {
+    assetManager.loadAny({ uuid: FX_CATCHER }, (err, asset) => {
+      if (!err && asset) _catcherFx = asset as EffectAsset;
+      resolve();
+    });
+  });
+  return _catcherBoot;
+}
+
+function catcherMat(): Material | null {
+  if (_catcherMat?.passes?.length) return _catcherMat;
+  const mat = new Material();
+  if (_catcherFx) {
+    try {
+      mat.initialize({
+        effectAsset: _catcherFx,
+        defines: { CC_RECEIVE_SHADOW: true },
+      });
+    } catch {
+      /* effect failed to compile */
+    }
+  }
+  if (!mat.passes?.length) return null;
+  mat.setProperty('mainColor', new Color(38, 30, 52, 88));
+  _catcherMat = mat;
+  return mat;
+}
+
+function catcherQuad() {
+  if (_catcherQuad) return _catcherQuad;
+  _catcherQuad = utils.MeshUtils.createMesh({
+    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    uvs: [0, 1, 1, 1, 1, 0, 0, 0],
+    indices: [0, 1, 2, 0, 2, 3],
+    minPos: new Vec3(-0.5, -0.5, 0),
+    maxPos: new Vec3(0.5, 0.5, 0),
+    boundingRadius: Math.SQRT1_2,
+  });
+  return _catcherQuad;
+}
+
+function placeCatcher(root: Node, name: string, pos: Vec3, euler: Vec3, scale: Vec3): void {
+  const mat = catcherMat();
+  const mesh = catcherQuad();
+  if (!mat || !mesh) return;
+  let n = root.getChildByName(name);
+  if (!n) {
+    n = new Node(name);
+    root.addChild(n);
+    n.addComponent(MeshRenderer);
+  }
+  n.active = true;
+  n.layer = root.layer;
+  n.setPosition(pos);
+  n.setRotationFromEuler(euler.x, euler.y, euler.z);
+  n.setScale(scale);
+  const mr = n.getComponent(MeshRenderer)!;
+  mr.mesh = mesh;
+  mr.setSharedMaterial(mat, 0);
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.ON;
+  mr.enabled = true;
+}
+
+/** Invisible planes that only draw the shadow map, right under each stand. */
+export function spawnShadowCatchers(root: Node): void {
+  const benchZ = BENCH.startZ + ((BENCH.rows - 1) * BENCH.stepZ) * 0.5;
+  placeCatcher(
+    root,
+    'ShadowFloor',
+    new Vec3(0, PLAY.benchStandY - 0.22, benchZ),
+    new Vec3(-90, 0, 0),
+    new Vec3(7.4, 11.4, 1),
+  );
+  placeCatcher(
+    root,
+    'ShadowSlot',
+    new Vec3(0, PLAY.slotStandY - 0.22, shooterStandZ()),
+    new Vec3(-90, 0, 0),
+    new Vec3(6.6, 2.6, 1),
+  );
 }

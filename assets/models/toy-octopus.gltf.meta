@@ -3,14 +3,12 @@
   "importer": "gltf",
   "imported": true,
   "uuid": "7e22bb20-0312-4b02-8002-000000000002",
-  "files": [
-    ".json"
-  ],
+  "files": [],
   "subMetas": {
     "9d64e": {
       "importer": "gltf-mesh",
       "uuid": "7e22bb20-0312-4b02-8002-000000000002@9d64e",
-      "displayName": "ToyOctopus",
+      "displayName": "",
       "id": "9d64e",
       "name": "ToyOctopus.mesh",
       "userData": {
@@ -21,6 +19,22 @@
       "imported": true,
       "files": [
         ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "77ec7": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0312-4b02-8002-000000000002@77ec7",
+      "displayName": "",
+      "id": "77ec7",
+      "name": "toy-octopus.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
         ".json"
       ],
       "subMetas": {}
@@ -38,7 +52,27 @@
       "skeletons": [],
       "textures": [],
       "materials": [],
-      "scenes": []
+      "scenes": [
+        "7e22bb20-0312-4b02-8002-000000000002@77ec7"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
     }
   }
 }

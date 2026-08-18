@@ -1,10 +1,19 @@
-import { Color, Material, MeshRenderer, Node, Vec3 } from 'cc';
-import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
+import { Color, EffectAsset, Material, MeshRenderer, Node, Vec3, assetManager } from 'cc';
+import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
+import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
 import { applyToyCaster } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
+const FX_CLAY = '9d13ee10-0200-4a01-8001-000000000001';
+
 const _mats = new Map<string, Material>();
+let _clayFx: EffectAsset | null = null;
+let _clayBoot: Promise<void> | null = null;
+
+function usable(mat: Material | null | undefined): mat is Material {
+  return !!mat?.passes?.length;
+}
 
 function glossy(key: string, color: Color, roughness: number, emit: number): Material {
   let mat = _mats.get(key);
@@ -20,9 +29,29 @@ function glossy(key: string, color: Color, roughness: number, emit: number): Mat
   return mat;
 }
 
-function rgbOf(token: ColorToken): Color {
-  const rgb = TOKEN_RGB[token] ?? TOKEN_RGB.y;
+function colorOf(rgb: readonly [number, number, number]): Color {
   return new Color(rgb[0], rgb[1], rgb[2], 255);
+}
+
+function paintUnlit(inst: Material, color: Color): void {
+  inst.setProperty('mainColor', color);
+}
+
+function skipPaint(name: string): boolean {
+  return (
+    name === 'HoldRim'
+    || name === 'Outline'
+    || name === 'Crease'
+    || name === 'BlobShadow'
+    || name === 'Pad'
+    || name === 'Power'
+    || name === 'Bank'
+    || name === 'Text'
+    || name.startsWith('Paint')
+    || name.startsWith('Magnet')
+    || name.startsWith('Lock')
+    || /^[DN]\d$/.test(name)
+  );
 }
 
 function part(root: Node, name: string): Node {
@@ -62,52 +91,90 @@ function blob(
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
-function plasticMat(token: ColorToken): Material {
-  const key = `plastic-${token}`;
-  let mat = _mats.get(key);
-  if (mat) return mat;
-  const color = rgbOf(token);
-  mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', 0.52);
-  mat.setProperty('metallic', 0);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
+function pixelMat(look: VoxelLook): Material | null {
+  const key = `unlit-${look.rgb[0]}-${look.rgb[1]}-${look.rgb[2]}`;
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const fx = _clayFx ?? EffectAsset.get('toy-clay');
+  const mat = new Material();
+  if (fx) {
+    try {
+      mat.initialize({ effectAsset: fx, techniqueIndex: 0 });
+    } catch {
+      /* effect failed to compile */
+    }
+  }
+  if (!usable(mat)) {
+    try {
+      mat.initialize({ effectName: 'toy-clay' });
+    } catch {
+      /* name lookup failed */
+    }
+  }
+  if (!usable(mat)) mat.initialize({ effectName: 'builtin-unlit' });
+  if (!usable(mat)) return null;
+  paintUnlit(mat, colorOf(look.rgb));
   _mats.set(key, mat);
   return mat;
 }
 
-/** Recolor without material instances so same-color debris stay batched. */
-export function paintNodeShared(root: Node, token: ColorToken): void {
-  const mat = plasticMat(token);
+function paintLook(root: Node, look: VoxelLook): void {
+  const mat = pixelMat(look);
+  if (mat) {
+    for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+      if (skipPaint(mr.node.name)) continue;
+      mr.setSharedMaterial(mat, 0);
+    }
+    return;
+  }
+  const color = colorOf(look.rgb);
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
-    if (
-      mr.node.name === 'HoldRim'
-      || mr.node.name.startsWith('Paint')
-      || mr.node.name.startsWith('Magnet')
-      || mr.node.name.startsWith('Lock')
-    ) continue;
-    mr.setSharedMaterial(mat, 0);
+    if (skipPaint(mr.node.name)) continue;
+    const inst = mr.getMaterialInstance(0);
+    if (inst) paintUnlit(inst, color);
   }
 }
 
+export function preloadVoxelLook(): Promise<void> {
+  if (_clayFx) return Promise.resolve();
+  if (_clayBoot) return _clayBoot;
+  _clayBoot = new Promise((resolve) => {
+    assetManager.loadAny({ uuid: FX_CLAY }, (err, asset) => {
+      if (!err && asset) _clayFx = asset as EffectAsset;
+      resolve();
+    });
+  });
+  return _clayBoot;
+}
+
+/** Recolor without material instances so same-color debris stay batched. */
+export function paintNodeShared(root: Node, token: ColorToken): void {
+  paintLook(root, lookOfRgb(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y));
+}
+
+export function paintVoxelRgb(root: Node, rgb: readonly [number, number, number]): void {
+  paintLook(root, lookOfRgb(rgb));
+}
+
+export function paintVoxelId(root: Node, colorId: number): void {
+  paintLook(root, lookOfVoxel(colorId));
+}
+
 export function paintNodeColor(root: Node, token: ColorToken): void {
-  const color = rgbOf(token);
+  paintLook(root, lookOfRgb(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y));
+}
+
+export function paintUnitColor(root: Node, token: ColorToken): void {
+  const rgb = PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y;
+  const mat = glossy(
+    `unit-${rgb[0]}-${rgb[1]}-${rgb[2]}`,
+    new Color(rgb[0], rgb[1], rgb[2], 255),
+    0.26,
+    0.18,
+  );
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
-    if (
-      mr.node.name === 'HoldRim'
-      || mr.node.name.startsWith('Paint')
-      || mr.node.name.startsWith('Magnet')
-      || mr.node.name.startsWith('Lock')
-    ) continue;
-    const inst = mr.getMaterialInstance(0);
-    if (!inst) continue;
-    inst.setProperty('mainColor', color);
-    inst.setProperty('emissive', color);
-    inst.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
-    inst.setProperty('roughness', 0.52);
-    inst.setProperty('metallic', 0);
+    if (skipPaint(mr.node.name)) continue;
+    mr.setSharedMaterial(mat, 0);
   }
 }
 
@@ -127,31 +194,21 @@ export function applyMagnetLook(root: Node): void {
 }
 
 export function applySandLook(root: Node): void {
-  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
-    const inst = mr.getMaterialInstance(0);
-    if (!inst) continue;
-    inst.setProperty('roughness', 0.78);
-    inst.setProperty('metallic', 0);
-    inst.setProperty('emissive', new Color(210, 150, 70, 255));
-    inst.setProperty('emissiveScale', new Vec3(0.08, 0.05, 0.02));
-  }
+  paintLook(root, lookOfRgb([195, 175, 113]));
 }
 
 export function applyGhostLook(root: Node): void {
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+    if (skipPaint(mr.node.name)) continue;
     const inst = mr.getMaterialInstance(0);
     if (!inst) continue;
     const cur = inst.getProperty('mainColor');
     const c = cur instanceof Color ? cur : new Color(220, 230, 240, 255);
-    const washed = new Color(
+    inst.setProperty('mainColor', new Color(
       Math.min(255, c.r + 70),
       Math.min(255, c.g + 80),
       Math.min(255, c.b + 90),
       255,
-    );
-    inst.setProperty('mainColor', washed);
-    inst.setProperty('emissive', new Color(220, 240, 255, 255));
-    inst.setProperty('emissiveScale', new Vec3(0.28, 0.32, 0.36));
-    inst.setProperty('roughness', 0.12);
+    ));
   }
 }

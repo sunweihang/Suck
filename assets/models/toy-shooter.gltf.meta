@@ -1,0 +1,96 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "7e22bb20-0319-4b02-8002-000000000009",
+  "files": [],
+  "subMetas": {
+    "s7a01": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0319-4b02-8002-000000000009@s7a01",
+      "displayName": "ToyShooter",
+      "id": "s7a01",
+      "name": "ToyShooter.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 1940
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "0d4df": {
+      "importer": "gltf-mesh",
+      "uuid": "7e22bb20-0319-4b02-8002-000000000009@0d4df",
+      "displayName": "",
+      "id": "0d4df",
+      "name": "ToyShooter.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 1940
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4ac3a": {
+      "importer": "gltf-scene",
+      "uuid": "7e22bb20-0319-4b02-8002-000000000009@4ac3a",
+      "displayName": "",
+      "id": "4ac3a",
+      "name": "toy-shooter.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageUuids": [],
+    "imageMetas": [],
+    "allowMeshDataAccess": true,
+    "addVertexColor": false,
+    "assetFinder": {
+      "meshes": [
+        "7e22bb20-0319-4b02-8002-000000000009@0d4df"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "7e22bb20-0319-4b02-8002-000000000009@4ac3a"
+      ]
+    },
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    }
+  }
+}

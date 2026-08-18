@@ -12,19 +12,20 @@ const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'assets', 'resources', 'toys');
 const SIZE = 128;
 
+/** Keep in sync with tools/sync-original-colors.js / GameConfig TOKEN_RGB. */
 const COLORS = [
-  { id: 0, name: 'orange', rgb: [255, 140, 36], uuid: '9d12cc10-0100-4a01-8001-000000000001' },
-  { id: 1, name: 'yellow', rgb: [255, 244, 40], shade: [232, 188, 8], hi: [255, 250, 110], uuid: '9d12cc10-0100-4a01-8001-000000000002' },
-  { id: 2, name: 'cyan', rgb: [8, 232, 236], uuid: '9d12cc10-0100-4a01-8001-000000000003' },
-  { id: 3, name: 'lime', rgb: [48, 232, 40], uuid: '9d12cc10-0100-4a01-8001-000000000004' },
-  { id: 4, name: 'pink', rgb: [255, 72, 168], uuid: '9d12cc10-0100-4a01-8001-000000000005' },
-  { id: 5, name: 'violet', rgb: [176, 96, 255], uuid: '9d12cc10-0100-4a01-8001-000000000006' },
-  { id: 6, name: 'red', rgb: [255, 48, 68], uuid: '9d12cc10-0100-4a01-8001-000000000007' },
-  { id: 7, name: 'sky', rgb: [56, 176, 255], uuid: '9d12cc10-0100-4a01-8001-000000000008' },
-  { id: 8, name: 'coral', rgb: [255, 116, 88], uuid: '9d12cc10-0100-4a01-8001-000000000009' },
-  { id: 9, name: 'mint', rgb: [0, 220, 124], uuid: '9d12cc10-0100-4a01-8001-00000000000a' },
-  { id: 10, name: 'magenta', rgb: [244, 40, 216], uuid: '9d12cc10-0100-4a01-8001-00000000000b' },
-  { id: 11, name: 'gold', rgb: [255, 212, 36], shade: [214, 160, 8], hi: [255, 232, 96], uuid: '9d12cc10-0100-4a01-8001-00000000000c' },
+  { id: 0, name: 'orange', rgb: [255, 158, 48], uuid: '9d12cc10-0100-4a01-8001-000000000001' },
+  { id: 1, name: 'yellow', rgb: [255, 208, 48], shade: [235, 172, 24], hi: [255, 228, 88], uuid: '9d12cc10-0100-4a01-8001-000000000002' },
+  { id: 2, name: 'cyan', rgb: [0, 221, 255], uuid: '9d12cc10-0100-4a01-8001-000000000003' },
+  { id: 3, name: 'lime', rgb: [96, 237, 22], uuid: '9d12cc10-0100-4a01-8001-000000000004' },
+  { id: 4, name: 'pink', rgb: [249, 54, 116], uuid: '9d12cc10-0100-4a01-8001-000000000005' },
+  { id: 5, name: 'violet', rgb: [158, 96, 236], uuid: '9d12cc10-0100-4a01-8001-000000000006' },
+  { id: 6, name: 'red', rgb: [255, 58, 62], shade: [220, 28, 34], hi: [255, 96, 96], uuid: '9d12cc10-0100-4a01-8001-000000000007' },
+  { id: 7, name: 'sky', rgb: [74, 176, 255], uuid: '9d12cc10-0100-4a01-8001-000000000008' },
+  { id: 8, name: 'coral', rgb: [255, 120, 88], uuid: '9d12cc10-0100-4a01-8001-000000000009' },
+  { id: 9, name: 'mint', rgb: [44, 225, 162], uuid: '9d12cc10-0100-4a01-8001-00000000000a' },
+  { id: 10, name: 'magenta', rgb: [236, 88, 210], uuid: '9d12cc10-0100-4a01-8001-00000000000b' },
+  { id: 11, name: 'gold', rgb: [255, 208, 48], shade: [235, 172, 24], hi: [255, 228, 88], uuid: '9d12cc10-0100-4a01-8001-00000000000c' },
 ];
 
 const LX = -0.42;
@@ -69,7 +70,7 @@ function hsvToRgb(h, s, v) {
 
 function tone(rgb, satMul, valMul, valCap) {
   const [h, s, v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
-  return hsvToRgb(h, Math.max(0.42, Math.min(1, s * satMul)), Math.min(valCap, v * valMul));
+  return hsvToRgb(h, Math.max(0.5, Math.min(1, s * satMul)), Math.min(valCap, v * valMul));
 }
 
 function mix(a, b, t) {
@@ -117,29 +118,24 @@ function encodePng(w, h, rgba) {
   ]);
 }
 
-function paint(entry) {
-  const base = entry.rgb;
-  const hi = entry.hi || tone(base, 0.86, 1.06, 1);
-  const shade = entry.shade || tone(base, 1.06, 0.7, 0.86);
+function paint(_entry) {
   const rgba = Buffer.alloc(SIZE * SIZE * 4);
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const nx = (x / (SIZE - 1)) * 2 - 1;
       const ny = 1 - (y / (SIZE - 1)) * 2;
       const nz2 = 1 - nx * nx - ny * ny;
-      let c = shade;
+      let wrap = 0.9;
       if (nz2 > 0) {
         const nz = Math.sqrt(nz2);
         const ndotl = Math.max(0, Math.min(1, (nx * LX + ny * LY + nz * LZ) / LLEN));
-        const wrap = 0.42 + 0.58 * ndotl;
-        const sheen = ndotl * ndotl * 0.1;
-        c = mix(shade, base, wrap);
-        c = mix(c, hi, sheen);
+        wrap = 0.9 + 0.1 * ndotl + ndotl * ndotl * 0.04;
       }
+      const lum = Math.max(0, Math.min(255, Math.round(wrap * 255)));
       const i = (y * SIZE + x) * 4;
-      rgba[i] = Math.max(0, Math.min(255, Math.round(c[0])));
-      rgba[i + 1] = Math.max(0, Math.min(255, Math.round(c[1])));
-      rgba[i + 2] = Math.max(0, Math.min(255, Math.round(c[2])));
+      rgba[i] = lum;
+      rgba[i + 1] = lum;
+      rgba[i + 2] = lum;
       rgba[i + 3] = 255;
     }
   }
@@ -187,18 +183,6 @@ function imageMeta(uuid, name) {
 }
 
 fs.mkdirSync(OUT, { recursive: true });
-fs.writeFileSync(
-  path.join(OUT, '..', 'toys.meta'),
-  `${JSON.stringify({
-    ver: '1.2.0',
-    importer: 'directory',
-    imported: true,
-    uuid: 'c0110001-0001-4001-8001-000000000020',
-    files: [],
-    subMetas: {},
-    userData: {},
-  }, null, 2)}\n`,
-);
 
 for (const c of COLORS) {
   const file = `clay-${c.name}`;

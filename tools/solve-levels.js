@@ -1259,7 +1259,8 @@ function filledCount(slots) {
   return n;
 }
 
-function solveInOrder(level) {
+function solveInOrder(level, opts = {}) {
+  const allowUnlock = opts.allowUnlock !== false;
   setPlayRules(level);
   const homes = slotHomeCols(level.cols);
   const bench = Array.from({ length: BENCH.cols }, () => []);
@@ -1282,7 +1283,7 @@ function solveInOrder(level) {
     if (wall.remain <= 0) return { ok: true, steps: step, log, mode: 'order' };
     let empties = [];
     for (let i = 0; i < SLOT_MAX; i++) if (!locked[i] && !slots[i]) empties.push(i);
-    if (empties.length === 0) {
+    if (empties.length === 0 && allowUnlock) {
       const lk = locked.findIndex((v, i) => v && !slots[i]);
       if (lk >= 0) {
         locked[lk] = false;
@@ -1317,6 +1318,7 @@ function solveInOrder(level) {
 }
 
 function solveLevel(level, opts = {}) {
+  const allowUnlock = opts.allowUnlock !== false;
   setPlayRules(level);
   const homes = slotHomeCols(level.cols);
   const bench = Array.from({ length: BENCH.cols }, () => []);
@@ -1348,7 +1350,7 @@ function solveLevel(level, opts = {}) {
     if (state.wall.remain <= 0) return { ok: true, steps, log };
 
     let empties = openEmptySlots(state);
-    if (empties.length === 0) {
+    if (empties.length === 0 && allowUnlock) {
       const lockedEmpty = state.locked.findIndex((lk, i) => lk && !state.slots[i]);
       if (lockedEmpty >= 0) {
         state.locked[lockedEmpty] = false;

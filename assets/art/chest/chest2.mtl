@@ -59,12 +59,12 @@
   "_props": [
     {
       "mainTexture": {
-        "__uuid__": "82895669-8c8b-48c2-97f3-482aa8aa7cef@6c48a",
+        "__uuid__": "68dc84eb-4c58-409b-a08a-e125d5333264@6c48a",
         "__expectedType__": "cc.Texture2D"
       },
       "specularIntensity": 0.58,
       "emissiveMap": {
-        "__uuid__": "82895669-8c8b-48c2-97f3-482aa8aa7cef@6c48a",
+        "__uuid__": "68dc84eb-4c58-409b-a08a-e125d5333264@6c48a",
         "__expectedType__": "cc.Texture2D"
       }
     },

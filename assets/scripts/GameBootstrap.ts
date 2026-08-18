@@ -12,6 +12,7 @@ import {
   Input,
   KeyCode,
   Layers,
+  MeshRenderer,
   Node,
   Prefab,
   UITransform,
@@ -172,6 +173,7 @@ export class GameBootstrap extends Component {
       this._tuneLighting();
       this._ensureLetterboxCam();
       await ensureLevels();
+      this._restoreProgress();
       this._wallet.load();
       await this._buildUi();
       this._ensureAudio();
@@ -224,7 +226,7 @@ export class GameBootstrap extends Component {
     const scene = this.node.scene;
     if (!scene) return;
     for (const child of [...scene.children]) {
-      if (LEFTOVER_NAMES.has(child.name)) child.destroy();
+      if (LEFTOVER_NAMES.has(child.name)) this._disposeTree(child);
     }
   }
 
@@ -235,6 +237,19 @@ export class GameBootstrap extends Component {
     if (!n) return;
     n.name = `${name}_disposed`;
     n.removeFromParent();
+    this._disposeTree(n);
+  }
+
+  /** Drop renderers with a missing GPU descriptor set before engine destroyModel. */
+  private _disposeTree(n: Node): void {
+    for (const mr of n.getComponentsInChildren(MeshRenderer)) {
+      mr.enabled = false;
+      const model = mr.model as { subModels?: Array<{ descriptorSet: unknown }> } | null;
+      if (!model?.subModels?.some((sub) => sub && !sub.descriptorSet)) continue;
+      const raw = mr as unknown as { _model: null; _models: unknown[] };
+      raw._model = null;
+      raw._models = [];
+    }
     n.destroy();
   }
 
@@ -599,6 +614,15 @@ export class GameBootstrap extends Component {
     this._enterPlay();
   }
 
+  private _gmReset(): void {
+    this._builtLevel = 0;
+    this._victory?.hide();
+    this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
+    this._enterPlay();
+  }
+
   private _tuneMainCamera(): void {
     const camNode = this.node.scene?.getChildByName('Main Camera');
     const cam = camNode?.getComponent(Camera);
@@ -630,38 +654,22 @@ export class GameBootstrap extends Component {
     const scene = this.node.scene;
     if (!scene) return;
     const shadows = scene.globals?.shadows;
-    if (shadows) {
-      shadows.enabled = true;
-      shadows.type = 1;
-      shadows.shadowMapSize = 512;
-      shadows.shadowColor = new Color(32, 48, 68, 200);
-    }
+    if (shadows) shadows.enabled = false;
     const ambient = scene.globals?.ambient;
     if (ambient) {
-      ambient.skyIllum = 26000;
-      ambient.skyColor = new Color(254, 250, 220, 255);
-      ambient.groundAlbedo = new Color(176, 226, 236, 255);
+      ambient.skyIllum = 42000;
+      ambient.skyColor = new Color(255, 248, 240, 255);
+      ambient.groundAlbedo = new Color(210, 196, 230, 255);
     }
     const lightNode = scene.getChildByName('Directional Light');
     const light = lightNode?.getComponent(DirectionalLight);
     if (light && lightNode) {
-      lightNode.setPosition(8, 16, 10);
-      lightNode.setRotationFromEuler(-58, 46, 0);
-      light.color = new Color(255, 232, 204, 255);
-      light.illuminance = 215000;
-      light.shadowEnabled = true;
-      light.shadowPcf = 1;
-      light.shadowBias = 0.0006;
-      light.shadowNormalBias = 0.16;
-      light.shadowSaturation = 0.64;
-      light.shadowDistance = 20;
-      light.shadowFixedArea = true;
-      light.shadowNear = 0.5;
-      light.shadowFar = 28;
-      light.shadowOrthoSize = 7;
+      lightNode.setPosition(6, 14, -8);
+      lightNode.setRotationFromEuler(-32, 22, 0);
+      light.color = new Color(255, 244, 228, 255);
+      light.illuminance = 210000;
+      light.shadowEnabled = false;
     }
-    const fillNode = scene.getChildByName('Fill Light');
-    if (fillNode) fillNode.active = false;
   }
 
   private _ensureLetterboxCam(): void {
@@ -835,6 +843,7 @@ export class GameBootstrap extends Component {
     this._gm.setup({
       onWin: () => this._gmWin(),
       onFail: () => this._gmLose(),
+      onReset: () => this._gmReset(),
       onSkip: (n) => this._gmSkip(n),
       onAddGold: (delta) => this._wallet.add(delta),
       onSetGold: (n) => this._wallet.setCoins(n),
@@ -947,7 +956,7 @@ export class GameBootstrap extends Component {
     if (world?.isValid) world.active = on;
     if (this._mainCam?.isValid) this._mainCam.enabled = on;
     const shadows = this.node.scene?.globals?.shadows;
-    if (shadows) shadows.enabled = on;
+    if (shadows) shadows.enabled = false;
   }
 
   private _showHome(): void {

@@ -9,7 +9,17 @@ const CATALOG = path.join(ROOT, 'assets/resources/levels/catalog.json');
 const CATALOG_META = `${CATALOG}.meta`;
 const OVERRIDE_DIR = path.join(ROOT, 'levels');
 const CATALOG_UUID = '7e22bb20-0360-4b02-8002-000000000060';
-const LEVEL_COUNT = 100;
+
+function catalogCount() {
+  try {
+    const pack = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
+    return Math.max(1, pack.levels?.length | 0);
+  } catch {
+    return 100;
+  }
+}
+
+const LEVEL_COUNT = catalogCount();
 
 const SPECIAL_TITLE = {
   1: '新手引导',

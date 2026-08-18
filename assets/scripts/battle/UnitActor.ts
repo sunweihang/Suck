@@ -1,9 +1,11 @@
-import { _decorator, Component, Node, Tween, Vec3, tween } from 'cc';
-import { benchColOf, benchRankOf, ColorId, SPECIAL_SPAN, parseColorToken } from '../game/GameConfig';
-import { applyGhostLook } from './BrickSpecials';
-import { OctopusQAnim } from './OctopusQAnim';
+import { _decorator, Component, Node, Vec3 } from 'cc';
+import { benchColOf, benchRankOf, ColorId, SPECIAL_SPAN, parseColorToken, tokenOfColorId } from '../game/GameConfig';
+import { applyGhostLook, paintUnitColor } from './BrickSpecials';
+import { TurretAnim } from './TurretAnim';
 import { bindPowerMark, paintPowerMark, preloadPowerDigits } from './PowerMark';
 import { applyToyCaster } from './ToyBlockMesh';
+import { TURRET_SCALE } from './ToyLook';
+import { applyQueueBlockLook, applyTurretLook, lockQueueBlockPose } from './TurretLook';
 
 const { ccclass } = _decorator;
 
@@ -33,7 +35,7 @@ export class UnitActor extends Component {
   suckWait = 0;
   inflight = 0;
 
-  private readonly _q = new OctopusQAnim();
+  private readonly _q = new TurretAnim();
   private readonly _slideFrom = new Vec3();
   private readonly _slideTo = new Vec3();
   private readonly _flyFromScale = new Vec3(1, 1, 1);
@@ -46,13 +48,14 @@ export class UnitActor extends Component {
   private _prevPower = 40;
   private _prevInflight = 0;
   private _armed = false;
+  private _vanish = false;
   private _powerTag: Node | null = null;
   private _shownPower = -1;
   private _powerOn = false;
   private _muzzle: Node | null = null;
 
   onLoad(): void {
-    applyToyCaster(this.node, false, false);
+    applyToyCaster(this.node, false, true);
     this.syncFromName();
   }
 
@@ -60,6 +63,7 @@ export class UnitActor extends Component {
     this._parseName();
     this.node.getPosition(this.homePos);
     this._q.bind(this.node, this.index);
+    this.refreshSeatLook();
     this._bindMuzzle();
     this._ensurePowerLabel();
     this.refreshPowerVisible();
@@ -67,13 +71,14 @@ export class UnitActor extends Component {
     this._prevPower = this.power;
     this._prevInflight = this.inflight;
     this._armed = false;
+    this._vanish = false;
   }
 
   mouthWorld(out: Vec3): Vec3 {
     if (!this._muzzle?.isValid) this._bindMuzzle();
     if (this._muzzle?.isValid) return this._muzzle.getWorldPosition(out);
     this.node.getWorldPosition(out);
-    out.y += 0.12;
+    out.y += 0.22;
     return out;
   }
 
@@ -107,7 +112,7 @@ export class UnitActor extends Component {
   }
 
   get usable(): boolean {
-    return this.node.activeInHierarchy && !this.trapped && !this._flying;
+    return this.node.activeInHierarchy && !this.trapped && !this._flying && !this._vanish;
   }
 
   get onBench(): boolean {
@@ -115,7 +120,15 @@ export class UnitActor extends Component {
   }
 
   get traveling(): boolean {
-    return this._slideLeft > 0 || this._flyWait > 0;
+    return this._slideLeft > 0 || this._flyWait > 0 || this._vanish;
+  }
+
+  playVanish(done?: () => void): void {
+    this._vanish = true;
+    this.setPowerVisible(false);
+    this._q.playDie(() => {
+      done?.();
+    });
   }
 
   resetHome(): void {
@@ -125,6 +138,7 @@ export class UnitActor extends Component {
     this._flyWait = 0;
     this._flyArc = 0;
     this._flying = false;
+    this._vanish = false;
     this.node.setPosition(this.homePos);
   }
 
@@ -165,16 +179,6 @@ export class UnitActor extends Component {
 
   flashFree(): void {
     this._q.punchMerge();
-    Tween.stopAllByTarget(this.node);
-    const x = this.node.scale.x;
-    const y = this.node.scale.y;
-    const z = this.node.scale.z;
-    tween(this.node)
-      .to(0.07, { scale: new Vec3(x * 1.14, y * 1.14, z * 1.14) }, { easing: 'quadOut' })
-      .to(0.07, { scale: new Vec3(x * 0.9, y * 0.9, z * 0.9) }, { easing: 'quadIn' })
-      .to(0.07, { scale: new Vec3(x * 1.1, y * 1.1, z * 1.1) }, { easing: 'quadOut' })
-      .to(0.09, { scale: new Vec3(x, y, z) }, { easing: 'quadIn' })
-      .start();
   }
 
   update(dt: number): void {
@@ -193,17 +197,12 @@ export class UnitActor extends Component {
         this._slideFrom.z + (this._slideTo.z - this._slideFrom.z) * k,
       );
       if (this._flyArc > 0) {
-        const s = this._flyFromScale.x + (1 - this._flyFromScale.x) * k;
-        this.node.setScale(s * (1 - lift * 0.07), s * (1 + lift * 0.12), s * (1 - lift * 0.07));
-        this.node.setRotationFromEuler(
-          (this._slideTo.z - this._slideFrom.z) * 7 * lift,
-          0,
-          -(this._slideTo.x - this._slideFrom.x) * 9 * lift,
-        );
+        const s = this._flyFromScale.x + (TURRET_SCALE - this._flyFromScale.x) * k;
+        this.node.setScale(s, s, s);
         if (this._slideLeft <= 0) {
           this._flying = false;
           this._flyArc = 0;
-          this.node.setScale(1, 1, 1);
+          this.node.setScale(TURRET_SCALE, TURRET_SCALE, TURRET_SCALE);
           this.node.setRotationFromEuler(0, 0, 0);
           this.node.setPosition(this._slideTo);
           this._q.punchLand();
@@ -221,25 +220,33 @@ export class UnitActor extends Component {
         if (this.state === 'drag') this._q.punchPick();
         else if (this._prevState === 'drag') this._q.punchLand();
         this._prevState = this.state;
-        this.refreshPowerVisible();
+        this.refreshSeatLook();
       }
       if (this.inflight > this._prevInflight) this._q.punchSpit();
       if (this.power < this._prevPower) this._q.punchEat();
-      else if (this.power > this._prevPower && this.state === 'bench') this._q.punchMerge();
+      else if (this.power > this._prevPower && this.state === 'bench' && !this._queued()) this._q.punchMerge();
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     }
-    if (this._wantsAnim()) {
+    if (this._queued()) {
+      this._q.rest();
+      lockQueueBlockPose(this.node);
+    } else if (this._wantsAnim()) {
       this._q.tick(dt, this.state, this.inflight);
     }
   }
 
+  private _queued(): boolean {
+    return !this.trapped && this.state === 'bench' && this.benchRank > 0;
+  }
+
   private _wantsAnim(): boolean {
-    if (this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
+    if (this.state === 'bench' && this.benchRank > 0 && !this.trapped) return false;
+    if (this._vanish || this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
       return true;
     }
     if (!UnitActor.animLive || this.trapped) return false;
-    return this.state === 'bench' && this.benchRank === 0;
+    return this.state === 'bench';
   }
 
   private _shouldShowPower(): boolean {
@@ -275,11 +282,23 @@ export class UnitActor extends Component {
     if (this.ghost) applyGhostLook(this.node);
   }
 
+  refreshSeatLook(): void {
+    if (this._queued()) {
+      this._q.rest();
+      applyQueueBlockLook(this.node);
+    } else {
+      applyTurretLook(this.node, this.colorId);
+    }
+    paintUnitColor(this.node, tokenOfColorId(this.colorId));
+    this.refreshPowerVisible();
+  }
+
   private _bindMuzzle(): void {
-    const rig = this.node.getChildByName('Rig');
-    const host = rig ?? this.node;
-    const mouth = host.getChildByName('Mouth') ?? this.node.getChildByName('Mouth');
-    this._muzzle = mouth?.getChildByName('MouthHole') ?? mouth;
+    this._muzzle = this.node.getChildByName('Body')?.getChildByName('Mouth')
+      ?? this.node.getChildByName('Rig')?.getChildByName('Body')?.getChildByName('Mouth')
+      ?? this.node.getChildByName('Mouth')
+      ?? this.node.getChildByName('Rig')?.getChildByName('Mouth')
+      ?? null;
   }
 
   private _ensurePowerLabel(): void {

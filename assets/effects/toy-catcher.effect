@@ -1,0 +1,76 @@
+CCEffect %{
+  techniques:
+  - name: transparent
+    passes:
+    - vert: catcher-vs:vert
+      frag: catcher-fs:frag
+      properties:
+        mainColor: { value: [0.08, 0.06, 0.12, 0.40], linear: true, editor: { type: color } }
+      depthStencilState:
+        depthTest: true
+        depthWrite: false
+        depthFunc: less_equal
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+}%
+
+CCProgram catcher-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <legacy/local-batch>
+  #include <legacy/shadow-map-vs>
+
+  out vec3 v_worldN;
+  #if CC_RECEIVE_SHADOW
+    out vec2 v_shadowBias;
+  #endif
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+    vec4 wp = matWorld * In.position;
+    v_worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+    #if CC_RECEIVE_SHADOW
+      v_shadowBias = CCGetShadowBias();
+    #endif
+    CC_TRANSFER_SHADOW(wp);
+    return cc_matProj * cc_matView * wp;
+  }
+}%
+
+CCProgram catcher-fs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/output-standard>
+  #include <legacy/shadow-map-fs>
+
+  in vec3 v_worldN;
+  #if CC_RECEIVE_SHADOW
+    in vec2 v_shadowBias;
+  #endif
+
+  uniform Constant {
+    vec4 mainColor;
+  };
+
+  vec4 frag () {
+    float lit = 1.0;
+    #if CC_RECEIVE_SHADOW && CC_SHADOW_TYPE == CC_SHADOW_MAP
+      vec3 n = normalize(v_worldN);
+      float nl = max(dot(n, normalize(-cc_mainLitDir.xyz)), 0.0);
+      CC_SHADOW_FACTOR(lit, n, nl, v_shadowBias);
+    #endif
+    float a = (1.0 - lit) * mainColor.a;
+    if (a < 0.02) discard;
+    return CCFragOutput(vec4(SRGBToLinear(mainColor.rgb), a));
+  }
+}%

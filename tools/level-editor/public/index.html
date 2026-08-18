@@ -14,6 +14,7 @@
     <div class="spacer"></div>
     <button id="btn-undo" type="button" title="Ctrl+Z">撤销</button>
     <button id="btn-redo" type="button" title="Ctrl+Y">重做</button>
+    <button id="btn-revert" type="button" title="回到上次保存/打开时的状态">撤销全部修改</button>
     <button id="btn-help" type="button" title="?">快捷键</button>
     <button id="btn-prev" type="button">上一关</button>
     <button id="btn-next" type="button">下一关</button>
@@ -30,12 +31,12 @@
     <section class="stage">
       <div class="stage-bar">
         <label>层 <input id="layer" type="range" min="0" max="7" value="0" /> <span id="layer-lab">0</span></label>
+        <button id="btn-add-layer" type="button" title="把当前层形状再叠一层">+ 层</button>
+        <button id="btn-del-layer" type="button" title="删掉当前层">− 层</button>
         <label class="check"><input id="view-iso" type="checkbox" checked /> 立体</label>
         <label class="check"><input id="show-all" type="checkbox" checked /> 画出整叠</label>
         <button id="btn-flat" type="button" title="F">2D俯视</button>
         <button id="btn-cam" type="button" title="R">复位视角</button>
-        <span id="hover" class="hover">左键绘制 · 右键旋转 · 中键/空格平移 · 滚轮缩放</span>
-        <span id="stats" class="stats"></span>
       </div>
       <div class="canvas-wrap">
         <canvas id="grid" width="720" height="640"></canvas>
@@ -71,10 +72,21 @@
       <label>缺口列 <input id="gaps" type="text" placeholder="如 10,14" /></label>
       <p class="hint">也可点画布左侧行号 / 底栏列号切换。</p>
       <h3>单位队列</h3>
-      <div id="units" class="units"></div>
+      <p class="hint">与运行时相同：4 列席位，左→右，前排在上。</p>
+      <div class="units-box">
+        <div class="unit-cols">
+          <span>1</span><span>2</span><span>3</span><span>4</span>
+        </div>
+        <div id="units" class="units"></div>
+      </div>
       <div class="row">
         <button id="btn-add-unit" type="button">加单位</button>
       </div>
+      <div class="row">
+        <button id="btn-auto-units" type="button" title="按当前砖块重算，并排到 4 列席位">自动分配单位</button>
+        <button id="btn-sim" type="button" title="只用初始 4 坑，不解锁坑位、不使用道具">模拟验证</button>
+      </div>
+      <p id="sim" class="hint sim"></p>
       <p class="hint">保存写入 <code>levels/Lxxx.json</code>，重新生成不会覆盖手改关。</p>
     </aside>
   </main>
@@ -82,12 +94,12 @@
     <div class="help-card">
       <h2>快捷键</h2>
       <ul>
-        <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销　<kbd>Ctrl</kbd>+<kbd>Y</kbd> 重做</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销　<kbd>Ctrl</kbd>+<kbd>Y</kbd> 重做　顶栏可撤销全部修改</li>
         <li><kbd>Ctrl</kbd>+<kbd>S</kbd> 保存　<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 验关</li>
         <li><kbd>B</kbd> 画笔　<kbd>E</kbd> 橡皮　<kbd>G</kbd> 填充</li>
         <li><kbd>N</kbd> 钉子　<kbd>O</kbd> 炸弹　<kbd>T</kbd> 染色</li>
         <li><kbd>C</kbd> 宝箱　<kbd>Q</kbd> 拯救　<kbd>I</kbd> 铁板　<kbd>P</kbd> 缺口</li>
-        <li><kbd>1</kbd>–<kbd>9</kbd> 选颜色　<kbd>[</kbd> <kbd>]</kbd> 换层</li>
+        <li><kbd>1</kbd>–<kbd>9</kbd> 选颜色　<kbd>[</kbd> <kbd>]</kbd> 换层　顶栏 <b>+ 层</b> 叠一层</li>
         <li>右键/Alt+左键拖拽旋转　中键/空格拖拽平移　滚轮缩放</li>
         <li><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> 转视角　<kbd>+</kbd><kbd>-</kbd> 缩放</li>
         <li><kbd>F</kbd> 2D俯视　<kbd>R</kbd> 复位立体视角　<kbd>?</kbd> 开关本说明　<kbd>Esc</kbd> 关闭</li>

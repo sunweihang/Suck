@@ -6,16 +6,20 @@ import {
   GAME,
   PLAY,
   benchSeatX,
+  benchSeatY,
   benchSeatZ,
   slotLocked,
   slotTotal,
   slotX,
+  slotY,
   slotZ,
   coveredBySpecial,
   specialCenterX,
   specialCenterY,
   wallColAtX,
   wallStartX,
+  parseColorToken,
+  isColorToken,
 } from '../game/GameConfig';
 import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
@@ -25,16 +29,16 @@ import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
 import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
+import { preloadToySlots } from './ToySlotMesh';
 import { applyBombs, preloadBombs } from './Bombs';
-import { applyMagnetLook, applyPaintLook, applySandLook } from './BrickSpecials';
+import { applyMagnetLook, applyPaintLook, applySandLook, paintNodeColor, paintUnitColor, paintVoxelId, preloadVoxelLook } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
-import { applyShadowReceiver } from './ToyBlockMesh';
 import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
-import { OCTOPUS_STAND_Y } from './ToyLook';
+import { preloadTurretLooks } from './TurretLook';
 import { UnitActor } from './UnitActor';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
@@ -137,6 +141,9 @@ export async function buildPlayWorld(
     preloadRaftBoard(),
     preloadPowerDigits().then(() => null),
     preloadInkShot(),
+    preloadTurretLooks(),
+    preloadToySlots(),
+    preloadVoxelLook(),
   ]);
   const blockPfs = new Map<ColorToken, Prefab>();
   const unitPfs = new Map<ColorToken, Prefab>();
@@ -149,7 +156,6 @@ export async function buildPlayWorld(
   scene.addChild(root);
 
   applyToyGround(spawn(groundPf, root, 'Ground', new Vec3(0, -0.12, 0)));
-  applyShadowReceiver(root.getChildByName('Ground')!);
 
   const wall = new Node('Wall');
   root.addChild(wall);
@@ -159,6 +165,25 @@ export async function buildPlayWorld(
   const startX = wallStartX(cols);
   const frontZ = GAME.wallFrontZ;
   const baseY = PLAY.wallBaseY;
+  if (level.voxels.length) {
+    const depth = PLAY.wallDepth;
+    const originX = -((cols - 1) * step) / 2;
+    const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
+    const brickPf = blockPfs.get('r') ?? blockPfs.get('o')!;
+    for (const v of level.voxels) {
+      const token = v.token;
+      const n = spawn(
+        brickPf,
+        wall,
+        `Blk_${token}_${v.x}_${v.y}_${v.z}`,
+        new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step),
+      );
+      const cell = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
+      cell.syncFromName();
+      if (isColorToken(token)) cell.colorId = parseColorToken(token);
+      paintVoxelId(n, v.colorId);
+    }
+  } else
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (coveredBySpecial(level.cells, cols, x, y)) continue;
@@ -190,6 +215,7 @@ export async function buildPlayWorld(
           ),
         );
         (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
+        paintNodeColor(n, token);
         if (locked && z === 0) applyLockNails(n);
         if (bombed) applyBombs(n, token);
         if (paint) applyPaintLook(n, token);
@@ -249,9 +275,14 @@ export async function buildPlayWorld(
       unitPfs.get(token) ?? unitPfs.get('o')!,
       bench,
       `Unit_${String(i).padStart(2, '0')}_${token}_${power}${tag}`,
-      new Vec3(x, OCTOPUS_STAND_Y, z),
+      new Vec3(x, benchSeatY(), z),
     );
-    (n.getComponent(UnitActor) ?? n.addComponent(UnitActor)).syncFromName();
+    const unit = n.getComponent(UnitActor) ?? n.addComponent(UnitActor);
+    unit.syncFromName();
+    if (isColorToken(token)) {
+      unit.colorId = parseColorToken(token);
+      paintUnitColor(n, token);
+    }
   });
 
   const slots = new Node('Slots');
@@ -259,7 +290,7 @@ export async function buildPlayWorld(
   const total = slotTotal();
   for (let i = 0; i < total; i++) {
     const x = slotX(i);
-    const n = spawn(slotPf, slots, `Slot_${i}`, new Vec3(x, 0, slotZ(i)));
+    const n = spawn(slotPf, slots, `Slot_${i}`, new Vec3(x, slotY(i), slotZ(i)));
     const pad = n.getComponent(SlotPad) ?? n.addComponent(SlotPad);
     pad.locked = slotLocked(i);
     pad.homeCol = wallColAtX(x);
