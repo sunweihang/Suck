@@ -14,6 +14,7 @@ import {
   Prefab,
   Quat,
   screen,
+  UIOpacity,
   UITransform,
   Vec3,
 } from 'cc';
@@ -270,7 +271,7 @@ export class BattleDirector extends Component {
   private _sw = 1;
   private _sh = 1;
   private _remain = 0;
-  private _unitPfs = new Map<ColorToken, Prefab>();
+  private _unitPfs: Record<string, Prefab> = Object.create(null);
   private _debrisPf: Prefab | null = null;
   private _reserve: UnitSpec[] = [];
   private _bench: Node | null = null;
@@ -326,7 +327,7 @@ export class BattleDirector extends Component {
   private readonly _posedRot = new Quat(NaN, NaN, NaN, NaN);
 
   armSpawn(
-    unitPfs: Map<ColorToken, Prefab>,
+    unitPfs: Record<string, Prefab>,
     reserve: ReadonlyArray<UnitSpec> = [],
     debrisPf: Prefab | null = null,
   ): void {
@@ -2185,13 +2186,22 @@ export class BattleDirector extends Component {
     }
     for (let i = 0; i < UI_MODALS.length; i++) {
       const n = this._canvas?.getChildByName(UI_MODALS[i]);
-      if (n?.activeInHierarchy) return true;
+      if (this._modalBlocksPlay(n)) return true;
     }
     return false;
   }
 
+  /** Victory stays active at 0 opacity after GPU warmup; do not treat that as a modal. */
+  private _modalBlocksPlay(node: Node | null | undefined): boolean {
+    if (!node?.activeInHierarchy) return false;
+    const op = node.getComponent(UIOpacity);
+    return !op || op.opacity > 0;
+  }
+
   private _hitsUi(node: Node | null | undefined, loc: ReturnType<PointerEvt['getLocation']>): boolean {
     if (!node?.activeInHierarchy) return false;
+    const op = node.getComponent(UIOpacity);
+    if (op && op.opacity <= 0) return false;
     if (node.getComponent(UITransform)?.hitTest(loc)) return true;
     for (const child of node.children) {
       if (this._hitsUi(child, loc)) return true;
@@ -2307,7 +2317,7 @@ export class BattleDirector extends Component {
   ): boolean {
     const bench = this._bench;
     if (!bench) return false;
-    const pf = this._unitPfs.get(token) ?? this._unitPfs.get('o');
+    const pf = this._unitPfs[token] || this._unitPfs['o'];
     if (!pf) return false;
     const index = this._nextUnitIndex++;
     const x = benchSeatX(col);

@@ -68,6 +68,7 @@ import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinF
 import { playItemGrantFly } from './view/ItemFlyFx';
 import { artFrame, ensureHomeLevelArt, preloadUiArt } from './view/UiArt';
 import { loadGameBundles } from './boot/LoadBundles';
+import { attachBootLoad } from './view/BootLoad';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
   return new Promise((resolve, reject) => {
@@ -196,20 +197,33 @@ export class GameBootstrap extends Component {
 
   private async _bootUi(): Promise<void> {
     try {
-      await loadGameBundles();
       applyDesignResolution();
       this._tuneMainCamera();
       this._tuneLighting();
       this._ensureLetterboxCam();
+      const canvas = this._ensureUiCanvas();
+      if (this._uiCam?.isValid) {
+        this._uiCam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+        this._uiCam.clearColor = Theme.sky;
+      }
+      const load = await attachBootLoad(canvas);
+      notifyHostSplashHomeReady();
+      await loadGameBundles((p) => load.set(p));
+      load.set(0.78);
       await ensureLevels();
       this._restoreProgress();
       this._wallet.load();
-      void this._bootWorld();
+      load.raise();
       await this._buildUi();
+      load.raise();
+      this._home?.hide();
+      load.set(0.86);
+      await this._bootWorld();
       this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
       await preloadUiArt();
+      load.set(0.94);
       await this._audio?.ensureWin();
       await this._victory?.warmup();
       await ensureHomeLevelArt();
@@ -223,15 +237,19 @@ export class GameBootstrap extends Component {
       this._itemShop?.applyArt();
       this._applyPortraitFrame();
       this._bindBattle();
+      await load.finish();
+      load.hide();
+      this._showHome();
       this._revealHomeAndLiftSplash();
     } catch (err) {
       console.error('[Suck] boot ui failed', err);
+      this._showHome();
       this._revealHomeAndLiftSplash();
     }
   }
 
   start(): void {
-    void this._bootWorld();
+    /* world boots after subpackages in _bootUi */
   }
 
   onDestroy(): void {
@@ -1003,9 +1021,9 @@ export class GameBootstrap extends Component {
     relayoutGameClubButton();
   };
 
-  private async _buildUi(): Promise<void> {
+  private _ensureUiCanvas(): Node {
+    if (this._canvas?.isValid) return this._canvas;
     const scene = this.node.scene!;
-    this._disposeNamed('Canvas');
     const vis = portraitVisibleSize();
     const canvasN = new Node('Canvas');
     scene.addChild(canvasN);
@@ -1030,6 +1048,11 @@ export class GameBootstrap extends Component {
     canvas.cameraComponent = uiCam;
     this._uiCam = uiCam;
     this._canvas = canvasN;
+    return canvasN;
+  }
+
+  private async _buildUi(): Promise<void> {
+    const canvasN = this._ensureUiCanvas();
 
     const touch = new Node('TouchPad');
     canvasN.addChild(touch);
@@ -1266,11 +1289,13 @@ export class GameBootstrap extends Component {
       const pf = await loadPrefab(PREFAB_UUID.HomePanel);
       const n = instantiate(pf);
       n.name = 'HomePanel';
+      n.active = false;
       canvasN.addChild(n);
       return n;
     } catch (err) {
       console.warn('[Suck] HomePanel prefab missing, fallback node', err);
       const n = new Node('HomePanel');
+      n.active = false;
       canvasN.addChild(n);
       return n;
     }

@@ -25,7 +25,15 @@ import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatal
 import { BattleDirector } from './BattleDirector';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
-import { BLOCK_PREFAB, PREFAB_UUID, UNIT_PREFAB } from './PrefabCatalog';
+import {
+  allPrefabTokens,
+  blockPrefabPath,
+  blockPrefabUuid,
+  prefabPath,
+  prefabUuid,
+  unitPrefabPath,
+  unitPrefabUuid,
+} from './PrefabCatalog';
 import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
@@ -39,41 +47,87 @@ import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
 import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
 import { preloadTurretLooks } from './TurretLook';
+import { loadPrefabFromPack } from '../boot/LoadBundles';
 import { UnitActor } from './UnitActor';
 
 const prefabJobs = new Map<string, Promise<Prefab | null>>();
 const DEBRIS_SEED = 8;
+const PLAY_MESH_UUIDS = [
+  '7e22bb20-0311-4b02-8002-000000000001@e1d15',
+  '7e22bb20-0319-4b02-8002-000000000009@0d4df',
+  '1263d74c-8167-4928-91a6-4e2672411f47@a804a',
+];
 
-function loadPrefabMaybe(uuid: string): Promise<Prefab | null> {
-  let job = prefabJobs.get(uuid);
+function preloadPlayMeshes(): Promise<void> {
+  return Promise.all(
+    PLAY_MESH_UUIDS.map(
+      (uuid) =>
+        new Promise<void>((resolve) => {
+          assetManager.loadAny({ uuid }, () => resolve());
+        }),
+    ),
+  ).then(() => undefined);
+}
+
+function asPrefab(asset: unknown): Prefab | null {
+  if (!asset || typeof asset !== 'object') return null;
+  return asset as Prefab;
+}
+
+function loadPrefabMaybe(path: string, uuid: string): Promise<Prefab | null> {
+  const key = path || uuid;
+  if (!key) return Promise.resolve(null);
+  let job = prefabJobs.get(key);
   if (job) return job;
-  job = new Promise((resolve) => {
-    assetManager.loadAny({ uuid }, (err, asset) => {
-      resolve(!err && asset ? (asset as Prefab) : null);
+  job = (async () => {
+    if (path) {
+      const fromPack = await loadPrefabFromPack(path);
+      if (fromPack) return fromPack;
+    }
+    if (!uuid) return null;
+    return new Promise<Prefab | null>((resolve) => {
+      assetManager.loadAny({ uuid, type: Prefab }, (err, asset) => {
+        resolve(!err ? asPrefab(asset) : null);
+      });
     });
-  });
-  prefabJobs.set(uuid, job);
+  })();
+  prefabJobs.set(key, job);
   return job;
 }
 
-function loadPrefab(uuid: string): Promise<Prefab> {
-  return loadPrefabMaybe(uuid).then((asset) => {
-    if (!asset) throw new Error(`prefab missing ${uuid}`);
+function loadPrefab(path: string, uuid: string, label = ''): Promise<Prefab> {
+  return loadPrefabMaybe(path, uuid).then((asset) => {
+    if (!asset) throw new Error(`prefab missing ${label || path || uuid}`);
     return asset;
   });
 }
 
-function tokensNeeded(level: LevelDef): ColorToken[] {
-  const set = new Set<ColorToken>(['o']);
-  for (const t of level.palette) if (isColorToken(t)) set.add(t);
-  for (const u of level.units) if (isColorToken(u[0])) set.add(u[0]);
-  for (const v of level.voxels) if (isColorToken(v.token)) set.add(v.token);
-  for (const cell of level.cells) {
-    if (!cell) continue;
-    for (const t of cell.tokens) if (isColorToken(t)) set.add(t);
-    if (cell.rescue && isColorToken(cell.rescue)) set.add(cell.rescue);
+function tokensNeeded(level: LevelDef): string[] {
+  const seen: Record<string, number> = Object.create(null);
+  const out: string[] = [];
+  const add = (t: string) => {
+    if (!t || seen[t]) return;
+    seen[t] = 1;
+    out.push(t);
+  };
+  add('o');
+  const pal = level.palette;
+  if (pal) for (let i = 0; i < pal.length; i++) add(pal[i]);
+  const units = level.units;
+  if (units) for (let i = 0; i < units.length; i++) add(units[i][0]);
+  const voxels = level.voxels;
+  if (voxels) for (let i = 0; i < voxels.length; i++) add(voxels[i].token);
+  const cells = level.cells;
+  if (cells) {
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      if (!cell) continue;
+      const toks = cell.tokens;
+      if (toks) for (let j = 0; j < toks.length; j++) add(toks[j]);
+      if (cell.rescue) add(cell.rescue);
+    }
   }
-  return [...set];
+  return out;
 }
 
 function levelNeeds(level: LevelDef): {
@@ -115,7 +169,13 @@ function onRaft(level: LevelDef, x: number, y: number): boolean {
 }
 
 function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
-  const n = instantiate(prefab);
+  if (!prefab) throw new Error(`prefab missing ${name}`);
+  let n: Node;
+  try {
+    n = instantiate(prefab);
+  } catch (err) {
+    throw new Error(`instantiate ${name}: ${String(err)}`);
+  }
   n.name = name;
   parent.addChild(n);
   n.setPosition(pos);
@@ -123,7 +183,7 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
 }
 
 function loadChestPrefab(): Promise<Prefab | null> {
-  return loadPrefabMaybe(PREFAB_UUID.Chest);
+  return loadPrefabMaybe(prefabPath('Chest'), prefabUuid('Chest'));
 }
 
 function spawnChestFallback(parent: Node, name: string, pos: Vec3): Node {
@@ -176,16 +236,23 @@ export async function buildPlayWorld(
   await ensureLevels();
   level = level ?? getLevel(1);
   applyLevel(level);
-  const tokens = tokensNeeded(level);
+  const tokens = allPrefabTokens();
+  const extra = tokensNeeded(level);
+  for (let i = 0; i < extra.length; i++) {
+    if (tokens.indexOf(extra[i]) < 0) tokens.push(extra[i]);
+  }
   const needs = levelNeeds(level);
-  const [groundPf, slotPf, debrisPf, ironPf, chestPf, ...colorPfs] = await Promise.all([
-    loadPrefab(PREFAB_UUID.Ground),
-    loadPrefab(PREFAB_UUID.Slot),
-    loadPrefab(PREFAB_UUID.Debris),
-    needs.iron ? loadPrefab(PREFAB_UUID.IronPlate) : Promise.resolve(null),
+  await preloadPlayMeshes();
+  const blockPfs: Record<string, Prefab> = Object.create(null);
+  const unitPfs: Record<string, Prefab> = Object.create(null);
+  const [groundPf, slotPf, debrisPf, ironPf, chestPf, blockLoaded, unitLoaded] = await Promise.all([
+    loadPrefab(prefabPath('Ground'), prefabUuid('Ground'), 'Ground'),
+    loadPrefab(prefabPath('Slot'), prefabUuid('Slot'), 'Slot'),
+    loadPrefab(prefabPath('Debris'), prefabUuid('Debris'), 'Debris'),
+    needs.iron ? loadPrefab(prefabPath('IronPlate'), prefabUuid('IronPlate'), 'IronPlate') : Promise.resolve(null),
     needs.chest ? loadChestPrefab() : Promise.resolve(null),
-    ...tokens.map((t) => loadPrefab(BLOCK_PREFAB[t])),
-    ...tokens.map((t) => loadPrefab(UNIT_PREFAB[t])),
+    Promise.all(tokens.map((t) => loadPrefab(blockPrefabPath(t), blockPrefabUuid(t), 'block:' + t))),
+    Promise.all(tokens.map((t) => loadPrefab(unitPrefabPath(t), unitPrefabUuid(t), 'unit:' + t))),
     needs.nails ? preloadLockNails() : Promise.resolve(),
     needs.bombs ? preloadBombs() : Promise.resolve(),
     needs.paint ? preloadPaintCan() : Promise.resolve(),
@@ -196,12 +263,10 @@ export async function buildPlayWorld(
     preloadToySlots(),
     preloadVoxelLook(),
   ]);
-  const blockPfs = new Map<ColorToken, Prefab>();
-  const unitPfs = new Map<ColorToken, Prefab>();
-  tokens.forEach((token, i) => {
-    blockPfs.set(token, colorPfs[i] as Prefab);
-    unitPfs.set(token, colorPfs[tokens.length + i] as Prefab);
-  });
+  for (let i = 0; i < tokens.length; i++) {
+    blockPfs[tokens[i]] = blockLoaded[i];
+    unitPfs[tokens[i]] = unitLoaded[i];
+  }
 
   const root = new Node(opts?.name ?? 'PlayWorld');
   scene.addChild(root);
@@ -222,8 +287,10 @@ export async function buildPlayWorld(
     const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
     for (const v of level.voxels) {
       const token = v.token;
+      const blockPf = blockPfs[isColorToken(token) ? token : 'o'] || blockPfs['o'];
+      if (!blockPf) throw new Error('no block prefab ' + token);
       const n = spawn(
-        blockPfs.get(isColorToken(token) ? token : 'r') ?? blockPfs.get('o')!,
+        blockPf,
         wall,
         `Blk_${token}_${v.x}_${v.y}_${v.z}`,
         new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step),
@@ -255,8 +322,10 @@ export async function buildPlayWorld(
         const raft = onRaft(level, x, y);
         const tag = locked ? '_L' : bombed ? '_B' : paint ? '_P' : magnet ? '_M' : raft ? '_F' : '';
         const big = z === 0 && (bombed || paint);
+        const blockPf = blockPfs[token] || blockPfs['o'];
+        if (!blockPf) throw new Error('no block prefab ' + token);
         const n = spawn(
-          blockPfs.get(token) ?? blockPfs.get('o')!,
+          blockPf,
           wall,
           `Blk_${token}_${x}_${y}_${z}${tag}`,
           new Vec3(
@@ -323,8 +392,10 @@ export async function buildPlayWorld(
     const x = benchSeatX(cx);
     const z = benchSeatZ(cz);
     const tag = extra ? `_${extra}` : '';
+    const unitPf = unitPfs[token] || unitPfs['o'];
+    if (!unitPf) throw new Error('no unit prefab ' + token);
     const n = spawn(
-      unitPfs.get(token) ?? unitPfs.get('o')!,
+      unitPf,
       bench,
       `Unit_${String(i).padStart(2, '0')}_${token}_${power}${tag}`,
       new Vec3(x, benchSeatY(), z),

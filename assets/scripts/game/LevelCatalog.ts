@@ -130,7 +130,7 @@ export function applyLevel(def: LevelDef, opts?: { minDepth?: number }): void {
   console.log('[Suck:fire] colors', {
     id: def.id,
     units: def.units.map((u) => `${u[0]}${u[1]}`).join(','),
-    voxels: [...voxelTok].join(','),
+    voxels: Array.from(voxelTok).join(','),
     tints,
   });
   PLAY.fieldYawDeg = def.fieldYaw ?? 0;

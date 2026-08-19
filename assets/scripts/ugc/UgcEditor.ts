@@ -26,7 +26,7 @@ import {
 } from 'cc';
 import { BlockCell } from '../battle/BlockCell';
 import { paintVoxelId, preloadVoxelLook } from '../battle/BrickSpecials';
-import { BLOCK_PREFAB, PREFAB_UUID } from '../battle/PrefabCatalog';
+import { blockPrefabUuid, PREFAB_UUID } from '../battle/PrefabCatalog';
 import { applyToyGround } from '../battle/ToyBackdrop';
 import { TURRET_PITCH_DEG, TURRET_YAW_DEG } from '../battle/ToyLook';
 import { UNIT_CUBE_SCALE } from '../battle/TurretLook';
@@ -444,7 +444,7 @@ export class UgcEditor {
     const tokens = [...UGC_PALETTE];
     const [groundPf, ...blockPfs] = await Promise.all([
       loadPrefab(PREFAB_UUID.Ground),
-      ...tokens.map((t) => loadPrefab(BLOCK_PREFAB[t])),
+      ...tokens.map((t) => loadPrefab(blockPrefabUuid(t))),
       preloadVoxelLook(),
     ]);
     tokens.forEach((t, i) => this._blockPfs.set(t, blockPfs[i]));

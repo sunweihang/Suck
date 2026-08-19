@@ -433,7 +433,7 @@ export const TOKEN_RGB: Record<ColorToken, readonly [number, number, number]> = 
 };
 
 export function isColorToken(token: string): token is ColorToken {
-  return Object.prototype.hasOwnProperty.call(TOKEN_TO_ID, token);
+  return ALL_COLOR_TOKENS.indexOf(token as ColorToken) >= 0;
 }
 
 export function parseColorToken(token: string): ColorId {

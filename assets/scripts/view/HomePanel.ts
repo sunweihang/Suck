@@ -34,7 +34,6 @@ export class HomePanel extends Component {
     this._onPlay = opts.onPlay;
     this._onSettings = opts.onSettings;
     this._bindEvents();
-    this.show();
   }
 
   applyArt(): void {
