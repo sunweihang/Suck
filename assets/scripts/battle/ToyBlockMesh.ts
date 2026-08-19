@@ -1,9 +1,56 @@
-import { Color, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3 } from 'cc';
+import { Color, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3, assetManager } from 'cc';
 
 const GRAY_DIM = 0.76;
 const GRAY_SPRITE = new Color(168, 168, 168, 255);
 const EMIT_OFF = new Vec3(0.02, 0.02, 0.02);
 const _readC = new Color();
+
+/** Editor MatOrange — builtin-standard with USE_INSTANCING on all 3 passes. */
+const INSTANCED_LIT_UUID = '9d11aa10-0001-4a01-8001-000000000001';
+
+let _instancedTmpl: Material | null = null;
+let _instancedBoot: Promise<void> | null = null;
+
+const INSTANCING_DEFINES = [
+  { USE_INSTANCING: true },
+  { USE_INSTANCING: true },
+  { USE_INSTANCING: true },
+];
+
+export function preloadInstancedLit(): Promise<void> {
+  if (_instancedTmpl) return Promise.resolve();
+  if (_instancedBoot) return _instancedBoot;
+  _instancedBoot = new Promise((resolve) => {
+    assetManager.loadAny({ uuid: INSTANCED_LIT_UUID }, (err, asset) => {
+      if (!err && asset) _instancedTmpl = asset as Material;
+      resolve();
+    });
+  });
+  return _instancedBoot;
+}
+
+/** Same look as MatOrange, tinted. Clone the editor asset so all 3 passes keep instancing. */
+export function makeInstancedLit(
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): Material {
+  const mat = new Material();
+  if (_instancedTmpl?.effectAsset) mat.copy(_instancedTmpl);
+  else {
+    mat.initialize({
+      effectName: 'builtin-standard',
+      defines: INSTANCING_DEFINES,
+    });
+  }
+  mat.setProperty('mainColor', color);
+  mat.setProperty('roughness', roughness);
+  mat.setProperty('metallic', metallic);
+  mat.setProperty('emissive', color);
+  mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+  return mat;
+}
 
 function readColor(v: unknown, out: Color): Color | null {
   if (!v) return null;
@@ -50,27 +97,26 @@ function partsOf(node: Node): { mr: MeshRenderer[]; sp: Sprite[] } {
 function grayMat(src: Material): Material {
   let g = _grayMats.get(src);
   if (g) return g;
-  g = new Material();
-  g.initialize({ effectName: 'builtin-standard' });
   const main = readColor(src.getProperty('mainColor'), _readC);
   const y = main
     ? Math.round(((main.r * 299 + main.g * 587 + main.b * 114) / 1000) * GRAY_DIM)
     : 168;
   const a = main?.a ?? 255;
   const gray = new Color(y, y, y, a);
-  g.setProperty('mainColor', gray);
+  const rough = src.getProperty('roughness');
+  const metal = src.getProperty('metallic');
+  g = makeInstancedLit(
+    gray,
+    typeof rough === 'number' ? rough : 0.34,
+    typeof metal === 'number' ? metal : 0.04,
+    0.02,
+  );
   const emit = readColor(src.getProperty('emissive'), _readC);
   if (emit) {
     const ey = Math.round(((emit.r * 299 + emit.g * 587 + emit.b * 114) / 1000) * GRAY_DIM);
     g.setProperty('emissive', new Color(ey, ey, ey, emit.a));
   }
   g.setProperty('emissiveScale', EMIT_OFF);
-  const rough = src.getProperty('roughness');
-  if (typeof rough === 'number') g.setProperty('roughness', rough);
-  else g.setProperty('roughness', 0.34);
-  const metal = src.getProperty('metallic');
-  if (typeof metal === 'number') g.setProperty('metallic', metal);
-  else g.setProperty('metallic', 0.04);
   _grayMats.set(src, g);
   return g;
 }

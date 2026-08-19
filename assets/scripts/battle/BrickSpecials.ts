@@ -2,7 +2,7 @@ import { Color, Material, MeshRenderer, Node, Vec3 } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster } from './ToyBlockMesh';
+import { applyToyCaster, makeInstancedLit, preloadInstancedLit } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -11,21 +11,10 @@ function usable(mat: Material | null | undefined): mat is Material {
   return !!mat?.passes?.length && !!mat.passes[0].descriptorSet;
 }
 
-function makeLit(color: Color, roughness: number, metallic: number, emit: number): Material {
-  const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', roughness);
-  mat.setProperty('metallic', metallic);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
-  return mat;
-}
-
 function glossy(key: string, color: Color, roughness: number, emit: number): Material {
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
-  const mat = makeLit(color, roughness, 0, emit);
+  const mat = makeInstancedLit(color, roughness, 0, emit);
   _mats.set(key, mat);
   return mat;
 }
@@ -46,7 +35,7 @@ function brickMat(rgb: readonly [number, number, number]): Material {
   const key = `brick-s-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
-  const mat = makeLit(colorOf(rgb), 0.34, 0.04, 0.04);
+  const mat = makeInstancedLit(colorOf(rgb), 0.34, 0.04, 0.04);
   _mats.set(key, mat);
   return mat;
 }
@@ -126,7 +115,7 @@ export function paintMeshRenderers(mrs: MeshRenderer[], token: ColorToken): void
 }
 
 export function preloadVoxelLook(): Promise<void> {
-  return Promise.resolve();
+  return preloadInstancedLit();
 }
 
 /** Recolor without material instances so same-color debris stay batched. */

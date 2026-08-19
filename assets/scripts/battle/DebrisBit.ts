@@ -12,6 +12,7 @@ import {
   gfx,
   utils,
 } from 'cc';
+import { makeInstancedLit } from './ToyBlockMesh';
 
 const { ccclass } = _decorator;
 
@@ -91,13 +92,7 @@ function chipMat(rgb: readonly [number, number, number]): Material {
   let mat = _chipMats.get(key);
   if (mat?.passes?.length) return mat;
   const color = colorOf(rgb);
-  mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', 0.34);
-  mat.setProperty('metallic', 0.04);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(0.04, 0.04, 0.04));
+  mat = makeInstancedLit(color, 0.34, 0.04, 0.04);
   _chipMats.set(key, mat);
   return mat;
 }
