@@ -42,6 +42,7 @@ import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
   applyPortraitCameraRect,
+  capRenderResolution,
   portraitVisibleSize,
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
@@ -184,6 +185,7 @@ export class GameBootstrap extends Component {
   /** Keep company splash pixels: no camera may SOLID_COLOR-wipe before BootLoad. */
   private _holdHostSplash(): void {
     applyDesignResolution();
+    capRenderResolution(this.node);
     const camNode = this.node.scene?.getChildByName('Main Camera');
     const cam = camNode?.getComponent(Camera);
     if (cam) {
@@ -211,6 +213,7 @@ export class GameBootstrap extends Component {
   private async _bootUi(): Promise<void> {
     try {
       applyDesignResolution();
+      capRenderResolution(this.node);
       this._tuneMainCamera();
       this._tuneLighting();
       this._ensureLetterboxCam();
@@ -993,6 +996,7 @@ export class GameBootstrap extends Component {
 
   private _applyPortraitFrame = (): void => {
     applyDesignResolution();
+    capRenderResolution(this.node);
     const vis = portraitVisibleSize();
     this._canvas?.getComponent(UITransform)?.setContentSize(vis.width, vis.height);
     if (this._uiCam?.isValid) {

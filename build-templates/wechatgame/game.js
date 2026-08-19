@@ -30,8 +30,9 @@ if (canvas){
     canvas.width = _w;
     canvas.height = _h;
 }
-// Adjust initial canvas size
-if (canvas && window.devicePixelRatio >= 2) {canvas.width *= info.devicePixelRatio; canvas.height *= info.devicePixelRatio;}
+// Engine windowSize is already windowWidth * pixelRatio. Multiplying the
+// canvas again on iPhone 3x pushed the splash buffer to ~7K. Runtime
+// shadingScale in PortraitFit caps the game framebuffer to 1080.
 
 const importMap = require("src/import-map.js").default;
 System.warmup({

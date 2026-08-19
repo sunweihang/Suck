@@ -1,9 +1,11 @@
 import {
   Camera,
   Color,
+  Node,
   Rect,
   ResolutionPolicy,
   Size,
+  director,
   game,
   screen,
   view,
@@ -32,6 +34,45 @@ const _size = new Size();
 let _appliedPolicy = -1;
 let _appliedWinW = -1;
 let _appliedWinH = -1;
+
+/** Longest framebuffer edge. iPhone 16 native is ~2556; this keeps fill near 1080p. */
+export const RENDER_MAX_LONG_EDGE = 1080;
+
+const RENDER_SCALE_NODE = 'RenderScale';
+const POST_PROCESS = 'cc.PostProcess';
+
+/**
+ * Downsample the custom-pipeline offscreen pass so the long edge is ≤ 1080,
+ * then blit back to the swapchain. Cameras stay on the default (non-HDR)
+ * path — `usePostProcess` stays false — so PBR does not wash out.
+ */
+export function capRenderResolution(host: Node): void {
+  const scene = host.scene;
+  if (!scene) return;
+  const win = screen.windowSize;
+  const longEdge = Math.max(win.width, win.height);
+  const scale =
+    longEdge > 1 ? Math.min(1, RENDER_MAX_LONG_EDGE / longEdge) : 1;
+
+  let node = scene.getChildByName(RENDER_SCALE_NODE);
+  if (!node) {
+    node = new Node(RENDER_SCALE_NODE);
+    scene.addChild(node);
+  }
+  const pp = (node.getComponent(POST_PROCESS) ?? node.addComponent(POST_PROCESS)) as {
+    global: boolean;
+    enableShadingScaleInEditor: boolean;
+    shadingScale: number;
+  };
+  pp.global = true;
+  pp.enableShadingScaleInEditor = true;
+  if (Math.abs(pp.shadingScale - scale) > 1e-4) pp.shadingScale = scale;
+
+  const pipeline = director.root?.pipeline;
+  if (pipeline && Math.abs(pipeline.shadingScale - scale) > 1e-4) {
+    pipeline.shadingScale = scale;
+  }
+}
 
 /**
  * Portrait policy:
