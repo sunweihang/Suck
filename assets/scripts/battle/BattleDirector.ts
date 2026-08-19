@@ -2872,7 +2872,7 @@ export class BattleDirector extends Component {
     const rank = overflow ? BENCH.rows - 1 : seat.rank;
     unit.lockedCol = -1;
     unit.state = 'bench';
-    unit.asBlock = true;
+    unit.asBlock = rank > 0;
     unit.clearAim();
     unit.benchCol = seat.col;
     unit.benchRank = rank;

@@ -1,37 +1,26 @@
 import {
   Camera,
-  Canvas,
   Color,
   EffectAsset,
   ImageAsset,
+  Layers,
   Material,
   MeshRenderer,
   Node,
-  Sprite,
-  SpriteFrame,
   Texture2D,
-  UITransform,
   Vec3,
-  Widget,
   assetManager,
+  gfx,
   resources,
   utils,
 } from 'cc';
 import { BENCH, PLAY, shooterStandZ } from '../game/GameConfig';
-import { applyPortraitCameraRect, coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
+import { coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 
 const BG_IMAGE_UUID = '2dd19bfe-8cac-486f-9e72-ba1499869c97';
 const ROOT_NAME = 'WorldBg';
-const CAM_NAME = 'BgCam';
-/** Dedicated bit so the UI camera does not redraw this fullscreen sprite over 3D. */
-const WORLD_BG_LAYER = 1 << 5;
-
-function setLayerDeep(node: Node, layer: number): void {
-  node.layer = layer;
-  const ut = node.getComponent(UITransform);
-  if (ut) ut.hitTest = () => false;
-  for (const child of node.children) setLayerDeep(child, layer);
-}
+const ART_NAME = 'SkyArt';
+const MAIN_CAM = 'Main Camera';
 
 function loadBgImage(): Promise<ImageAsset> {
   return new Promise((resolve, reject) => {
@@ -48,7 +37,7 @@ function loadBgImage(): Promise<ImageAsset> {
   });
 }
 
-function frameFromImage(img: ImageAsset): SpriteFrame {
+function texFromImage(img: ImageAsset): Texture2D {
   const tex = new Texture2D();
   tex.image = img;
   try {
@@ -56,61 +45,103 @@ function frameFromImage(img: ImageAsset): SpriteFrame {
   } catch {
     /* older engine */
   }
-  const sf = new SpriteFrame();
-  sf.texture = tex;
-  return sf;
+  return tex;
 }
 
-function disposeNamed(scene: Node, name: string): void {
-  const n = scene.getChildByName(name);
+function disposeNamed(host: Node | null | undefined, name: string): void {
+  const n = host?.getChildByName(name);
   if (!n) return;
   n.removeFromParent();
   n.destroy();
 }
 
-export function layoutWorldBg(scene: Node | null): void {
-  if (!scene) return;
-  const vis = portraitVisibleSize();
-  const camNode = scene.getChildByName(CAM_NAME);
-  const cam = camNode?.getComponent(Camera);
-  if (cam) {
-    cam.orthoHeight = vis.height * 0.5;
-    applyPortraitCameraRect(cam);
-  }
-  const root = scene.getChildByName(ROOT_NAME);
-  root?.getComponent(UITransform)?.setContentSize(vis.width, vis.height);
-  const art = root?.getChildByName('SkyArt');
-  if (!art) return;
-  const cover = coverBackgroundSize(vis.width, vis.height);
-  art.getComponent(UITransform)?.setContentSize(cover.w, cover.h);
+function mainCamNode(scene: Node): Node | null {
+  return scene.getChildByName(MAIN_CAM);
 }
 
-export async function spawnToyBackdrop(scene: Node): Promise<Node> {
-  disposeNamed(scene, ROOT_NAME);
-  disposeNamed(scene, CAM_NAME);
+function bgRootOf(scene: Node): Node | null {
+  const cam = mainCamNode(scene);
+  return cam?.getChildByName(ROOT_NAME) ?? scene.getChildByName(ROOT_NAME);
+}
 
+let _bgQuad: ReturnType<typeof utils.MeshUtils.createMesh> = null;
+let _bgMat: Material | null = null;
+
+function bgQuad() {
+  if (_bgQuad) return _bgQuad;
+  _bgQuad = utils.MeshUtils.createMesh({
+    positions: [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    uvs: [0, 1, 1, 1, 1, 0, 0, 0],
+    indices: [0, 1, 2, 0, 2, 3],
+    minPos: new Vec3(-0.5, -0.5, 0),
+    maxPos: new Vec3(0.5, 0.5, 0),
+    boundingRadius: Math.SQRT1_2,
+  });
+  return _bgQuad;
+}
+
+function bgMat(tex: Texture2D): Material | null {
+  if (_bgMat?.passes?.length) {
+    _bgMat.setProperty('mainTexture', tex);
+    return _bgMat;
+  }
+  const mat = new Material();
+  mat.initialize({
+    effectName: 'builtin-unlit',
+    technique: 0,
+    defines: { USE_TEXTURE: true },
+    states: {
+      rasterizerState: { cullMode: gfx.CullMode.NONE },
+      depthStencilState: {
+        depthTest: true,
+        depthWrite: false,
+        depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
+      },
+    },
+  });
+  if (!mat.passes?.length) return null;
+  mat.setProperty('mainTexture', tex);
+  mat.setProperty('mainColor', Color.WHITE);
+  _bgMat = mat;
+  return mat;
+}
+
+/** Fill the 3D ortho view; cover-crop the 1080×2200 art the same way the old UI sprite did. */
+function poseSkyArt(cam: Camera, art: Node): void {
   const vis = portraitVisibleSize();
-  const camNode = new Node(CAM_NAME);
-  scene.addChild(camNode);
-  camNode.setPosition(0, 0, 1000);
-  const cam = camNode.addComponent(Camera);
-  cam.projection = Camera.ProjectionType.ORTHO;
-  cam.orthoHeight = vis.height * 0.5;
-  cam.near = 0.1;
-  cam.far = 2000;
-  cam.priority = 0;
-  cam.visibility = WORLD_BG_LAYER;
-  cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
-  cam.clearColor.set(254, 255, 241, 255);
-  applyPortraitCameraRect(cam);
+  const cover = coverBackgroundSize(vis.width, vis.height);
+  const h = cam.orthoHeight * 2;
+  const aspect = vis.width / Math.max(vis.height, 1);
+  art.setPosition(0, 0, -(cam.far - 1));
+  art.setRotationFromEuler(0, 0, 0);
+  art.setScale(
+    h * aspect * (cover.w / Math.max(vis.width, 1)),
+    h * (cover.h / Math.max(vis.height, 1)),
+    1,
+  );
+}
+
+export function layoutWorldBg(scene: Node | null): void {
+  if (!scene) return;
+  const camNode = mainCamNode(scene);
+  const cam = camNode?.getComponent(Camera);
+  const art = bgRootOf(scene)?.getChildByName(ART_NAME);
+  if (!cam || !art) return;
+  poseSkyArt(cam, art);
+}
+
+export async function spawnToyBackdrop(scene: Node, camNode: Node): Promise<Node> {
+  disposeNamed(scene, ROOT_NAME);
+  disposeNamed(scene, 'BgCam');
+  disposeNamed(camNode, ROOT_NAME);
 
   const root = new Node(ROOT_NAME);
-  scene.addChild(root);
-  root.layer = WORLD_BG_LAYER;
-  root.addComponent(UITransform).setContentSize(vis.width, vis.height);
-  const canvas = root.addComponent(Canvas);
-  canvas.cameraComponent = cam;
-  canvas.alignCanvasWithScreen = false;
+  camNode.addChild(root);
+  root.layer = Layers.Enum.DEFAULT;
+
+  const cam = camNode.getComponent(Camera);
+  if (!cam) return root;
 
   let img: ImageAsset;
   try {
@@ -124,19 +155,17 @@ export async function spawnToyBackdrop(scene: Node): Promise<Node> {
     return root;
   }
 
-  const cover = coverBackgroundSize(vis.width, vis.height);
-  const art = new Node('SkyArt');
+  const art = new Node(ART_NAME);
   root.addChild(art);
-  art.layer = WORLD_BG_LAYER;
-  art.addComponent(UITransform).setContentSize(cover.w, cover.h);
-  const widget = art.addComponent(Widget);
-  widget.isAlignHorizontalCenter = widget.isAlignVerticalCenter = true;
-  widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
-  const sp = art.addComponent(Sprite);
-  sp.spriteFrame = frameFromImage(img);
-  sp.sizeMode = Sprite.SizeMode.CUSTOM;
-  sp.type = Sprite.Type.SIMPLE;
-  setLayerDeep(root, WORLD_BG_LAYER);
+  art.layer = Layers.Enum.DEFAULT;
+  const mr = art.addComponent(MeshRenderer);
+  mr.mesh = bgQuad();
+  const mat = bgMat(texFromImage(img));
+  if (mat) mr.setSharedMaterial(mat, 0);
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  mr.priority = 1000;
+  poseSkyArt(cam, art);
   return root;
 }
 

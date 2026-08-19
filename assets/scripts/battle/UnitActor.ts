@@ -19,7 +19,7 @@ export class UnitActor extends Component {
   /** Official ColorLibrary id this turret shoots. -1 if unknown. */
   voxelId = -1;
   ghost = false;
-  /** Shoveled back: sit as a queue cube with no power number until deployed. */
+  /** Shoveled back: sit as a queue cube with no power number until the front row. */
   asBlock = false;
   magnet = false;
   trapped = false;
@@ -310,6 +310,7 @@ export class UnitActor extends Component {
         }
       }
     }
+    if (this._activateFrontSeat() && !this._flying) this.refreshSeatLook();
     if (!this._armed) {
       this._armed = true;
       this._prevState = this.state;
@@ -348,17 +349,24 @@ export class UnitActor extends Component {
   }
 
   private _wantsOutline(): boolean {
-    return !this.trapped && !this.asBlock && !this._queued();
+    return !this.trapped && !this._queued();
+  }
+
+  /** Shoveled cubes stay queued until they occupy the front row. */
+  private _activateFrontSeat(): boolean {
+    if (!this.asBlock || this.trapped || this.benchRank > 0) return false;
+    this.asBlock = false;
+    return true;
   }
 
   private _queued(): boolean {
-    if (this.trapped) return false;
+    if (this.trapped || this.benchRank === 0) return false;
     if (this.asBlock) return true;
-    return !this._flying && this.state === 'bench' && this.benchRank > 0;
+    return !this._flying && this.state === 'bench';
   }
 
   private _wantsAnim(): boolean {
-    if (this.asBlock) return false;
+    if (this._queued()) return false;
     if (this.state === 'bench' && this.benchRank > 0 && !this.trapped) return false;
     if (this._vanish || this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
       return true;
@@ -368,7 +376,7 @@ export class UnitActor extends Component {
   }
 
   private _shouldShowPower(): boolean {
-    if (this.trapped || this.asBlock) return false;
+    if (this.trapped || this._queued()) return false;
     if (this.state === 'drag' || this.state === 'walk' || this.state === 'attack') return true;
     return this.state === 'bench' && this.benchRank === 0;
   }
@@ -407,6 +415,7 @@ export class UnitActor extends Component {
   }
 
   refreshSeatLook(): void {
+    this._activateFrontSeat();
     const kind = this._queued() ? 'queue' : 'turret';
     const outline = this._wantsOutline();
     if (kind !== this._lookKind || this.colorId !== this._lookColor || outline !== this._lookOutline) {

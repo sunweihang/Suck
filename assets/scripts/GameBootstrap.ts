@@ -206,6 +206,7 @@ export class GameBootstrap extends Component {
       this._letterboxCam.clearColor = LETTERBOX_CLEAR;
       this._letterboxCam.enabled = true;
     }
+    this._setWorldLive(false);
     notifyHostSplashHomeReady();
     initRewardedAd();
   }
@@ -243,7 +244,9 @@ export class GameBootstrap extends Component {
       await this._audio?.ensureWin();
       await this._victory?.warmup();
       await ensureHomeLevelArt();
-      if (this.node.scene) await spawnToyBackdrop(this.node.scene);
+      if (this.node.scene && this._mainCam?.node) {
+        await spawnToyBackdrop(this.node.scene, this._mainCam.node);
+      }
       this._home?.applyArt();
       this._ugcHud?.hide();
       this._playHud?.applyArt();
@@ -1326,11 +1329,17 @@ export class GameBootstrap extends Component {
     this._gm?.layoutChrome();
   }
 
-  /** Home covers the 3D field; keep the world camera off until play. */
+  /** Home covers the 3D field; keep the world hidden until play. Sky stays on the main camera. */
   private _setWorldLive(on: boolean): void {
     const world = this._ugcEditor?.node ?? this._battle?.node;
     if (world?.isValid) world.active = on;
-    if (this._mainCam?.isValid) this._mainCam.enabled = on;
+    const cam = this._mainCam;
+    if (!cam?.isValid) return;
+    cam.enabled = this._homeDrawn;
+    if (this._homeDrawn) {
+      cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+      cam.clearColor = Theme.sky;
+    }
   }
 
   private _showHome(): void {
