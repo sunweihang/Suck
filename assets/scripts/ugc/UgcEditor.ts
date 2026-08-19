@@ -7,16 +7,13 @@ import {
   geometry,
   gfx,
   Input,
-  Label,
   Layers,
-  RenderRoot2D,
   Material,
   Mesh,
   MeshRenderer,
   Node,
   Prefab,
   Quat,
-  UITransform,
   Vec3,
   assetManager,
   director,
@@ -130,7 +127,9 @@ function rayHitsAabb(o: Vec3, d: Vec3, min: Vec3, max: Vec3, out: Vec3): number 
   return t;
 }
 
-function ghostBoxMesh(): Mesh | null {
+type MeshGeo = { pos: number[]; nrm: number[]; idx: number[] };
+
+function unitBoxGeo(): MeshGeo {
   const s = 0.5;
   const pos: number[] = [];
   const nrm: number[] = [];
@@ -161,20 +160,125 @@ function ghostBoxMesh(): Mesh | null {
     }
     idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
   }
+  return { pos, nrm, idx };
+}
+
+const _unitBox = unitBoxGeo();
+
+function appendScaledBox(dst: MeshGeo, ox: number, oy: number, oz: number, sx: number, sy: number, sz: number): void {
+  const base = dst.pos.length / 3;
+  const src = _unitBox;
+  for (let i = 0; i < src.pos.length; i += 3) {
+    dst.pos.push(src.pos[i] * sx + ox, src.pos[i + 1] * sy + oy, src.pos[i + 2] * sz + oz);
+    dst.nrm.push(src.nrm[i], src.nrm[i + 1], src.nrm[i + 2]);
+  }
+  for (let i = 0; i < src.idx.length; i++) dst.idx.push(src.idx[i] + base);
+}
+
+function meshFromGeo(geo: MeshGeo): Mesh | null {
+  let minX = 1e9;
+  let minY = 1e9;
+  let minZ = 1e9;
+  let maxX = -1e9;
+  let maxY = -1e9;
+  let maxZ = -1e9;
+  for (let i = 0; i < geo.pos.length; i += 3) {
+    minX = Math.min(minX, geo.pos[i]);
+    minY = Math.min(minY, geo.pos[i + 1]);
+    minZ = Math.min(minZ, geo.pos[i + 2]);
+    maxX = Math.max(maxX, geo.pos[i]);
+    maxY = Math.max(maxY, geo.pos[i + 1]);
+    maxZ = Math.max(maxZ, geo.pos[i + 2]);
+  }
   return utils.MeshUtils.createMesh({
-    positions: pos,
-    normals: nrm,
-    indices: idx,
-    minPos: new Vec3(-s, -s, -s),
-    maxPos: new Vec3(s, s, s),
-    boundingRadius: Math.hypot(s, s, s),
+    positions: geo.pos,
+    normals: geo.nrm,
+    indices: geo.idx,
+    minPos: new Vec3(minX, minY, minZ),
+    maxPos: new Vec3(maxX, maxY, maxZ),
+    boundingRadius: Math.hypot(maxX, maxY, maxZ),
   });
+}
+
+function ghostBoxMesh(): Mesh | null {
+  return meshFromGeo({ pos: _unitBox.pos.slice(), nrm: _unitBox.nrm.slice(), idx: _unitBox.idx.slice() });
+}
+
+function edgeFrameMesh(sx: number, sy: number, sz: number, t: number): Mesh | null {
+  const hx = sx * 0.5;
+  const hy = sy * 0.5;
+  const hz = sz * 0.5;
+  const segs: Array<readonly [number, number, number, number, number, number]> = [
+    [0, hy, hz, sx, t, t], [0, -hy, hz, sx, t, t], [0, hy, -hz, sx, t, t], [0, -hy, -hz, sx, t, t],
+    [hx, 0, hz, t, sy, t], [-hx, 0, hz, t, sy, t], [hx, 0, -hz, t, sy, t], [-hx, 0, -hz, t, sy, t],
+    [hx, hy, 0, t, t, sz], [-hx, hy, 0, t, t, sz], [hx, -hy, 0, t, t, sz], [-hx, -hy, 0, t, t, sz],
+  ];
+  const geo: MeshGeo = { pos: [], nrm: [], idx: [] };
+  for (let i = 0; i < segs.length; i++) {
+    const [ox, oy, oz, wx, wy, wz] = segs[i];
+    appendScaledBox(geo, ox, oy, oz, wx, wy, wz);
+  }
+  return meshFromGeo(geo);
 }
 
 let _ghostMesh: Mesh | null = null;
 let _edgeMat: Material | null = null;
 let _layerFill: Material | null = null;
 let _layerEdge: Material | null = null;
+let _markMat: Material | null = null;
+const _digitMeshes = new Map<string, Mesh>();
+
+/** Standard 7-seg bits: a b c d e f g */
+const SEG7: Record<string, number> = {
+  '0': 0b0111111,
+  '1': 0b0000110,
+  '2': 0b1011011,
+  '3': 0b1001111,
+  '4': 0b1100110,
+  '5': 0b1101101,
+  '6': 0b1111101,
+  '7': 0b0000111,
+  '8': 0b1111111,
+  '9': 0b1101111,
+};
+
+function appendDigit7(dst: MeshGeo, ch: string, cx: number, cy: number, gw: number, gh: number, t: number): void {
+  const bits = SEG7[ch] ?? 0;
+  const hx = gw * 0.36;
+  const hy = gh * 0.5;
+  const mid = gh * 0.22;
+  const segs: Array<readonly [number, number, number, number]> = [
+    [0, hy, hx * 2, t],
+    [hx, mid, t, hy - t],
+    [hx, -mid, t, hy - t],
+    [0, -hy, hx * 2, t],
+    [-hx, -mid, t, hy - t],
+    [-hx, mid, t, hy - t],
+    [0, 0, hx * 2, t],
+  ];
+  for (let i = 0; i < segs.length; i++) {
+    if (((bits >> i) & 1) === 0) continue;
+    const [ox, oy, sx, sy] = segs[i];
+    appendScaledBox(dst, cx + ox, cy + oy, 0, sx, sy, t);
+  }
+}
+
+function digitMesh(text: string): Mesh | null {
+  const hit = _digitMeshes.get(text);
+  if (hit?.isValid) return hit;
+  const geo: MeshGeo = { pos: [], nrm: [], idx: [] };
+  const gw = 0.16;
+  const gh = 0.24;
+  const gap = 0.05;
+  const t = 0.03;
+  const n = Math.max(1, text.length);
+  const total = n * gw + (n - 1) * gap;
+  const x0 = -total * 0.5 + gw * 0.5;
+  for (let i = 0; i < n; i++) appendDigit7(geo, text[i], x0 + i * (gw + gap), 0, gw, gh, t);
+  const mesh = meshFromGeo(geo);
+  if (mesh) _digitMeshes.set(text, mesh);
+  return mesh;
+}
 const _markAim = new Vec3();
 const _markFlip = new Quat();
 Quat.fromEuler(_markFlip, 0, 180, 0);
@@ -204,12 +308,13 @@ function unlitMat(color: Color, writeDepth = false): Material {
   return m;
 }
 
-function ghostLook(): { mesh: Mesh | null; edge: Material; layerFill: Material; layerEdge: Material } {
+function ghostLook(): { mesh: Mesh | null; edge: Material; layerFill: Material; layerEdge: Material; mark: Material } {
   if (!_ghostMesh) _ghostMesh = ghostBoxMesh();
   if (!_edgeMat) _edgeMat = unlitMat(new Color(230, 236, 255, 150));
   if (!_layerFill) _layerFill = unlitMat(new Color(120, 220, 255, 102));
   if (!_layerEdge) _layerEdge = unlitMat(new Color(90, 230, 255, 220));
-  return { mesh: _ghostMesh, edge: _edgeMat, layerFill: _layerFill, layerEdge: _layerEdge };
+  if (!_markMat) _markMat = unlitMat(new Color(255, 255, 255, 230));
+  return { mesh: _ghostMesh, edge: _edgeMat, layerFill: _layerFill, layerEdge: _layerEdge, mark: _markMat };
 }
 
 type CellPaint = { token: ColorToken; voxelId: number };
@@ -268,6 +373,11 @@ export class UgcEditor {
   private _tickBound = false;
   private _dirty = false;
   private _showAll = false;
+  private _marksHidden = false;
+  private _pendYaw = 0;
+  private _pendPitch = 0;
+  private _volEdgeMesh: Mesh | null = null;
+  private _layEdgeMesh: Mesh | null = null;
 
   private constructor(node: Node, map: UgcMap, host: UgcEditorHost) {
     this.node = node;
@@ -436,6 +546,7 @@ export class UgcEditor {
 
   dispose(): void {
     this._unbind();
+    this._dropEdgeMeshes();
     if (this.node.isValid) {
       this.node.name = 'UgcWorld_disposed';
       this.node.removeFromParent();
@@ -620,8 +731,11 @@ export class UgcEditor {
     if (!root) return;
     root.removeAllChildren();
     this._syncGhosts();
-    if (this._showAll) return;
-    const { mesh, edge, layerFill, layerEdge } = ghostLook();
+    if (this._showAll) {
+      this._dropEdgeMeshes();
+      return;
+    }
+    const { mesh, edge, layerFill, layerEdge, mark } = ghostLook();
     if (!mesh) return;
     const cols = this._map.cols;
     const rows = this._map.rows;
@@ -638,13 +752,36 @@ export class UgcEditor {
     const sx = Math.abs(_tmp.x - x0) + step;
     const sy = Math.abs(_tmp.y - y0) + step;
     const sz = Math.abs(_tmp.z - z0) + step;
-    this._addGuideEdges(root, 'Vol', mesh, edge, cx, cy, cz, sx, sy, sz);
+    this._dropEdgeMeshes();
+    this._volEdgeMesh = edgeFrameMesh(sx, sy, sz, Math.max(0.012, step * 0.06));
+    if (this._volEdgeMesh) this._addGuideMesh(root, 'Vol', this._volEdgeMesh, edge, cx, cy, cz);
     this._voxelPos(0, 0, this._layer, _tmp);
     const lz = _tmp.z;
     const thick = Math.max(0.03, step * 0.18);
     this._addGuideBox(root, 'Layer', mesh, layerFill, cx, cy, lz, sx, sy, thick);
-    this._addGuideEdges(root, 'Lay', mesh, layerEdge, cx, cy, lz, sx, sy, thick);
-    this._addGuideMarks(root, cols, rows);
+    this._layEdgeMesh = edgeFrameMesh(sx, sy, thick, Math.max(0.012, step * 0.06));
+    if (this._layEdgeMesh) this._addGuideMesh(root, 'Lay', this._layEdgeMesh, layerEdge, cx, cy, lz);
+    this._addGuideMarks(root, cols, rows, mark);
+    this._marksHidden = false;
+    this._faceMarks();
+  }
+
+  private _dropEdgeMeshes(): void {
+    if (this._volEdgeMesh?.isValid) this._volEdgeMesh.destroy();
+    if (this._layEdgeMesh?.isValid) this._layEdgeMesh.destroy();
+    this._volEdgeMesh = null;
+    this._layEdgeMesh = null;
+  }
+
+  private _addGuideMesh(root: Node, name: string, mesh: Mesh, mat: Material, x: number, y: number, z: number): void {
+    const n = new Node(name);
+    root.addChild(n);
+    n.layer = Layers.Enum.DEFAULT;
+    n.setPosition(x, y, z);
+    const mr = n.addComponent(MeshRenderer);
+    mr.mesh = mesh;
+    mr.setSharedMaterial(mat, 0);
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   }
 
   private _addGuideBox(
@@ -670,73 +807,49 @@ export class UgcEditor {
     mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   }
 
-  private _addGuideEdges(
-    root: Node,
-    tag: string,
-    mesh: Mesh,
-    mat: Material,
-    cx: number,
-    cy: number,
-    cz: number,
-    sx: number,
-    sy: number,
-    sz: number,
-  ): void {
-    const t = Math.max(0.012, PLAY.blockStep * 0.06);
-    const hx = sx * 0.5;
-    const hy = sy * 0.5;
-    const hz = sz * 0.5;
-    const segs: Array<readonly [number, number, number, number, number, number]> = [
-      [0, hy, hz, sx, t, t], [0, -hy, hz, sx, t, t], [0, hy, -hz, sx, t, t], [0, -hy, -hz, sx, t, t],
-      [hx, 0, hz, t, sy, t], [-hx, 0, hz, t, sy, t], [hx, 0, -hz, t, sy, t], [-hx, 0, -hz, t, sy, t],
-      [hx, hy, 0, t, t, sz], [-hx, hy, 0, t, t, sz], [hx, -hy, 0, t, t, sz], [-hx, -hy, 0, t, t, sz],
-    ];
-    for (let i = 0; i < segs.length; i++) {
-      const [ox, oy, oz, wx, wy, wz] = segs[i];
-      this._addGuideBox(root, `${tag}_${i}`, mesh, mat, cx + ox, cy + oy, cz + oz, wx, wy, wz);
-    }
-  }
-
-  private _addGuideMarks(root: Node, cols: number, rows: number): void {
+  private _addGuideMarks(root: Node, cols: number, rows: number, mat: Material): void {
     const marks = new Node('Marks');
     root.addChild(marks);
-    marks.addComponent(RenderRoot2D);
     for (let x = 0; x < cols; x++) {
       this._voxelPos(x, -0.82, 0, _tmp);
-      this._addGuideNum(marks, `C_${x}`, String(x + 1), _tmp);
+      this._addGuideNum(marks, `C_${x}`, String(x + 1), _tmp, mat);
     }
     for (let y = 0; y < rows; y++) {
       this._voxelPos(-0.82, y, 0, _tmp);
-      this._addGuideNum(marks, `R_${y}`, String(y + 1), _tmp);
+      this._addGuideNum(marks, `R_${y}`, String(y + 1), _tmp, mat);
     }
   }
 
-  private _addGuideNum(root: Node, name: string, text: string, pos: Vec3): void {
+  private _addGuideNum(root: Node, name: string, text: string, pos: Vec3, mat: Material): void {
+    const mesh = digitMesh(text);
+    if (!mesh) return;
     const n = new Node(name);
     root.addChild(n);
-    n.layer = Layers.Enum.UI_3D;
+    n.layer = Layers.Enum.DEFAULT;
     n.setPosition(pos);
-    n.setScale(0.0052, 0.0052, 0.0052);
-    const ut = n.addComponent(UITransform);
-    ut.setContentSize(48, 48);
-    ut.hitTest = () => false;
-    const lab = n.addComponent(Label);
-    lab.string = text;
-    lab.fontSize = 28;
-    lab.lineHeight = 30;
-    lab.isBold = false;
-    lab.color = new Color(255, 255, 255, 230);
-    lab.enableOutline = false;
-    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-    lab.verticalAlign = Label.VerticalAlign.CENTER;
-    lab.useSystemFont = true;
-    lab.overflow = Label.Overflow.NONE;
+    const mr = n.addComponent(MeshRenderer);
+    mr.mesh = mesh;
+    mr.setSharedMaterial(mat, 0);
+    mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  }
+
+  private _markRoot(): Node | null {
+    const marks = this._ghosts?.getChildByName('Marks');
+    return marks?.isValid ? marks : null;
+  }
+
+  private _hideMarks(hide: boolean): void {
+    this._marksHidden = hide;
+    const marks = this._markRoot();
+    if (!marks) return;
+    if (marks.active !== !hide) marks.active = !hide;
   }
 
   private _faceMarks(): void {
-    const marks = this._ghosts?.getChildByName('Marks');
+    if (this._marksHidden) return;
+    const marks = this._markRoot();
     const cam = this._host.camera?.node;
-    if (!marks?.isValid || !cam?.isValid) return;
+    if (!marks?.isValid || !marks.active || !cam?.isValid) return;
     cam.getWorldPosition(_markAim);
     for (const n of marks.children) {
       if (!n.isValid) continue;
@@ -841,10 +954,12 @@ export class UgcEditor {
       const ay = loc.y - this._dragStartY;
       if (ax * ax + ay * ay < SPIN_THRESH_PX * SPIN_THRESH_PX) return;
       this._spinning = true;
+      this._hideMarks(true);
     }
     const dt = Math.max(1 / 120, director.getDeltaTime());
     const k = GAME.wallSpinDragDeg * (Math.PI / 180);
-    this._orbitRad(dx * k, -dy * k);
+    this._pendYaw += dx * k;
+    this._pendPitch += -dy * k;
     this._spinVel = (dx * k) / dt;
     this._pitchVel = (-dy * k) / dt;
     this._dragLastX = loc.x;
@@ -887,6 +1002,11 @@ export class UgcEditor {
   private _tick = (): void => {
     if (!this.node.isValid || !this._field) return;
     const dt = director.getDeltaTime();
+    if (this._pendYaw !== 0 || this._pendPitch !== 0) {
+      this._orbitRad(this._pendYaw, this._pendPitch);
+      this._pendYaw = 0;
+      this._pendPitch = 0;
+    }
     if (!this._spinning) {
       this._orbitRad(this._spinVel * dt, this._pitchVel * dt);
       this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
@@ -894,11 +1014,17 @@ export class UgcEditor {
       if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
       if (Math.abs(this._pitchVel) < 0.04) this._pitchVel = 0;
     }
+    const rotating = this._spinning || this._spinVel !== 0 || this._pitchVel !== 0;
+    const wasHidden = this._marksHidden;
+    if (rotating) this._hideMarks(true);
     if (!Quat.equals(this._spinRot, this._posedRot)) {
       this._posedRot.set(this._spinRot);
       this._field.setRotation(this._spinRot);
     }
-    this._faceMarks();
+    if (!rotating && wasHidden) {
+      this._hideMarks(false);
+      this._faceMarks();
+    }
   };
 
   private _tap(e: PointerEvt): void {

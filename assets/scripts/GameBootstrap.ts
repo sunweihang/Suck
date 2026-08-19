@@ -95,6 +95,19 @@ const { ccclass } = _decorator;
 
 const LEFTOVER_NAMES = new Set(['SmokeCube', 'HintHand', 'Cube']);
 
+function afterDraws(n: number): Promise<void> {
+  return new Promise((resolve) => {
+    let left = Math.max(1, n);
+    const step = (): void => {
+      left -= 1;
+      if (left > 0) return;
+      director.off(Director.EVENT_AFTER_DRAW, step);
+      resolve();
+    };
+    director.on(Director.EVENT_AFTER_DRAW, step);
+  });
+}
+
 /** Host splash (WeChat first-screen / web #SplashOverlay) waits on this before hiding. */
 function notifyHostSplashHomeReady(): void {
   type SplashGate = {
@@ -155,7 +168,7 @@ export class GameBootstrap extends Component {
   private _doubleBusy = false;
   /** Built level already settled; blocks repeat onWin while the panel is up. */
   private _settledBuilt = -1;
-  /** Host splash stays until HomePanel has painted once. */
+  /** Host splash stays until BootLoad has painted once. */
   private _homeDrawn = false;
 
   onLoad(): void {
@@ -168,7 +181,7 @@ export class GameBootstrap extends Component {
     this._uiJob = this._bootUi();
   }
 
-  /** Keep company splash pixels: no camera may SOLID_COLOR-wipe before HomePanel. */
+  /** Keep company splash pixels: no camera may SOLID_COLOR-wipe before BootLoad. */
   private _holdHostSplash(): void {
     applyDesignResolution();
     const camNode = this.node.scene?.getChildByName('Main Camera');
@@ -203,10 +216,10 @@ export class GameBootstrap extends Component {
       this._ensureLetterboxCam();
       const canvas = this._ensureUiCanvas();
       if (this._uiCam?.isValid) {
-        this._uiCam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
-        this._uiCam.clearColor = Theme.sky;
+        this._uiCam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
       }
       const load = await attachBootLoad(canvas);
+      await afterDraws(2);
       notifyHostSplashHomeReady();
       await loadGameBundles((p) => load.set(p));
       load.set(0.78);

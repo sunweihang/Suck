@@ -19,7 +19,9 @@ import {
   Widget,
   tween,
 } from 'cc';
+import { game, screen, view } from 'cc';
 import { Theme } from '../game/Theme';
+import { portraitVisibleSize } from '../game/PortraitFit';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { styleQCaption } from './QChrome';
@@ -74,7 +76,8 @@ type ClipBridge = {
     success?: (res: { data?: string }) => void;
     fail?: () => void;
   }) => void;
-  getSystemInfoSync?: () => unknown;
+  getSystemInfoSync?: () => { platform?: string; environment?: string } | unknown;
+  hideToast?: () => void;
 };
 
 function clipBridge(): ClipBridge | null {
@@ -95,79 +98,157 @@ function clipBridge(): ClipBridge | null {
   return null;
 }
 
-function copyViaDom(text: string): boolean {
-  const doc = (globalThis as { document?: Document }).document;
-  if (!doc?.body) return false;
-  const ta = doc.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', 'readonly');
-  ta.style.position = 'fixed';
-  ta.style.left = '0';
-  ta.style.top = '0';
-  ta.style.width = '1px';
-  ta.style.height = '1px';
-  ta.style.opacity = '0';
-  doc.body.appendChild(ta);
-  ta.focus();
-  ta.select();
+function wxLooksWindows(api: ClipBridge): boolean {
   try {
-    ta.setSelectionRange(0, text.length);
+    const info = api.getSystemInfoSync?.() as { platform?: string; environment?: string } | undefined;
+    const p = String(info?.platform ?? '').toLowerCase();
+    const e = String(info?.environment ?? '').toLowerCase();
+    return p === 'windows' || p === 'devtools' || e.includes('devtools');
   } catch {
-    /* some webviews omit this */
+    return false;
   }
-  let ok = false;
-  try {
-    ok = !!doc.execCommand('copy');
-  } catch {
-    ok = false;
-  }
-  doc.body.removeChild(ta);
-  return ok;
 }
 
-function copyText(text: string): Promise<boolean> {
+function hideWxToast(api: ClipBridge): void {
+  try {
+    api.hideToast?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function execCopy(): boolean {
+  try {
+    const doc = (globalThis as { document?: Document }).document;
+    return !!(doc && typeof doc.execCommand === 'function' && doc.execCommand('copy'));
+  } catch {
+    return false;
+  }
+}
+
+function selectField(ta: HTMLTextAreaElement, text: string): boolean {
+  try {
+    ta.value = text;
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function copyViaDom(text: string): boolean {
+  try {
+    const doc = (globalThis as { document?: Document }).document;
+    if (!doc?.body) return false;
+    const ta = doc.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', 'readonly');
+    ta.style.cssText = 'position:fixed;left:12px;top:12px;width:280px;height:72px;opacity:0.02;z-index:9999';
+    doc.body.appendChild(ta);
+    const ok = selectField(ta, text) && execCopy();
+    try {
+      doc.body.removeChild(ta);
+    } catch {
+      /* ignore */
+    }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function writeNav(text: string): Promise<boolean> {
+  const clip = (globalThis as { navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } } }).navigator?.clipboard;
+  if (!clip?.writeText) return Promise.resolve(false);
+  return clip.writeText(text).then(() => true).catch(() => false);
+}
+
+function readWxClip(api: ClipBridge): Promise<string> {
   return new Promise((resolve) => {
-    const done = (ok: boolean) => resolve(ok);
-    const wxApi = clipBridge();
-    if (wxApi?.setClipboardData) {
-      let settled = false;
-      const finish = (ok: boolean) => {
-        if (settled) return;
-        settled = true;
-        if (ok) {
-          done(true);
-          return;
-        }
-        if (copyViaDom(text)) {
-          done(true);
-          return;
-        }
-        const clip = (globalThis as { navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } } }).navigator?.clipboard;
-        if (clip?.writeText) {
-          clip.writeText(text).then(() => done(true)).catch(() => done(false));
-          return;
-        }
-        done(false);
-      };
-      try {
-        wxApi.setClipboardData({
-          data: text,
-          success: () => finish(true),
-          fail: () => finish(false),
-          complete: () => finish(false),
-        });
-      } catch {
-        finish(false);
-      }
+    if (typeof api.getClipboardData !== 'function') {
+      resolve('');
       return;
     }
-    const clip = (globalThis as { navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } } }).navigator?.clipboard;
-    if (clip?.writeText) {
-      clip.writeText(text).then(() => done(true)).catch(() => done(copyViaDom(text)));
-      return;
+    try {
+      api.getClipboardData({
+        success: (res) => resolve(res?.data ?? ''),
+        fail: () => resolve(''),
+      });
+    } catch {
+      resolve('');
     }
-    done(copyViaDom(text));
   });
+}
+
+function clipMatches(got: string, text: string): boolean {
+  if (!got || !text) return false;
+  if (got === text) return true;
+  const head = text.slice(0, Math.min(48, text.length));
+  return head.length > 0 && got.includes(head);
+}
+
+function copyToOs(text: string, field: HTMLTextAreaElement | null): Promise<boolean> {
+  return (async () => {
+    if (field && selectField(field, text) && execCopy()) return true;
+    if (await writeNav(text)) return true;
+    return copyViaDom(text);
+  })();
+}
+
+function writeWx(api: ClipBridge, text: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      api.setClipboardData?.({
+        data: text,
+        success: () => {
+          hideWxToast(api);
+          resolve(true);
+        },
+        fail: () => resolve(false),
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+function copyText(text: string, field: HTMLTextAreaElement | null): Promise<boolean> {
+  return (async () => {
+    const osOk = await copyToOs(text, field);
+    const wxApi = clipBridge();
+    if (wxApi?.setClipboardData && !wxLooksWindows(wxApi)) {
+      const wxOk = await writeWx(wxApi, text);
+      if (!osOk && wxOk && clipMatches(await readWxClip(wxApi), text)) return true;
+    }
+    return osOk;
+  })();
+}
+
+function hasDom(): boolean {
+  const doc = (globalThis as { document?: Document }).document;
+  return !!(doc?.body && typeof doc.createElement === 'function');
+}
+
+function uiToClient(uiX: number, uiY: number): { x: number; y: number } | null {
+  const canvas = game.canvas as HTMLCanvasElement | null;
+  if (!canvas) return null;
+  const box = canvas.getBoundingClientRect();
+  if (box.width <= 0 || box.height <= 0) return null;
+  const vis = portraitVisibleSize();
+  const vp = view.getViewportRect();
+  const win = screen.windowSize;
+  const ww = Math.max(win.width, 1);
+  const wh = Math.max(win.height, 1);
+  const rx = uiX / Math.max(vis.width, 1);
+  const ry = uiY / Math.max(vis.height, 1);
+  const frameX = vp.x + rx * vp.width;
+  const frameY = vp.y + ry * vp.height;
+  return {
+    x: box.left + (frameX / ww) * box.width,
+    y: box.top + (1 - frameY / wh) * box.height,
+  };
 }
 
 function readClipboard(): Promise<string> {
@@ -181,7 +262,7 @@ function readClipboard(): Promise<string> {
       return;
     }
     const clip = (globalThis as { navigator?: { clipboard?: { readText?: () => Promise<string> } } }).navigator?.clipboard;
-    if (clip?.readText) {
+    if (clip?.readText && (globalThis as { isSecureContext?: boolean }).isSecureContext) {
       clip.readText().then((s) => resolve(s ?? '')).catch(() => resolve(''));
       return;
     }
@@ -196,9 +277,16 @@ export class UgcTextPanel extends Component {
   private _onLoad: ((text: string) => string | true) | null = null;
   private _box: EditBox | null = null;
   private _draft = '';
+  private _pasteField: HTMLTextAreaElement | null = null;
+
+  onDestroy(): void {
+    this._listenPaste(false);
+    this._hidePasteField();
+  }
 
   hide(): void {
     this._listenPaste(false);
+    this._hidePasteField();
     this.unschedule(this._restoreCopyLabel);
     this._restoreCopyLabel();
     this.node.active = false;
@@ -233,6 +321,8 @@ export class UgcTextPanel extends Component {
     const paste = this.node.getChildByName('Card')?.getChildByName('PasteBtn');
     if (paste) paste.active = this._mode === 'load';
     this._listenPaste(this._mode === 'load');
+    this._showPasteField();
+    if (this._mode === 'export') this._selectExportField();
     this._hint('');
   }
 
@@ -253,6 +343,7 @@ export class UgcTextPanel extends Component {
     card?.getChildByName('Scroll')?.setPosition(0, BOX_Y, 0);
     card?.getChildByName('Hint')?.setPosition(0, BOX_Y - BOX_H * 0.5 + HINT_H * 0.5 + 16, 0);
     card?.getChildByName('Hint')?.getComponent(UITransform)?.setContentSize(HINT_W, HINT_H);
+    this._placePasteField();
     const paste = card?.getChildByName('PasteBtn');
     const okBtn = card?.getChildByName('OkBtn');
     if (this._mode === 'load') {
@@ -322,6 +413,11 @@ export class UgcTextPanel extends Component {
 
     this._box = this._editBox(card);
     this._scrollBody(card);
+    const face = card.getChildByName('Face');
+    if (face) this._bind(face, () => {
+      if (this._mode === 'export') this._selectExportField();
+      else this._focusPasteField();
+    });
     const hint = this._mk('Hint', HINT_W, HINT_H, card);
     hint.setPosition(0, BOX_Y - BOX_H * 0.5 + HINT_H * 0.5 + 16, 0);
     const leftoverLab = hint.getComponent(Label);
@@ -359,11 +455,16 @@ export class UgcTextPanel extends Component {
         this._hint('当前没有可复制的积木', 'err');
         return;
       }
-      const ok = await copyText(text);
+      let ok = false;
+      try {
+        ok = await copyText(text, this._pasteField);
+      } catch {
+        ok = false;
+      }
       if (ok) this._flashCopy();
       else {
-        this._offerSelectCopy();
-        this._hint('请长按文本框全选复制', 'err');
+        this._selectExportField();
+        this._hint('已选中全文，请按 Ctrl+C 拷到电脑', 'err');
       }
       return;
     }
@@ -381,12 +482,16 @@ export class UgcTextPanel extends Component {
 
   private async _paste(): Promise<void> {
     const text = (await readClipboard()).trim();
-    if (!text) {
-      this._focusBox();
-      this._hint('没读到剪贴板，请点输入框后按 Ctrl+V', 'err');
+    if (text) {
+      this._applyInput(text);
       return;
     }
-    this._applyInput(text);
+    if (this._focusPasteField()) {
+      this._hint('网页读不了剪贴板，请按 Ctrl+V', 'err');
+      return;
+    }
+    this._focusBox();
+    this._hint('没读到剪贴板，请点输入框后按 Ctrl+V', 'err');
   }
 
   private _applyInput(text: string): void {
@@ -403,6 +508,118 @@ export class UgcTextPanel extends Component {
     if (!box) return;
     if (typeof box.setFocus === 'function') box.setFocus(true);
     else box.focus?.();
+  }
+
+  private _showPasteField(): void {
+    if (!hasDom() || this._pasteField) {
+      this._placePasteField();
+      return;
+    }
+    const doc = (globalThis as { document?: Document }).document;
+    if (!doc?.body) return;
+    const ta = doc.createElement('textarea');
+    ta.setAttribute('autocomplete', 'off');
+    ta.setAttribute('autocorrect', 'off');
+    ta.setAttribute('spellcheck', 'false');
+    ta.value = '';
+    ta.style.cssText = [
+      'position:fixed',
+      'z-index:20',
+      'margin:0',
+      'padding:8px 10px',
+      'border:0',
+      'outline:none',
+      'resize:none',
+      'overflow:auto',
+      'background:transparent',
+      'color:transparent',
+      'caret-color:#383058',
+      'font:24px/34px "PingFang SC",sans-serif',
+    ].join(';');
+    ta.addEventListener('paste', (ev) => {
+      if (this._mode !== 'load') return;
+      const text = ev.clipboardData?.getData('text')?.trim() ?? '';
+      if (!text) return;
+      ev.preventDefault();
+      this._applyInput(text);
+      this._hint('');
+      ta.value = '';
+      ta.blur();
+    });
+    ta.addEventListener('input', () => {
+      if (this._mode !== 'load') return;
+      const text = ta.value.trim();
+      if (!text) return;
+      this._applyInput(text);
+      this._hint('');
+      ta.value = '';
+    });
+    doc.body.appendChild(ta);
+    this._pasteField = ta;
+    const win = globalThis as { addEventListener?: (t: string, fn: () => void) => void };
+    win.addEventListener?.('resize', this._placePasteField);
+    this._placePasteField();
+  }
+
+  private _hidePasteField(): void {
+    const win = globalThis as { removeEventListener?: (t: string, fn: () => void) => void };
+    win.removeEventListener?.('resize', this._placePasteField);
+    const ta = this._pasteField;
+    this._pasteField = null;
+    try {
+      ta?.parentElement?.removeChild(ta);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private _placePasteField = (): void => {
+    const ta = this._pasteField;
+    if (!ta || !this.node.active) {
+      if (ta) ta.style.display = 'none';
+      return;
+    }
+    const exportOn = this._mode === 'export';
+    ta.style.color = exportOn ? '#383058' : 'transparent';
+    ta.style.overflow = exportOn ? 'auto' : 'hidden';
+    if (exportOn) ta.value = this._compact(this._draft);
+    else if (!this._draft) ta.value = '';
+    const vis = uiVisibleSize();
+    const cx = vis.w * 0.5;
+    const cy = vis.h * 0.5 + 24 + BOX_Y;
+    const a = uiToClient(cx - BOX_W * 0.5, cy + BOX_H * 0.5);
+    const b = uiToClient(cx + BOX_W * 0.5, cy - BOX_H * 0.5);
+    if (!a || !b) {
+      ta.style.display = 'none';
+      return;
+    }
+    const left = Math.min(a.x, b.x) + 8;
+    const top = Math.min(a.y, b.y) + 8;
+    ta.style.display = 'block';
+    ta.style.left = `${left}px`;
+    ta.style.top = `${top}px`;
+    ta.style.width = `${Math.max(8, Math.abs(b.x - a.x) - 16)}px`;
+    ta.style.height = `${Math.max(8, Math.abs(b.y - a.y) - 16)}px`;
+  };
+
+  private _focusPasteField(): boolean {
+    const ta = this._pasteField;
+    if (!ta) return false;
+    this._placePasteField();
+    try {
+      ta.focus();
+      if (this._mode === 'export') ta.select();
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  private _selectExportField(): boolean {
+    const ta = this._pasteField;
+    if (!ta) return false;
+    this._placePasteField();
+    return selectField(ta, this._compact(this._draft));
   }
 
   private _onDocPaste = (ev: Event): void => {
