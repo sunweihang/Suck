@@ -2,7 +2,7 @@ import { _decorator, Component, Node, Vec3 } from 'cc';
 import { benchColOf, benchRankOf, ColorId, SPECIAL_SPAN, parseColorToken, tokenOfColorId } from '../game/GameConfig';
 import { applyGhostLook, paintUnitColor } from './BrickSpecials';
 import { TurretAnim } from './TurretAnim';
-import { bindPowerMark, paintPowerMark, preloadPowerDigits } from './PowerMark';
+import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from './PowerMark';
 import { applyToyCaster } from './ToyBlockMesh';
 import { TURRET_SCALE } from './ToyLook';
 import { applyQueueBlockLook, applyTurretLook, lockQueueBlockPose } from './TurretLook';
@@ -53,6 +53,14 @@ export class UnitActor extends Component {
   private _shownPower = -1;
   private _powerOn = false;
   private _muzzle: Node | null = null;
+  private _queuePosed = false;
+  private _lookKind = '';
+  private _lookColor = -1;
+  private _aimX = NaN;
+  private _aimY = NaN;
+  private _aimZ = NaN;
+  private _flyDone: (() => void) | null = null;
+  private _flyKeepScale = false;
 
   onLoad(): void {
     applyToyCaster(this.node, false, true);
@@ -63,6 +71,12 @@ export class UnitActor extends Component {
     this._parseName();
     this.node.getPosition(this.homePos);
     this._q.bind(this.node, this.index);
+    this._queuePosed = false;
+    this._lookKind = '';
+    this._lookColor = -1;
+    this._aimX = NaN;
+    this._aimY = NaN;
+    this._aimZ = NaN;
     this.refreshSeatLook();
     this._bindMuzzle();
     this._ensurePowerLabel();
@@ -83,10 +97,23 @@ export class UnitActor extends Component {
   }
 
   aimAt(world: Vec3): void {
+    if (
+      Math.abs(world.x - this._aimX) < 0.012
+      && Math.abs(world.y - this._aimY) < 0.012
+      && Math.abs(world.z - this._aimZ) < 0.012
+    ) {
+      return;
+    }
+    this._aimX = world.x;
+    this._aimY = world.y;
+    this._aimZ = world.z;
     this._q.aimAt(world);
   }
 
   clearAim(): void {
+    this._aimX = NaN;
+    this._aimY = NaN;
+    this._aimZ = NaN;
     this._q.clearAim();
   }
 
@@ -97,6 +124,10 @@ export class UnitActor extends Component {
 
   refreshPowerVisible(): void {
     if (!this._powerTag) return;
+    if (this._vanish && this.power <= 0) {
+      this._powerTag.active = true;
+      return;
+    }
     this._powerTag.active = this._powerOn && (this.usable || this.trapped) && this._shouldShowPower();
   }
 
@@ -115,6 +146,38 @@ export class UnitActor extends Component {
     this.refreshPowerVisible();
   }
 
+  get recyclable(): boolean {
+    return this.node.isValid && !this.node.active && !this.trapped && !this.freeing;
+  }
+
+  reuse(name: string): void {
+    this.magnet = false;
+    this.trapped = false;
+    this.freeing = false;
+    this.lockedCol = -1;
+    this.inflight = 0;
+    this.suckWait = 0;
+    this.state = 'bench';
+    this._vanish = false;
+    this._flying = false;
+    this._slideLeft = 0;
+    this._flyWait = 0;
+    this._flyArc = 0;
+    this._armed = false;
+    this._queuePosed = false;
+    this._lookKind = '';
+    this._lookColor = -1;
+    this._aimX = NaN;
+    this._aimY = NaN;
+    this._aimZ = NaN;
+    this._flyDone = null;
+    this._flyKeepScale = false;
+    this.node.name = name;
+    this.node.active = true;
+    this.node.setRotationFromEuler(0, 0, 0);
+    this.syncFromName();
+  }
+
   get usable(): boolean {
     return this.node.activeInHierarchy && !this.trapped && !this._flying && !this._vanish;
   }
@@ -128,11 +191,22 @@ export class UnitActor extends Component {
   }
 
   playVanish(done?: () => void): void {
-    this._vanish = true;
-    this.setPowerVisible(false);
-    this._q.playDie(() => {
+    if (this._vanish) {
       done?.();
-    });
+      return;
+    }
+    this._vanish = true;
+    this._shownPower = -1;
+    this._syncPowerText();
+    this.refreshPowerVisible();
+    let finished = false;
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      done?.();
+    };
+    this._q.playDie(finish);
+    this.scheduleOnce(finish, 0.7);
   }
 
   resetHome(): void {
@@ -155,8 +229,9 @@ export class UnitActor extends Component {
     this._slideLeft = 0.22;
   }
 
-  flyToHome(): void {
-    this._beginFly(this.homePos, 0.72, 0.95, true);
+  flyToHome(done?: () => void): void {
+    this._flyDone = done ?? null;
+    this._beginFly(this.homePos, 0.72, 0.95, true, true);
   }
 
   /** Arc from the current pose to a world seat (bench → pit). */
@@ -166,17 +241,19 @@ export class UnitActor extends Component {
     const dx = this.targetPos.x - this.node.position.x;
     const dz = this.targetPos.z - this.node.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
+    this._flyDone = null;
     this._beginFly(this.targetPos, 0.28 + Math.min(0.34, dist * 0.14), 0.32 + Math.min(0.55, dist * 0.24), false);
     this._flyWait = Math.max(0, delay);
     if (this._flyWait <= 0) this._q.punchPick();
   }
 
-  private _beginFly(local: Vec3, dur: number, arc: number, occupy: boolean): void {
+  private _beginFly(local: Vec3, dur: number, arc: number, occupy: boolean, keepScale = false): void {
     this.node.getPosition(this._slideFrom);
     this.node.getScale(this._flyFromScale);
     this._slideTo.set(local);
     this._flying = occupy;
     this._flyArc = arc;
+    this._flyKeepScale = keepScale;
     this._slideDur = dur;
     this._slideLeft = dur;
   }
@@ -201,16 +278,22 @@ export class UnitActor extends Component {
         this._slideFrom.z + (this._slideTo.z - this._slideFrom.z) * k,
       );
       if (this._flyArc > 0) {
-        const s = this._flyFromScale.x + (TURRET_SCALE - this._flyFromScale.x) * k;
-        this.node.setScale(s, s, s);
+        if (!this._flyKeepScale) {
+          const s = this._flyFromScale.x + (TURRET_SCALE - this._flyFromScale.x) * k;
+          this.node.setScale(s, s, s);
+        }
         if (this._slideLeft <= 0) {
           this._flying = false;
           this._flyArc = 0;
-          this.node.setScale(TURRET_SCALE, TURRET_SCALE, TURRET_SCALE);
+          if (this._flyKeepScale) this.node.setScale(this._flyFromScale);
+          else this.node.setScale(TURRET_SCALE, TURRET_SCALE, TURRET_SCALE);
           this.node.setRotationFromEuler(0, 0, 0);
           this.node.setPosition(this._slideTo);
           this._q.punchLand();
           this.refreshPowerVisible();
+          const done = this._flyDone;
+          this._flyDone = null;
+          done?.();
         }
       }
     }
@@ -221,10 +304,12 @@ export class UnitActor extends Component {
       this._prevInflight = this.inflight;
     } else {
       if (this.state !== this._prevState) {
-        if (this.state === 'drag') this._q.punchPick();
-        else if (this._prevState === 'drag') this._q.punchLand();
+        if (!this._vanish) {
+          if (this.state === 'drag') this._q.punchPick();
+          else if (this._prevState === 'drag') this._q.punchLand();
+          if (!this._flying) this.refreshSeatLook();
+        }
         this._prevState = this.state;
-        this.refreshSeatLook();
       }
       if (this.inflight > this._prevInflight) this._q.punchSpit();
       if (this.power < this._prevPower) this._q.punchEat();
@@ -232,16 +317,23 @@ export class UnitActor extends Component {
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     }
-    if (this._queued()) {
-      this._q.rest();
-      lockQueueBlockPose(this.node);
-    } else if (this._wantsAnim()) {
+    if (this._vanish) {
       this._q.tick(dt, this.state, this.inflight);
+    } else if (this._queued()) {
+      if (!this._queuePosed) {
+        this._q.rest();
+        lockQueueBlockPose(this.node);
+        this._queuePosed = true;
+      }
+    } else {
+      this._queuePosed = false;
+      if (this._wantsAnim()) this._q.tick(dt, this.state, this.inflight);
     }
+    if (this._shownPower !== this.power) this._syncPowerText();
   }
 
   private _queued(): boolean {
-    return !this.trapped && this.state === 'bench' && this.benchRank > 0;
+    return !this.trapped && !this._flying && this.state === 'bench' && this.benchRank > 0;
   }
 
   private _wantsAnim(): boolean {
@@ -287,13 +379,21 @@ export class UnitActor extends Component {
   }
 
   refreshSeatLook(): void {
-    if (this._queued()) {
-      this._q.rest();
-      applyQueueBlockLook(this.node, this.colorId);
-    } else {
-      applyTurretLook(this.node, this.colorId);
+    const kind = this._queued() ? 'queue' : 'turret';
+    if (kind !== this._lookKind || this.colorId !== this._lookColor) {
+      this._lookKind = kind;
+      this._lookColor = this.colorId;
+      if (kind === 'queue') {
+        this._q.rest();
+        applyQueueBlockLook(this.node, this.colorId);
+        this._queuePosed = true;
+      } else {
+        applyTurretLook(this.node, this.colorId);
+        this._queuePosed = false;
+      }
+      paintUnitColor(this.node, tokenOfColorId(this.colorId));
     }
-    paintUnitColor(this.node, tokenOfColorId(this.colorId));
+    if (this._powerTag?.isValid) posePowerMark(this.node, this._powerTag);
     this.refreshPowerVisible();
   }
 
@@ -319,7 +419,7 @@ export class UnitActor extends Component {
 
   private _syncPowerText(): void {
     if (!this._powerTag || this._shownPower === this.power) return;
+    if (!paintPowerMark(this._powerTag, this.power)) return;
     this._shownPower = this.power;
-    paintPowerMark(this._powerTag, this.power);
   }
 }

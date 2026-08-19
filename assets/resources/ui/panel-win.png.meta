@@ -131,7 +131,7 @@
     "hasAlpha": true,
     "redirect": "e7f3a91c-2d84-4b6e-9c11-8a0d4f6b2e21@6c48a",
     "compressSettings": {
-      "useCompressTexture": true,
+      "useCompressTexture": false,
       "presetId": "webUi"
     }
   }

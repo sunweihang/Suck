@@ -8,6 +8,7 @@ const SCALE = 0.7;
 
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
+const _pos = new Vec3();
 
 function loadAny(uuid: string): Promise<unknown> {
   return new Promise((resolve) => {
@@ -33,9 +34,17 @@ export function preloadMergeBurst(): Promise<void> {
 
 /** TripleTown ordinary 3-merge burst (xingxing), not first-building pingmu. */
 export function playMergeBurst(host: Node, world: Vec3): void {
-  const pos = new Vec3(world.x, world.y, world.z);
+  if (!host?.isValid) return;
+  if (_prefab) {
+    playPooledBurst('Xingxing', _prefab, host, world, SCALE, LIFE_MS, 6);
+    return;
+  }
+  const x = world.x;
+  const y = world.y;
+  const z = world.z;
   void preload().then(() => {
-    if (!host?.isValid || !_prefab) return;
-    playPooledBurst('Xingxing', _prefab, host, pos, SCALE, LIFE_MS, 6);
+    if (!host.isValid || !_prefab) return;
+    _pos.set(x, y, z);
+    playPooledBurst('Xingxing', _prefab, host, _pos, SCALE, LIFE_MS, 6);
   });
 }

@@ -29,7 +29,10 @@ const KEY_W = 140;
 const KEY_H = 76;
 const TOGGLE_W = 96;
 const TOGGLE_H = 64;
-const SHOW_GM_ENTRY = true;
+const FPS_W = 96;
+const FPS_H = 44;
+const FPS_GAP = 12;
+const SHOW_GM_ENTRY = false;
 
 const INK = new Color(56, 36, 24, 255);
 const CARD_BG = new Color(255, 248, 236, 255);
@@ -42,6 +45,10 @@ const RESET_BG = new Color(48, 168, 132, 255);
 const KEY_BG = new Color(236, 220, 196, 255);
 const KEY_INK = new Color(56, 36, 24, 255);
 const TOGGLE_BG = new Color(236, 156, 64, 255);
+const FPS_BG = new Color(32, 20, 12, 160);
+const FPS_GOOD = new Color(96, 220, 120, 255);
+const FPS_OK = new Color(248, 208, 72, 255);
+const FPS_BAD = new Color(236, 88, 72, 255);
 const BTN_TEXT = new Color(255, 255, 255, 255);
 const PLACE = new Color(160, 120, 88, 255);
 
@@ -75,6 +82,10 @@ export class GmPanel extends Component {
   private _level = 1;
   private _draft = '';
   private _levelLab: Label | null = null;
+  private _fpsLab: Label | null = null;
+  private _fpsAcc = 0;
+  private _fpsFrames = 0;
+  private _entryShown = SHOW_GM_ENTRY;
 
   setup(opts: {
     onWin: () => void;
@@ -106,6 +117,12 @@ export class GmPanel extends Component {
     this._setOpen(false);
   }
 
+  revealEntry(): void {
+    if (this._entryShown) return;
+    this._entryShown = true;
+    this.layoutChrome();
+  }
+
   layoutChrome(): void {
     this._ensureTree();
     const vis = uiVisibleSize();
@@ -117,19 +134,34 @@ export class GmPanel extends Component {
     this.node.getChildByName('Card')?.getComponent(UITransform)?.setContentSize(CARD_W, CARD_H);
     this.node.getChildByName('Card')?.setPosition(0, 20, 0);
     const toggle = this.node.getChildByName('Toggle');
+    const fps = this.node.getChildByName('Fps');
+    const safe = uiSafeInsets();
+    const gold = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
+    const goldShown = !!this.node.parent?.getChildByName('GoldHud')?.active;
+    const toggleX = vis.w * 0.5 - TOGGLE_W * 0.5 - GOLD_HUD.pad;
+    const toggleY = goldShown
+      ? gold.y - GOLD_HUD.rootH * 0.5 - GOLD_HUD.gapBelow - TOGGLE_H * 0.5
+      : gold.y;
     if (toggle) {
-      toggle.active = SHOW_GM_ENTRY;
-      const safe = uiSafeInsets();
-      const gold = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
-      const goldShown = !!this.node.parent?.getChildByName('GoldHud')?.active;
-      toggle.setPosition(
-        vis.w * 0.5 - TOGGLE_W * 0.5 - GOLD_HUD.pad,
-        goldShown
-          ? gold.y - GOLD_HUD.rootH * 0.5 - GOLD_HUD.gapBelow - TOGGLE_H * 0.5
-          : gold.y,
-        0,
-      );
+      toggle.active = this._entryShown;
+      toggle.setPosition(toggleX, toggleY, 0);
     }
+    if (fps) {
+      fps.active = this._entryShown;
+      fps.setPosition(toggleX, toggleY - TOGGLE_H * 0.5 - FPS_GAP - FPS_H * 0.5, 0);
+    }
+  }
+
+  update(dt: number): void {
+    if (!this._fpsLab) return;
+    this._fpsAcc += dt;
+    this._fpsFrames++;
+    if (this._fpsAcc < 0.4) return;
+    const fps = Math.round(this._fpsFrames / this._fpsAcc);
+    this._fpsLab.string = `${fps}`;
+    this._fpsLab.color = fps >= 50 ? FPS_GOOD : fps >= 30 ? FPS_OK : FPS_BAD;
+    this._fpsAcc = 0;
+    this._fpsFrames = 0;
   }
 
   private _setOpen(on: boolean): void {
@@ -182,9 +214,13 @@ export class GmPanel extends Component {
     this._pad(card);
 
     const toggle = this._mk('Toggle', this.node, TOGGLE_W, TOGGLE_H);
-    toggle.active = SHOW_GM_ENTRY;
+    toggle.active = this._entryShown;
     this._paint(toggle, TOGGLE_BG, TOGGLE_W, TOGGLE_H);
     this._label(toggle, 'Label', 'GM', 28, BTN_TEXT, 0, 0, TOGGLE_W, TOGGLE_H);
+    const fps = this._mk('Fps', this.node, FPS_W, FPS_H);
+    fps.active = this._entryShown;
+    this._paint(fps, FPS_BG, FPS_W, FPS_H);
+    this._fpsLab = this._label(fps, 'Label', '--', 26, FPS_GOOD, 0, 0, FPS_W, FPS_H);
     toggle.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();

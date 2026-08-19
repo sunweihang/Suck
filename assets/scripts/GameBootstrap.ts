@@ -33,7 +33,8 @@ import { initWxShare } from './ads/WxShareService';
 import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
-import { GAME } from './game/GameConfig';
+import { GAME, playCamLookAtY } from './game/GameConfig';
+import { playViewBand } from './game/ViewFit';
 import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, type ItemId } from './game/LevelCatalog';
 import {
   LETTERBOX_CLEAR,
@@ -271,6 +272,7 @@ export class GameBootstrap extends Component {
       const world = await buildPlayWorld(this.node.scene, getLevel(this._level));
       this._battle = world.battle;
       this._builtLevel = this._level;
+      this._frameMainCamera();
       this._bindBattle();
       this._home?.setLevel(this._level, LEVEL_COUNT);
       this._playHud?.setLevel(this._level);
@@ -470,10 +472,6 @@ export class GameBootstrap extends Component {
 
   private _onPlayItem(id: ItemId): void {
     if (!itemUnlocked(id, this._builtLevel || this._level)) return;
-    if (this._wallet.itemCount(id) > 0) {
-      this._battle?.useItem(id);
-      return;
-    }
     this._showItemShop(id);
   }
 
@@ -486,7 +484,7 @@ export class GameBootstrap extends Component {
   private _showItemShop(kind: ShopKind): void {
     this._unlockAudio();
     this._itemShopBusy = false;
-    this._itemShop?.show(kind);
+    this._itemShop?.show(kind, kind === 'slot' ? 0 : this._wallet.itemCount(kind));
     if (this._canvas) {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
@@ -506,6 +504,12 @@ export class GameBootstrap extends Component {
   private _buyShop(kind: ShopKind): void {
     if (kind === 'slot') this._buySlot();
     else this._buyItem(kind);
+  }
+
+  private _useShop(kind: ShopKind): void {
+    if (kind === 'slot') return;
+    this._closeItemShop();
+    this._battle?.useItem(kind);
   }
 
   private _watchShop(kind: ShopKind): Promise<void> {
@@ -568,11 +572,12 @@ export class GameBootstrap extends Component {
     return this._battle?.itemState() ?? {
       coins: this._wallet.coins,
       shuffle: this._wallet.itemCount('shuffle'),
-      merge: this._wallet.itemCount('merge'),
       hook: this._wallet.itemCount('hook'),
       shovel: this._wallet.itemCount('shovel'),
+      bomb: this._wallet.itemCount('bomb'),
       hookPick: false,
       shovelPick: false,
+      bombPick: false,
     };
   }
 
@@ -634,16 +639,6 @@ export class GameBootstrap extends Component {
     const cam = camNode?.getComponent(Camera);
     if (!cam || !camNode) return;
     this._mainCam = cam;
-    const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
-    const yaw = (GAME.worldCamYawDeg * Math.PI) / 180;
-    const dist = GAME.worldCamDist;
-    const look = new Vec3(GAME.worldCamLookAtX, GAME.worldCamLookAtY, GAME.worldCamLookAtZ);
-    camNode.setPosition(
-      look.x + dist * Math.sin(yaw) * Math.cos(pitch),
-      look.y + dist * Math.sin(pitch),
-      look.z + dist * Math.cos(yaw) * Math.cos(pitch),
-    );
-    camNode.lookAt(look, Vec3.UNIT_Y);
     cam.projection = Camera.ProjectionType.ORTHO;
     cam.orthoHeight = GAME.worldCamOrthoHeight;
     cam.fov = GAME.worldCamFovDeg;
@@ -653,8 +648,30 @@ export class GameBootstrap extends Component {
     cam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
     cam.priority = 1;
     cam.visibility = Layers.Enum.DEFAULT | Layers.Enum.UI_3D;
-    applyPortraitCameraRect(cam);
+    this._frameMainCamera();
     cam.enabled = false;
+  }
+
+  /** Pin the turret dock to the item tray; leftover height is the sculpture field. */
+  private _frameMainCamera(): void {
+    const cam = this._mainCam;
+    const camNode = cam?.node;
+    if (!cam || !camNode) return;
+    const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+    const yaw = (GAME.worldCamYawDeg * Math.PI) / 180;
+    const dist = GAME.worldCamDist;
+    const look = new Vec3(
+      GAME.worldCamLookAtX,
+      playCamLookAtY(playViewBand(portraitVisibleSize().height).pinFrac),
+      GAME.worldCamLookAtZ,
+    );
+    camNode.setPosition(
+      look.x + dist * Math.sin(yaw) * Math.cos(pitch),
+      look.y + dist * Math.sin(pitch),
+      look.z + dist * Math.cos(yaw) * Math.cos(pitch),
+    );
+    camNode.lookAt(look, Vec3.UNIT_Y);
+    applyPortraitCameraRect(cam);
   }
 
   private _tuneLighting(): void {
@@ -725,7 +742,7 @@ export class GameBootstrap extends Component {
       this._uiCam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
       applyPortraitCameraRect(this._uiCam);
     }
-    if (this._mainCam?.isValid) applyPortraitCameraRect(this._mainCam);
+    if (this._mainCam?.isValid) this._frameMainCamera();
     if (this._letterboxCam?.isValid) {
       this._letterboxCam.clearColor = LETTERBOX_CLEAR;
       this._letterboxCam.rect.set(0, 0, 1, 1);
@@ -793,7 +810,10 @@ export class GameBootstrap extends Component {
 
     const settingsN = await this._spawnSettings(canvasN);
     this._settings = settingsN.getComponent(SettingsPanel) ?? settingsN.addComponent(SettingsPanel);
-    this._settings.setup({ onClose: () => this._closeSettings() });
+    this._settings.setup({
+      onClose: () => this._closeSettings(),
+      onRestart: () => this._retryPlay(),
+    });
     this._settings.hide();
 
     const hudN = new Node('PlayHud');
@@ -803,6 +823,7 @@ export class GameBootstrap extends Component {
       onHome: () => this._showHome(),
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
+      onRevealGm: () => this._gm?.revealEntry(),
       onItem: (id) => this._onPlayItem(id),
     });
     this._playHud.hide();
@@ -837,6 +858,7 @@ export class GameBootstrap extends Component {
     this._itemShop.setup({
       onBuy: (kind) => this._buyShop(kind),
       onWatch: (kind) => void this._watchShop(kind),
+      onUse: (kind) => this._useShop(kind),
       onClose: () => this._closeItemShop(),
     });
     this._itemShop.hide();
@@ -852,11 +874,12 @@ export class GameBootstrap extends Component {
       this._playHud?.setItems(this._battle?.itemState() ?? {
         coins,
         shuffle: this._wallet.itemCount('shuffle'),
-        merge: this._wallet.itemCount('merge'),
         hook: this._wallet.itemCount('hook'),
         shovel: this._wallet.itemCount('shovel'),
+        bomb: this._wallet.itemCount('bomb'),
         hookPick: false,
         shovelPick: false,
+        bombPick: false,
       });
     });
 
@@ -1023,6 +1046,7 @@ export class GameBootstrap extends Component {
     this._settledBuilt = -1;
     this._unlockAudio();
     void this._ensureWorld().then(() => {
+      this._frameMainCamera();
       this._setWorldLive(true);
       this._bindBattle();
       this._home?.hide();

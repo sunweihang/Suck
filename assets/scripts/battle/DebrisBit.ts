@@ -1,4 +1,6 @@
-import { _decorator, Component, Vec3 } from 'cc';
+import { _decorator, Component, MeshRenderer, Vec3 } from 'cc';
+import type { ColorToken } from '../game/GameConfig';
+import { paintMeshRenderers } from './BrickSpecials';
 
 const { ccclass } = _decorator;
 
@@ -10,6 +12,12 @@ export class DebrisBit extends Component {
   private _life = 0;
   private _lifeMax = 1;
   private _size = 0.28;
+  private _mrs: MeshRenderer[] | null = null;
+
+  paintToken(token: ColorToken): void {
+    if (!this._mrs) this._mrs = this.node.getComponentsInChildren(MeshRenderer);
+    paintMeshRenderers(this._mrs, token);
+  }
 
   onLoad(): void {
     this.enabled = false;

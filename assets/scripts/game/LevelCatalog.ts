@@ -7,6 +7,7 @@ import {
   isColorToken,
 } from './GameConfig';
 import { assignVoxelTokens, rgbOfVoxel } from './VoxelPalette';
+import { playViewBand } from './ViewFit';
 
 export let LEVEL_COUNT = 100;
 
@@ -128,7 +129,31 @@ export function applyLevel(def: LevelDef): void {
   PLAY.raftH = def.raftH ?? 0;
   PLAY.raftTravel = def.raftTravel ?? 0;
   PLAY.raftPeriod = def.raftPeriod ?? 2.5;
-  fitPlayLayout(def.cols, def.rows, depth);
+  const occ = occupiedVoxelRows(def);
+  fitPlayLayout(def.cols, def.rows, depth, occ.min, occ.max, playViewBand());
+}
+
+/** Lowest / highest occupied brick row — used to drop short sculptures onto the pits. */
+function occupiedVoxelRows(def: LevelDef): { min: number; max: number } {
+  let min = def.rows;
+  let max = -1;
+  if (def.voxels.length) {
+    for (const v of def.voxels) {
+      min = Math.min(min, v.y);
+      max = Math.max(max, v.y);
+    }
+  } else {
+    for (let y = 0; y < def.rows; y++) {
+      for (let x = 0; x < def.cols; x++) {
+        if (def.cells[y * def.cols + x]) {
+          min = Math.min(min, y);
+          max = Math.max(max, y);
+        }
+      }
+    }
+  }
+  if (max < min) return { min: 0, max: Math.max(0, def.rows - 1) };
+  return { min, max };
 }
 
 export function ensureLevels(): Promise<void> {
@@ -159,13 +184,13 @@ export function getLevel(id: number): LevelDef {
   return LEVELS[n - 1];
 }
 
-export type ItemId = 'shuffle' | 'merge' | 'hook' | 'shovel';
+export type ItemId = 'shuffle' | 'hook' | 'shovel' | 'bomb';
 
 export const ITEM_UNLOCK_LEVEL: Record<ItemId, number> = {
   shuffle: 3,
-  merge: 5,
   hook: 8,
   shovel: 10,
+  bomb: 5,
 };
 
 export function itemUnlocked(id: ItemId, level: number): boolean {

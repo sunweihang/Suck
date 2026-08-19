@@ -550,7 +550,7 @@
       "b": 128,
       "a": 255
     },
-    "_string": "道具获取",
+    "_string": "洗牌",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_actualFontSize": 64,
@@ -809,8 +809,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 96,
-      "height": 71
+      "width": 680,
+      "height": 100
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -845,15 +845,15 @@
       "b": 128,
       "a": 255
     },
-    "_string": "洗牌",
+    "_string": "随机打乱备战区炮塔位置",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 44,
-    "_fontSize": 44,
+    "_actualFontSize": 36,
+    "_fontSize": 36,
     "_fontFamily": "PingFang SC",
-    "_lineHeight": 50,
-    "_overflow": 0,
-    "_enableWrapText": false,
+    "_lineHeight": 46,
+    "_overflow": 1,
+    "_enableWrapText": true,
     "_font": null,
     "_isSystemFontUsed": true,
     "_spacingX": 0,

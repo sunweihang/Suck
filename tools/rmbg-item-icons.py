@@ -23,7 +23,6 @@ os.environ.setdefault("RMBG_PORTAL_PASS", "admin123")
 
 ITEMS = (
     ("20260816-232351.png", "ic-item-shuffle.png"),
-    ("20260816-232347.png", "ic-item-merge.png"),
     ("20260816-232340.png", "ic-item-hook.png"),
     ("20260816-232316.png", "ic-item-shovel.png"),
 )

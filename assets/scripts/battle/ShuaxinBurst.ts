@@ -8,6 +8,7 @@ const SCALE = 0.55;
 
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
+const _pos = new Vec3();
 
 function loadAny(uuid: string): Promise<unknown> {
   return new Promise((resolve) => {
@@ -32,9 +33,17 @@ export function preloadShuaxinBurst(): Promise<void> {
 }
 
 export function playShuaxinBurst(host: Node, world: Vec3): void {
-  const pos = new Vec3(world.x, world.y, world.z);
+  if (!host?.isValid) return;
+  if (_prefab) {
+    playPooledBurst('Shuaxin', _prefab, host, world, SCALE, LIFE_MS, 4);
+    return;
+  }
+  const x = world.x;
+  const y = world.y;
+  const z = world.z;
   void preload().then(() => {
-    if (!host?.isValid || !_prefab) return;
-    playPooledBurst('Shuaxin', _prefab, host, pos, SCALE, LIFE_MS, 4);
+    if (!host.isValid || !_prefab) return;
+    _pos.set(x, y, z);
+    playPooledBurst('Shuaxin', _prefab, host, _pos, SCALE, LIFE_MS, 4);
   });
 }

@@ -16,7 +16,7 @@ import {
 } from 'cc';
 import { HintHand } from '../battle/HintHand';
 import { Theme } from '../game/Theme';
-import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
+import { PLAY_ITEM_BAR, itemTrayTopFromBottom, uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { fitBox, paintQBtn, styleQCaption, styleQNum } from './QChrome';
 import { GOLD_HUD } from './GoldHud';
 import { applyArtSprite, applyArtSpriteSoon, layoutHomeLevel } from './UiArt';
@@ -38,13 +38,13 @@ const ITEM_ICON = 168;
 const ITEM_GAP = 10;
 const ITEM_PAD_X = 62;
 const ITEM_BADGE = 54;
-const ITEM_TRAY_H = 220;
-const ITEM_IDS: readonly ItemId[] = ['shuffle', 'merge', 'hook', 'shovel'];
+const ITEM_TRAY_H = PLAY_ITEM_BAR.trayH;
+const ITEM_IDS: readonly ItemId[] = ['shuffle', 'hook', 'shovel', 'bomb'];
 const ITEM_ICON_KEY = {
   shuffle: 'icShuffle',
-  merge: 'icMerge',
   hook: 'icHook',
   shovel: 'icShovel',
+  bomb: 'icBomb',
 } as const;
 const BADGE_INK = new Color(255, 255, 255, 255);
 
@@ -55,26 +55,32 @@ export class PlayHud extends Component {
   private _onHome: (() => void) | null = null;
   private _onNext: (() => void) | null = null;
   private _onSettings: (() => void) | null = null;
+  private _onRevealGm: (() => void) | null = null;
   private _onItem: ((id: ItemId) => void) | null = null;
+  private _gmTaps = 0;
+  private _gmTapAt = 0;
   private _items: ItemHudState = {
     coins: 0,
     shuffle: 1,
-    merge: 1,
     hook: 1,
     shovel: 1,
+    bomb: 1,
     hookPick: false,
     shovelPick: false,
+    bombPick: false,
   };
 
   setup(opts: {
     onHome: () => void;
     onNext?: () => void;
     onSettings?: () => void;
+    onRevealGm?: () => void;
     onItem?: (id: ItemId) => void;
   }): void {
     this._onHome = opts.onHome;
     this._onNext = opts.onNext ?? null;
     this._onSettings = opts.onSettings ?? null;
+    this._onRevealGm = opts.onRevealGm ?? null;
     this._onItem = opts.onItem ?? null;
     this._ensureTree();
     const back = this.node.getChildByName('BackBtn');
@@ -93,6 +99,7 @@ export class PlayHud extends Component {
       gameAudio()?.playUiClick();
       this._onSettings?.();
     }, this);
+    this._bindScoreBoard();
     this.layoutChrome();
   }
 
@@ -311,7 +318,6 @@ export class PlayHud extends Component {
     const pos = this._itemPos(i);
     n.setPosition(pos.x, pos.y, 0);
     n.getChildByName('Icon')?.getComponent(UITransform)?.setContentSize(ITEM_ICON, ITEM_ICON);
-    n.getChildByName('Ring')?.getComponent(UITransform)?.setContentSize(ITEM_HIT + 8, ITEM_HIT + 8);
     const badge = n.getChildByName('Badge');
     badge?.setPosition(ITEM_ICON * 0.36, ITEM_ICON * 0.40, 0);
     badge?.getChildByName('Lab')?.setPosition(0, 0, 0);
@@ -337,9 +343,6 @@ export class PlayHud extends Component {
     const pos = this._itemPos(i);
     n.setPosition(pos.x, pos.y, 0);
     this._mk('Icon', ITEM_ICON, ITEM_ICON, n);
-    const ring = this._mk('Ring', ITEM_HIT + 8, ITEM_HIT + 8, n);
-    ring.addComponent(Graphics);
-    ring.active = false;
     const badge = this._mk('Badge', ITEM_BADGE, ITEM_BADGE, n);
     badge.setPosition(ITEM_ICON * 0.36, ITEM_ICON * 0.40, 0);
     this._mk('Face', ITEM_BADGE, ITEM_BADGE, badge);
@@ -367,7 +370,7 @@ export class PlayHud extends Component {
     this._ensureTray(root, tray.w, tray.h);
     this._ensureItemBtns(root);
     this._raiseItems(root);
-    root.setPosition(0, -viewH * 0.5 + safeBottom + tray.h * 0.5 + 16, 0);
+    root.setPosition(0, -viewH * 0.5 + itemTrayTopFromBottom(viewH, safeBottom) - tray.h * 0.5, 0);
   }
 
   private _paintItems(): void {
@@ -392,14 +395,18 @@ export class PlayHud extends Component {
       const unlocked = itemUnlocked(id, this._level);
       const charges = this._items[id] ?? 0;
       const on = unlocked && charges > 0;
-      const armed = unlocked && ((id === 'hook' && this._items.hookPick) || (id === 'shovel' && this._items.shovelPick));
+      const armed = unlocked && (
+        (id === 'hook' && this._items.hookPick)
+        || (id === 'shovel' && this._items.shovelPick)
+        || (id === 'bomb' && this._items.bombPick)
+      );
       n.setScale(armed ? 1.08 : 1, armed ? 1.08 : 1, 1);
+      this._paintItemRing(n.getChildByName('Ring'), armed);
       const icon = iconNode?.getComponent(Sprite);
       if (icon) {
         icon.color = Color.WHITE;
         icon.grayscale = !unlocked;
       }
-      this._paintItemRing(n.getChildByName('Ring'), armed);
       this._paintItemBadge(n.getChildByName('Badge'), unlocked, on, charges);
     }
   }
@@ -446,7 +453,29 @@ export class PlayHud extends Component {
     this._mk('Board', PLAY_BADGE, PLAY_BADGE, board);
     this._mk('Title', Math.round(PLAY_BADGE * 0.78), Math.round(PLAY_BADGE * 0.52), board);
     layoutHomeLevel(board, this._level, PLAY_BADGE, PLAY_DIGIT_H);
+    this._bindScoreBoard();
     return board;
+  }
+
+  private _bindScoreBoard(): void {
+    const board = this.node.getChildByName('ScoreBoard');
+    if (!board) return;
+    board.off(Node.EventType.TOUCH_END);
+    board.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this._tapScoreBoard();
+    }, this);
+  }
+
+  private _tapScoreBoard(): void {
+    const now = Date.now();
+    if (now - this._gmTapAt > 2000) this._gmTaps = 0;
+    this._gmTapAt = now;
+    this._gmTaps += 1;
+    if (this._gmTaps < 5) return;
+    this._gmTaps = 0;
+    gameAudio()?.playUiClick();
+    this._onRevealGm?.();
   }
 
   private _mk(name: string, w: number, h: number, parent: Node = this.node): Node {

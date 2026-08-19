@@ -1,5 +1,5 @@
 import { Rect, screen, sys, view } from 'cc';
-import { GAME } from './GameConfig';
+import { GAME, type PlayViewBand } from './GameConfig';
 import { portraitCameraRect, portraitVisibleSize } from './PortraitFit';
 
 declare const wx: undefined | {
@@ -19,7 +19,7 @@ function wxMenuTop(uiH: number): number {
     const info = wx?.getSystemInfoSync?.();
     const wh = info?.windowHeight || 0;
     if (!menu || menu.height <= 0 || wh <= 0) return uiH * 0.12;
-    return (menu.bottom / wh) * uiH + 12;
+    return (menu.bottom / wh) * uiH + 40;
   } catch {
     return uiH * 0.12;
   }
@@ -107,4 +107,49 @@ export function su(n: number): number {
 export function uiSafeInsets(): { top: number; bottom: number; left: number; right: number } {
   const { w, h } = uiVisibleSize();
   return uiSafeInsetsRaw(w, h);
+}
+
+/** Play HUD item tray — keep turret dock flush to this bar on every aspect. */
+export const PLAY_ITEM_BAR = {
+  trayH: 220,
+  lift: 16,
+  /** Design-space air between tray top and the lowest turret/bench pixels. */
+  stageGap: 18,
+} as const;
+
+export function itemTrayTopFromBottom(viewH?: number, safeBottom?: number): number {
+  const h = viewH ?? uiVisibleSize().h;
+  const safe = safeBottom ?? uiSafeInsetsRaw(uiVisibleSize().w, h).bottom;
+  return safe + PLAY_ITEM_BAR.lift + PLAY_ITEM_BAR.trayH;
+}
+
+/** Camera-view fraction (0 = bottom) where the turret dock should sit. */
+export function playDockPinFrac(viewH?: number, safeBottom?: number): number {
+  const h = Math.max(1, viewH ?? uiVisibleSize().h);
+  return (itemTrayTopFromBottom(viewH, safeBottom) + PLAY_ITEM_BAR.stageGap) / h;
+}
+
+/** Camera-view fraction of the top of the sculpture field (below HUD / notch). */
+export function playModelCeilFrac(viewH?: number, safeTop?: number): number {
+  const vis = uiVisibleSize();
+  const h = Math.max(1, viewH ?? vis.h);
+  const top = safeTop ?? uiSafeInsetsRaw(vis.w, h).top;
+  return 1 - (top + 64) / h;
+}
+
+export function playViewBand(viewH?: number): PlayViewBand {
+  const vis = uiVisibleSize();
+  const h = viewH ?? vis.h;
+  const safe = uiSafeInsetsRaw(vis.w, h);
+  return {
+    pinFrac: playDockPinFrac(h, safe.bottom),
+    ceilFrac: playModelCeilFrac(h, safe.top),
+  };
+}
+
+/** Same space as `Camera.worldToScreen` / `EventTouch.getLocation()`. */
+export function uiFromBottomToScreenY(uiFromBottom: number, viewH?: number): number {
+  const h = Math.max(1, viewH ?? uiVisibleSize().h);
+  const vp = view.getViewportRect();
+  return vp.y + (uiFromBottom / h) * vp.height;
 }

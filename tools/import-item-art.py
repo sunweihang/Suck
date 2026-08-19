@@ -12,9 +12,9 @@ OUT_DIR = ROOT / "assets/resources/ui"
 
 ITEMS = (
     "ic-item-shuffle.png",
-    "ic-item-merge.png",
     "ic-item-hook.png",
     "ic-item-shovel.png",
+    "ic-item-bomb.png",
 )
 
 

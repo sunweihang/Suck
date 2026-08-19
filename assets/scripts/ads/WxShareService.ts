@@ -1,7 +1,7 @@
 /**
  * 微信右上角分享：转发好友 / 朋友圈。
  * 对齐 Unravel WxShareService — showShareMenu + onShareAppMessage / onShareTimeline。
- * 设置面板「分享」走 shareToFriend()（用户点击触发）。
+ * 右上角菜单转发走 onShareAppMessage / onShareTimeline。
  */
 
 declare const wx: undefined | {
@@ -68,7 +68,7 @@ export function initWxShare(getQuery?: () => string): void {
   _ready = true;
 }
 
-/** 设置里「分享」按钮：主动拉起转发（须由用户点击触发）。 */
+/** 主动拉起转发（须由用户点击触发）。 */
 export function shareToFriend(): void {
   if (typeof wx === 'undefined') return;
   initWxShare();

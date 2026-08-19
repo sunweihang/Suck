@@ -1,7 +1,7 @@
 /** Port LevelCatalog + BattleDirector eat rules; check whether levels are winnable. */
 const LEVEL_COUNT = 100;
 const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
-const BENCH = { cols: 4, rows: 6 };
+const BENCH = { cols: 4, rows: 4 };
 const UNIT_SEATS = BENCH.cols * BENCH.rows;
 const UNIT_MAX = UNIT_SEATS * 4;
 const POWER_LO = 50;

@@ -281,6 +281,7 @@ export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
     n.destroy();
     n = null;
   }
+  if (n && n.active && !_fading.has(n) && (kind === 'octopus' || kind === 'chest')) return;
   if (n) {
     if (!n.active || _fading.has(n)) {
       _fading.delete(n);

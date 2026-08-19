@@ -1,0 +1,11 @@
+{
+  "compileType": "game",
+  "setting": {
+    "bigPackageSizeSupport": true,
+    "useStaticServer": true,
+    "ignoreDevUnusedFiles": true,
+    "ignoreUploadUnusedFiles": true,
+    "uploadWithSourceMap": false,
+    "minified": true
+  }
+}

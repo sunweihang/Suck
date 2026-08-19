@@ -7,6 +7,7 @@ const SCALE = 1.65;
 
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
+const _pos = new Vec3();
 
 function loadAny(uuid: string): Promise<unknown> {
   return new Promise((resolve) => {
@@ -31,14 +32,17 @@ export function preloadBaozhaBurst(): Promise<void> {
 }
 
 export function playBaozhaBurst(host: Node, world: Vec3, delayMs = 0, scale = SCALE): void {
-  const pos = new Vec3(world.x, world.y, world.z);
+  if (!host?.isValid) return;
+  if (_prefab) {
+    playPooledBurst('Baozha', _prefab, host, world, scale, LIFE_MS, 10, delayMs);
+    return;
+  }
+  const x = world.x;
+  const y = world.y;
+  const z = world.z;
   void preload().then(() => {
-    if (!host?.isValid || !_prefab) return;
-    const spawn = (): void => {
-      if (!host.isValid || !_prefab) return;
-      playPooledBurst('Baozha', _prefab, host, pos, scale, LIFE_MS, 10);
-    };
-    if (delayMs > 0) setTimeout(spawn, delayMs);
-    else spawn();
+    if (!host.isValid || !_prefab) return;
+    _pos.set(x, y, z);
+    playPooledBurst('Baozha', _prefab, host, _pos, scale, LIFE_MS, 10, delayMs);
   });
 }

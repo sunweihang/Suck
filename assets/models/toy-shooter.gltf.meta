@@ -5,24 +5,6 @@
   "uuid": "7e22bb20-0319-4b02-8002-000000000009",
   "files": [],
   "subMetas": {
-    "s7a01": {
-      "importer": "gltf-mesh",
-      "uuid": "7e22bb20-0319-4b02-8002-000000000009@s7a01",
-      "displayName": "ToyShooter",
-      "id": "s7a01",
-      "name": "ToyShooter.mesh",
-      "userData": {
-        "gltfIndex": 0,
-        "triangleCount": 1940
-      },
-      "ver": "1.1.1",
-      "imported": true,
-      "files": [
-        ".bin",
-        ".json"
-      ],
-      "subMetas": {}
-    },
     "0d4df": {
       "importer": "gltf-mesh",
       "uuid": "7e22bb20-0319-4b02-8002-000000000009@0d4df",

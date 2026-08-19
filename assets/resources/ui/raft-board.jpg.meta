@@ -131,7 +131,7 @@
     "hasAlpha": false,
     "redirect": "7e22bb20-0050-4b02-8002-000000000050@6c48a",
     "compressSettings": {
-      "useCompressTexture": true,
+      "useCompressTexture": false,
       "presetId": "webOpaque"
     }
   }

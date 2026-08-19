@@ -10,9 +10,9 @@ export const GOLD = {
   slot: 600,
   item: {
     shuffle: 20,
-    merge: 30,
     hook: 40,
     shovel: 40,
+    bomb: 30,
   } as Record<ItemId, number>,
 };
 
@@ -26,9 +26,9 @@ export function slotGoldCost(): number {
 
 const EMPTY_ITEMS: Record<ItemId, number> = {
   shuffle: 0,
-  merge: 0,
   hook: 0,
   shovel: 0,
+  bomb: 0,
 };
 
 export class PlayerWallet {
@@ -51,6 +51,8 @@ export class PlayerWallet {
       for (const id of Object.keys(EMPTY_ITEMS) as ItemId[]) {
         this._items[id] = Math.max(0, Math.floor(Number(data?.items?.[id]) || 0));
       }
+      const legacy = Math.max(0, Math.floor(Number((data?.items as { merge?: number } | undefined)?.merge) || 0));
+      if (legacy > 0 && this._items.bomb <= 0) this._items.bomb = legacy;
     } catch {
       this._coins = GOLD.start;
       this._items = { ...EMPTY_ITEMS };

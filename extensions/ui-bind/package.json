@@ -15,6 +15,7 @@
     "typescript": "^5.4.5"
   },
   "contributions": {
+    "builder": "./builder.js",
     "menu": [
       {
         "path": "i18n:menu.extension/UI Bind/Generate bind from Prefab",

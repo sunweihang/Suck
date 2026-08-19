@@ -36,7 +36,7 @@ import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
-import { preloadInkShot } from './InkShot';
+import { createInkShot, preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
 import { preloadTurretLooks } from './TurretLook';
 import { UnitActor } from './UnitActor';
@@ -298,6 +298,10 @@ export async function buildPlayWorld(
 
   const fly = new Node('FlyRoot');
   root.addChild(fly);
+  for (let i = 0; i < GAME.suckMaxFlightTotal; i++) {
+    const shot = createInkShot(fly);
+    shot.node.name = `Shot_${i}`;
+  }
 
   const pool = new Node('DebrisPool');
   root.addChild(pool);

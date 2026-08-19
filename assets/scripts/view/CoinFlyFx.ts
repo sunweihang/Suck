@@ -24,6 +24,11 @@ const ARC = 90;
 const JITTER = 36;
 
 const _tmp = new Vec3();
+const SCALE_IN = new Vec3(0.2, 0.2, 1);
+const SCALE_POP = new Vec3(1.15, 1.15, 1);
+const SCALE_FLY = new Vec3(0.75, 0.75, 1);
+const COIN_FALLBACK = new Color(255, 196, 44, 255);
+const _pool: Node[] = [];
 
 export function ensureCoinFxRoot(canvas: Node): Node {
   let fx = canvas.getChildByName('CoinFx');
@@ -50,25 +55,53 @@ export function worldToFxLocal(fxRoot: Node, world: Vec3, out: Vec3): Vec3 {
 
 export function clearCoinFlyers(fxRoot: Node | null): void {
   if (!fxRoot?.isValid) return;
-  for (const child of [...fxRoot.children]) {
+  const kids = fxRoot.children;
+  for (let i = kids.length - 1; i >= 0; i--) {
+    const child = kids[i];
     if (child.name !== FLYER_NAME) continue;
-    Tween.stopAllByTarget(child);
-    child.destroy();
+    recycleFlyer(child);
   }
 }
 
-function splitCredits(total: number, n: number): number[] {
+function takeFlyer(fxRoot: Node): Node {
+  for (let i = 0; i < _pool.length; i++) {
+    const n = _pool[i];
+    if (!n.isValid || n.active) continue;
+    Tween.stopAllByTarget(n);
+    if (n.parent !== fxRoot) fxRoot.addChild(n);
+    n.active = true;
+    return n;
+  }
+  const n = new Node(FLYER_NAME);
+  n.layer = Layers.Enum.UI_2D;
+  fxRoot.addChild(n);
+  n.addComponent(UITransform).setContentSize(COIN_SIZE, COIN_SIZE);
+  n.addComponent(Sprite).sizeMode = Sprite.SizeMode.CUSTOM;
+  n.addComponent(Graphics);
+  n.addComponent(UIOpacity).opacity = 255;
+  _pool.push(n);
+  return n;
+}
+
+function recycleFlyer(n: Node): void {
+  Tween.stopAllByTarget(n);
+  if (n.isValid) n.active = false;
+}
+
+function splitCredits(total: number, n: number, out: number[]): number[] {
   const count = Math.max(1, Math.floor(n));
   const sum = Math.max(0, Math.floor(total));
-  const base = Math.floor(sum / count);
+  const base = (sum / count) | 0;
   let rem = sum - base * count;
-  const out: number[] = [];
+  out.length = 0;
   for (let i = 0; i < count; i++) {
     out.push(base + (rem > 0 ? 1 : 0));
     if (rem > 0) rem -= 1;
   }
   return out;
 }
+
+const _credits: number[] = [];
 
 export function playCoinFlyBurst(opts: {
   fxRoot: Node;
@@ -86,26 +119,28 @@ export function playCoinFlyBurst(opts: {
     return;
   }
   const flyerCount = Math.min(MAX_FLYERS, Math.max(1, amount));
-  const credits = splitCredits(amount, flyerCount);
+  const credits = splitCredits(amount, flyerCount, _credits);
   let left = flyerCount;
-  const oneLanded = (): void => {
-    left -= 1;
-    if (left <= 0) opts.onDone?.();
-  };
   for (let i = 0; i < flyerCount; i++) {
-    const start = new Vec3(
-      opts.start.x + (Math.random() - 0.5) * JITTER,
-      opts.start.y + (Math.random() - 0.5) * JITTER,
-      0,
-    );
-    spawnFlyer(fx, start, opts.end.clone(), credits[i], i * STAGGER, opts.frame, i === 0, opts.onCredit, oneLanded);
+    const sx = opts.start.x + (Math.random() - 0.5) * JITTER;
+    const sy = opts.start.y + (Math.random() - 0.5) * JITTER;
+    const ex = opts.end.x;
+    const ey = opts.end.y;
+    const credit = credits[i];
+    const playSfx = i === 0;
+    spawnFlyer(fx, sx, sy, ex, ey, credit, i * STAGGER, opts.frame, playSfx, opts.onCredit, () => {
+      left -= 1;
+      if (left <= 0) opts.onDone?.();
+    });
   }
 }
 
 function spawnFlyer(
   fxRoot: Node,
-  start: Vec3,
-  end: Vec3,
+  sx: number,
+  sy: number,
+  ex: number,
+  ey: number,
   credit: number,
   delay: number,
   frame: SpriteFrame | null,
@@ -113,35 +148,45 @@ function spawnFlyer(
   onCredit: (n: number) => void,
   onLand: () => void,
 ): void {
-  const n = new Node(FLYER_NAME);
-  n.layer = Layers.Enum.UI_2D;
-  fxRoot.addChild(n);
-  n.addComponent(UITransform).setContentSize(COIN_SIZE, COIN_SIZE);
-  n.setPosition(start);
-  n.setScale(0.2, 0.2, 1);
-  if (frame) {
-    const sp = n.addComponent(Sprite);
-    sp.sizeMode = Sprite.SizeMode.CUSTOM;
+  const n = takeFlyer(fxRoot);
+  n.setPosition(sx, sy, 0);
+  n.setScale(SCALE_IN);
+  const op = n.getComponent(UIOpacity);
+  if (op) op.opacity = 255;
+  const sp = n.getComponent(Sprite);
+  const g = n.getComponent(Graphics);
+  if (frame && sp) {
+    sp.enabled = true;
     sp.spriteFrame = frame;
+    if (g) {
+      g.clear();
+      g.enabled = false;
+    }
   } else {
-    const g = n.addComponent(Graphics);
-    g.fillColor = new Color(255, 196, 44, 255);
-    g.circle(0, 0, COIN_SIZE * 0.5);
-    g.fill();
+    if (sp) {
+      sp.spriteFrame = null;
+      sp.enabled = false;
+    }
+    if (g) {
+      g.enabled = true;
+      g.clear();
+      g.fillColor = COIN_FALLBACK;
+      g.circle(0, 0, COIN_SIZE * 0.5);
+      g.fill();
+    }
   }
-  n.addComponent(UIOpacity).opacity = 255;
   tween(n)
     .delay(delay)
-    .to(POP, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
+    .to(POP, { scale: SCALE_POP }, { easing: 'backOut' })
     .delay(HOLD)
-    .to(FLY_SEC, { scale: new Vec3(0.75, 0.75, 1) }, {
+    .to(FLY_SEC, { scale: SCALE_FLY }, {
       easing: 'sineIn',
       onUpdate: (_t, ratio) => {
         if (!n.isValid) return;
         const r = ratio ?? 0;
         n.setPosition(
-          start.x + (end.x - start.x) * r,
-          start.y + (end.y - start.y) * r + Math.sin(r * Math.PI) * ARC,
+          sx + (ex - sx) * r,
+          sy + (ey - sy) * r + Math.sin(r * Math.PI) * ARC,
           0,
         );
       },
@@ -149,7 +194,7 @@ function spawnFlyer(
     .call(() => {
       if (playSfx) gameAudio()?.playGold();
       if (credit > 0) onCredit(credit);
-      if (n.isValid) n.destroy();
+      recycleFlyer(n);
       onLand();
     })
     .start();

@@ -1,4 +1,4 @@
-import { AudioClip, AudioSource, Node, resources, sys } from 'cc';
+import { AudioClip, AudioSource, Director, Node, director, game, resources, sys } from 'cc';
 
 const BGM_PATH = 'audio/bgm/bgm';
 const ABSORB_PATH = 'audio/sfx/absorb';
@@ -23,8 +23,13 @@ const REMOVE_GAIN = 1.2;
 const GOLD_GAIN = 1;
 /** TripleTown GetNew.mp3 — item / skill obtained. */
 const GET_NEW_GAIN = 1;
-/** Suck fires many bricks per second — keep a short gap so voices do not stack. */
-const ABSORB_GAP_SEC = 0.09;
+/**
+ * absorb.mp3: ~25ms lead-in, audible to ~110ms, silence after ~120ms.
+ * Pulse after the audible body; only cut once the tail is already quiet.
+ */
+const ABSORB_PULSE_SEC = 0.112;
+const ABSORB_SAFE_CUT_SEC = 0.12;
+const ABSORB_QUEUE_CAP = 8;
 
 /**
  * Looping BGM (Unravel) + absorb / UI-click one-shots (TripleTown).
@@ -34,6 +39,10 @@ const ABSORB_GAP_SEC = 0.09;
 export class AudioService {
   private _bgm: AudioSource;
   private _sfx: AudioSource;
+  private _absorbSfx: AudioSource;
+  private _absorbQueued = 0;
+  private _absorbWait = 0;
+  private _absorbTicking = false;
   private _bgmClip: AudioClip | null = null;
   private _absorbClip: AudioClip | null = null;
   private _clickClip: AudioClip | null = null;
@@ -69,6 +78,13 @@ export class AudioService {
     this._sfx.playOnAwake = false;
     this._sfx.volume = 1;
 
+    const absorbNode = new Node('AbsorbSfx');
+    host.addChild(absorbNode);
+    this._absorbSfx = absorbNode.addComponent(AudioSource);
+    this._absorbSfx.playOnAwake = false;
+    this._absorbSfx.loop = false;
+    this._absorbSfx.volume = 1;
+
     this._preload();
   }
 
@@ -77,6 +93,13 @@ export class AudioService {
     this._disposed = true;
     this._bgmDesired = false;
     this._stopBgmNow();
+    this._absorbQueued = 0;
+    this._clearAbsorbPulse();
+    try {
+      this._absorbSfx.stop();
+    } catch {
+      /* ignore */
+    }
   }
 
   getBgmVolume(): number {
@@ -118,18 +141,8 @@ export class AudioService {
 
   playAbsorb(): void {
     if (this._disposed) return;
-    const now = Date.now() * 0.001;
-    if (now - this._absorbAt < ABSORB_GAP_SEC) return;
-    this._absorbAt = now;
-    if (this._absorbClip) {
-      this._oneShot(this._absorbClip, ABSORB_GAIN);
-      return;
-    }
-    resources.load(ABSORB_PATH, AudioClip, (err, clip) => {
-      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
-      this._absorbClip = clip;
-      this._oneShot(clip, ABSORB_GAIN);
-    });
+    this._absorbQueued = Math.min(ABSORB_QUEUE_CAP, this._absorbQueued + 1);
+    this._pulseAbsorb();
   }
 
   /** TripleTown Boom.mp3 — bomb explosion. */
@@ -314,6 +327,69 @@ export class AudioService {
     } catch {
       /* ignore */
     }
+  }
+
+  private _pulseAbsorb(): void {
+    if (this._disposed || this._absorbQueued <= 0) return;
+    const now = Date.now() * 0.001;
+    const src = this._absorbSfx;
+    if (src.playing && now - this._absorbAt < ABSORB_SAFE_CUT_SEC) {
+      this._scheduleAbsorbPulse(this._absorbAt + ABSORB_SAFE_CUT_SEC - now);
+      return;
+    }
+    const wait = this._absorbAt + ABSORB_PULSE_SEC - now;
+    if (wait > 0.001) {
+      this._scheduleAbsorbPulse(wait);
+      return;
+    }
+    this._absorbQueued = 0;
+    this._absorbAt = now;
+    this._clearAbsorbPulse();
+    if (this._absorbClip) {
+      this._playAbsorbHit(this._absorbClip);
+      return;
+    }
+    resources.load(ABSORB_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._absorbSfx.node?.isValid) return;
+      this._absorbClip = clip;
+      this._playAbsorbHit(clip);
+    });
+  }
+
+  private _playAbsorbHit(clip: AudioClip): void {
+    const src = this._absorbSfx;
+    if (!src.node?.isValid) return;
+    if (src.playing) {
+      try {
+        src.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    src.clip = clip;
+    src.volume = Math.min(1, this._sfxGain * ABSORB_GAIN);
+    src.play();
+  }
+
+  private _onAbsorbTick = (): void => {
+    this._absorbWait -= game.deltaTime;
+    if (this._absorbWait > 0) return;
+    this._clearAbsorbPulse();
+    this._pulseAbsorb();
+  };
+
+  private _scheduleAbsorbPulse(waitSec: number): void {
+    this._absorbWait = Math.max(this._absorbWait, waitSec);
+    if (this._absorbTicking) return;
+    this._absorbTicking = true;
+    director.on(Director.EVENT_AFTER_UPDATE, this._onAbsorbTick);
+  }
+
+  private _clearAbsorbPulse(): void {
+    this._absorbWait = 0;
+    if (!this._absorbTicking) return;
+    director.off(Director.EVENT_AFTER_UPDATE, this._onAbsorbTick);
+    this._absorbTicking = false;
   }
 
   private _oneShot(clip: AudioClip, gain: number): void {

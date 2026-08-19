@@ -1,94 +1,15 @@
 import {
   Color,
-  ImageAsset,
+  Label,
   Layers,
-  Material,
   Node,
   RenderRoot2D,
-  Sprite,
-  SpriteFrame,
-  Texture2D,
   UITransform,
-  gfx,
-  resources,
 } from 'cc';
 import { TURRET_POWER_LOCAL } from './ToyLook';
 
-const POWER_SCALE = 0.0054;
-const DIGIT_H = 32;
-const OVERLAP = 0.16;
-const SHADOW = { x: 1.4, y: -1.4 };
-let _depthMat: Material | null = null;
-const _frames: Array<SpriteFrame | null> = [];
-let _boot: Promise<void> | null = null;
-
-function powerDepthMat(): Material | null {
-  if (_depthMat) return _depthMat;
-  try {
-    const mat = new Material();
-    mat.initialize({
-      effectName: 'builtin-sprite',
-      states: {
-        depthStencilState: {
-          depthTest: true,
-          depthWrite: false,
-          depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
-        },
-        rasterizerState: {
-          cullMode: gfx.CullMode.NONE,
-        },
-      },
-    });
-    if (mat.passes?.length) {
-      _depthMat = mat;
-      return mat;
-    }
-  } catch {
-    /* keep default UI material */
-  }
-  return null;
-}
-
-function frameFromImage(img: ImageAsset): SpriteFrame {
-  const tex = new Texture2D();
-  tex.image = img;
-  try {
-    tex.setWrapMode(Texture2D.WrapMode.CLAMP_TO_EDGE, Texture2D.WrapMode.CLAMP_TO_EDGE);
-    tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
-    tex.setMipFilter(Texture2D.Filter.NONE);
-  } catch {
-    /* older engine */
-  }
-  const sf = new SpriteFrame();
-  sf.texture = tex;
-  return sf;
-}
-
-function loadDigit(d: number): Promise<SpriteFrame | null> {
-  return new Promise((resolve) => {
-    resources.load(`toys/power-${d}`, ImageAsset, (err, img) => {
-      if (!err && img) {
-        resolve(frameFromImage(img));
-        return;
-      }
-      resources.load(`toys/power-${d}/texture`, Texture2D, (err2, tex) => {
-        if (err2 || !tex) {
-          resolve(null);
-          return;
-        }
-        const sf = new SpriteFrame();
-        sf.texture = tex;
-        resolve(sf);
-      });
-    });
-  });
-}
-
-function ensureBenchRoot(host: Node): void {
-  const parent = host.parent;
-  if (!parent || parent.name === 'Wall' || parent.name === 'Field') return;
-  if (!parent.getComponent(RenderRoot2D)) parent.addComponent(RenderRoot2D);
-}
+const POWER_SCALE = 0.0036;
+const FONT = 34;
 
 function findPower(host: Node): Node | null {
   const rig = host.getChildByName('Rig');
@@ -106,59 +27,58 @@ function powerParent(host: Node): Node {
     ?? host;
 }
 
-function stripMeshJunk(tag: Node): void {
+function ensureUiRoot(host: Node): void {
+  const parent = host.parent;
+  if (!parent || parent.name === 'Wall' || parent.name === 'Field') {
+    if (!host.getComponent(RenderRoot2D)) host.addComponent(RenderRoot2D);
+    return;
+  }
+  if (!parent.getComponent(RenderRoot2D)) parent.addComponent(RenderRoot2D);
+}
+
+function styleLabel(lab: Label): void {
+  lab.fontSize = FONT;
+  lab.lineHeight = FONT + 10;
+  lab.isBold = true;
+  lab.color = Color.WHITE;
+  lab.enableOutline = true;
+  lab.outlineWidth = 5;
+  lab.outlineColor = Color.BLACK;
+  lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+  lab.verticalAlign = Label.VerticalAlign.CENTER;
+  lab.useSystemFont = true;
+  lab.cacheMode = Label.CacheMode.CHAR;
+  lab.overflow = Label.Overflow.NONE;
+  lab.enableWrapText = false;
+}
+
+function ensureLabel(tag: Node): Label {
   tag.removeComponent('MeshRenderer');
-  tag.removeComponent('Billboard');
   tag.removeComponent('Sprite');
-  tag.removeComponent('Label');
-  for (const child of [...tag.children]) {
-    if (child.name === 'Digits') continue;
-    child.destroy();
-  }
-}
+  tag.removeComponent('Billboard');
+  tag.removeComponent('RenderRoot2D');
+  for (const child of [...tag.children]) child.destroy();
 
-function uiNode(parent: Node, name: string, w: number, h: number): Node {
-  let n = parent.getChildByName(name);
-  if (!n) {
-    n = new Node(name);
-    parent.addChild(n);
-  }
-  n.layer = Layers.Enum.UI_3D;
-  const ut = n.getComponent(UITransform) ?? n.addComponent(UITransform);
-  ut.setContentSize(w, h);
+  tag.layer = Layers.Enum.UI_3D;
+  const ut = tag.getComponent(UITransform) ?? tag.addComponent(UITransform);
+  ut.setContentSize(180, 56);
   ut.hitTest = () => false;
-  return n;
+  let lab = tag.getComponent(Label);
+  if (!lab) lab = tag.addComponent(Label);
+  styleLabel(lab);
+  return lab;
 }
 
-function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, color: Color): void {
-  const ut = node.getComponent(UITransform) ?? node.addComponent(UITransform);
-  ut.setContentSize(w, h);
-  ut.hitTest = () => false;
-  const sp = node.getComponent(Sprite) ?? node.addComponent(Sprite);
-  sp.sizeMode = Sprite.SizeMode.CUSTOM;
-  sp.type = Sprite.Type.SIMPLE;
-  sp.spriteFrame = sf;
-  sp.color = color;
-  const mat = powerDepthMat();
-  if (mat) sp.customMaterial = mat;
-}
-
-function digitWidth(sf: SpriteFrame): number {
-  const h = Math.max(1, sf.rect.height);
-  return DIGIT_H * (sf.rect.width / h);
-}
-
-function ensureDigits(tag: Node): Node {
-  return uiNode(tag, 'Digits', 48, DIGIT_H);
+export function posePowerMark(host: Node, tag: Node): void {
+  const parent = powerParent(host);
+  if (tag.parent !== parent) tag.setParent(parent, false);
+  tag.setPosition(TURRET_POWER_LOCAL);
+  tag.setRotationFromEuler(-90, 0, 0);
+  tag.setScale(POWER_SCALE, POWER_SCALE, POWER_SCALE);
 }
 
 export function preloadPowerDigits(): Promise<void> {
-  if (_frames.length === 10 && _frames.every(Boolean)) return Promise.resolve();
-  if (_boot) return _boot;
-  _boot = Promise.all(Array.from({ length: 10 }, (_, d) => loadDigit(d))).then((list) => {
-    for (let d = 0; d < 10; d++) _frames[d] = list[d];
-  });
-  return _boot;
+  return Promise.resolve();
 }
 
 export function bindPowerLayer(canvas: Node): void {
@@ -167,65 +87,27 @@ export function bindPowerLayer(canvas: Node): void {
 }
 
 export function syncPowerMarks(_cam: unknown): void {
-  /* labels stay on the shooter */
+  /* power stays on the turret */
 }
 
 export function bindPowerMark(host: Node): Node {
-  ensureBenchRoot(host);
-  const parent = powerParent(host);
+  ensureUiRoot(host);
   let tag = findPower(host);
-  if (tag && tag.parent !== parent) tag.setParent(parent, false);
   if (!tag) {
     tag = new Node('Power');
-    parent.addChild(tag);
-    const tagUt = tag.addComponent(UITransform);
-    tagUt.setContentSize(48, DIGIT_H);
-    tagUt.hitTest = () => false;
+    powerParent(host).addChild(tag);
   }
-  stripMeshJunk(tag);
-  ensureDigits(tag);
-  tag.layer = Layers.Enum.UI_3D;
+  ensureLabel(tag);
+  posePowerMark(host, tag);
   tag.active = true;
-  tag.setSiblingIndex(0);
-  tag.setPosition(TURRET_POWER_LOCAL);
-  tag.setRotationFromEuler(-90, 0, 0);
-  tag.setScale(POWER_SCALE, POWER_SCALE, POWER_SCALE);
   return tag;
 }
 
-export function paintPowerMark(tag: Node | null, value: number): void {
-  if (!tag?.isValid) return;
-  const box = ensureDigits(tag);
-  const num = String(Math.max(0, Math.round(value)));
-  const glyphs = [...num].map((ch) => _frames[Number(ch)] ?? null);
-  if (glyphs.some((sf) => !sf)) {
-    box.active = false;
-    return;
-  }
-  box.active = true;
-  const gap = DIGIT_H * OVERLAP;
-  const widths = glyphs.map((sf) => digitWidth(sf!));
-  const total = widths.reduce((s, w) => s + w, 0) - gap * Math.max(0, widths.length - 1);
-  box.getComponent(UITransform)?.setContentSize(total, DIGIT_H);
-  tag.getComponent(UITransform)?.setContentSize(total, DIGIT_H);
-
-  let x = -total * 0.5;
-  for (let i = 0; i < glyphs.length; i++) {
-    const sf = glyphs[i]!;
-    const w = widths[i];
-    const cx = x + w * 0.5;
-    const face = uiNode(box, `D${i}`, w, DIGIT_H);
-    const shade = uiNode(box, `S${i}`, w, DIGIT_H);
-    paintSprite(shade, sf, w, DIGIT_H, Color.BLACK);
-    paintSprite(face, sf, w, DIGIT_H, Color.WHITE);
-    shade.setPosition(cx + SHADOW.x, SHADOW.y, 0);
-    face.setPosition(cx, 0, 0);
-    shade.setSiblingIndex(i * 2);
-    face.setSiblingIndex(i * 2 + 1);
-    x += w - gap;
-  }
-  for (const child of [...box.children]) {
-    const m = /^[DS](\d+)$/.exec(child.name);
-    if (m && Number(m[1]) >= glyphs.length) child.destroy();
-  }
+export function paintPowerMark(tag: Node | null, value: number): boolean {
+  if (!tag?.isValid) return false;
+  const lab = tag.getComponent(Label) ?? ensureLabel(tag);
+  const text = String(Math.max(0, value | 0));
+  if (lab.string === text) return true;
+  lab.string = text;
+  return true;
 }

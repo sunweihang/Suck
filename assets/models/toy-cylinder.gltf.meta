@@ -5,24 +5,6 @@
   "uuid": "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6",
   "files": [],
   "subMetas": {
-    "c711d": {
-      "importer": "gltf-mesh",
-      "uuid": "7e22bb20-0317-4b02-8002-000000000007@c711d",
-      "displayName": "ToyCylinder",
-      "id": "c711d",
-      "name": "ToyCylinder.mesh",
-      "userData": {
-        "gltfIndex": 0,
-        "triangleCount": 64
-      },
-      "ver": "1.1.1",
-      "imported": true,
-      "files": [
-        ".bin",
-        ".json"
-      ],
-      "subMetas": {}
-    },
     "1d5e9": {
       "importer": "gltf-mesh",
       "uuid": "ffd68ce3-9bfe-4b65-a7c3-ca3dbd2086a6@1d5e9",

@@ -5,7 +5,7 @@ export type ChestReward = {
   items: ItemId[];
 };
 
-const ITEM_POOL: readonly ItemId[] = ['shuffle', 'merge', 'hook', 'shovel'];
+const ITEM_POOL: readonly ItemId[] = ['shuffle', 'hook', 'shovel', 'bomb'];
 
 export function rollChestReward(level: number): ChestReward {
   const gold = 40 + ((Math.random() * 41) | 0);

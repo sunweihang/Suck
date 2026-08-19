@@ -2524,7 +2524,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 104,
+      "width": 200,
       "height": 76.04
     },
     "_anchorPoint": {
@@ -2560,7 +2560,7 @@
       "b": 255,
       "a": 255
     },
-    "_string": "分享",
+    "_string": "重新开始",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_actualFontSize": 48,

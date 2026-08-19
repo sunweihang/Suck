@@ -42,9 +42,9 @@ const KEYS = [
   'itemTray',
   'itemBadge',
   'icShuffle',
-  'icMerge',
   'icHook',
   'icShovel',
+  'icBomb',
   'goldIcon',
   'goldBg',
   'icAd',
@@ -86,9 +86,9 @@ function pathOf(key: ArtKey): string {
   if (key === 'itemTray') return 'ui/item-tray/spriteFrame';
   if (key === 'itemBadge') return 'ui/item-badge/spriteFrame';
   if (key === 'icShuffle') return 'ui/ic-item-shuffle/spriteFrame';
-  if (key === 'icMerge') return 'ui/ic-item-merge/spriteFrame';
   if (key === 'icHook') return 'ui/ic-item-hook/spriteFrame';
   if (key === 'icShovel') return 'ui/ic-item-shovel/spriteFrame';
+  if (key === 'icBomb') return 'ui/ic-item-bomb/spriteFrame';
   if (key === 'goldIcon') return 'ui/ui-gold-icon/spriteFrame';
   if (key === 'goldBg') return 'ui/ui-gold-bg/spriteFrame';
   if (key === 'icAd') return 'ui/ic-ad-video/spriteFrame';

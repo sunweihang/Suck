@@ -33,7 +33,11 @@ const _camRight = new Vec3();
 const _camUp = new Vec3();
 const _spinQ = new Quat();
 const _ident = new Quat();
+const _camQ = new Quat();
+const _camFrom = new Vec3();
 let _playCam: Camera | null = null;
+let _camPoseFrame = -1;
+let _camLive = false;
 Quat.fromEuler(_restQ, TURRET_PITCH_DEG, TURRET_YAW_DEG, 0);
 
 function playCam(): Camera | null {
@@ -43,6 +47,23 @@ function playCam(): Camera | null {
     ?? scene?.getComponentInChildren(Camera)
     ?? null;
   return _playCam;
+}
+
+function cacheCamPose(): boolean {
+  const frame = director.getTotalFrames();
+  if (_camPoseFrame === frame) return _camLive;
+  _camPoseFrame = frame;
+  const cam = playCam()?.node;
+  if (!cam?.isValid) {
+    _camLive = false;
+    return false;
+  }
+  cam.getWorldPosition(_camFrom);
+  cam.getWorldRotation(_camQ);
+  Vec3.transformQuat(_camRight, Vec3.UNIT_X, _camQ);
+  Vec3.transformQuat(_camUp, Vec3.UNIT_Y, _camQ);
+  _camLive = true;
+  return true;
 }
 
 function ensureRig(root: Node): Node {
@@ -273,7 +294,7 @@ export class TurretAnim {
       this._oneshot && !lock ? _pos.y * CLIP_POS_SCALE : 0,
       lock ? 0 : _pos.z * CLIP_POS_SCALE,
     );
-    this._placeMuzzle();
+    if (this._hasAim || this._oneshot || _state === 'attack') this._placeMuzzle();
     if (finished) finished();
   }
 
@@ -297,17 +318,13 @@ export class TurretAnim {
       return out;
     }
     Vec3.normalize(_aimDir, _aimDir);
-    const cam = playCam()?.node;
-    if (cam?.isValid) {
-      cam.getWorldPosition(_viewAxis);
-      _viewAxis.subtract(_aimFrom);
+    if (cacheCamPose()) {
+      _viewAxis.set(_camFrom.x - _aimFrom.x, _camFrom.y - _aimFrom.y, _camFrom.z - _aimFrom.z);
       if (_viewAxis.lengthSqr() < 1e-8) {
         Quat.copy(out, _restQ);
         return out;
       }
       Vec3.normalize(_viewAxis, _viewAxis);
-      Vec3.transformQuat(_camRight, Vec3.UNIT_X, cam.worldRotation);
-      Vec3.transformQuat(_camUp, Vec3.UNIT_Y, cam.worldRotation);
     } else {
       _viewAxis.set(0, 0, 1);
       _camRight.set(1, 0, 0);
@@ -332,9 +349,7 @@ export class TurretAnim {
     const body = this._body;
     if (!mouth?.isValid || !body?.isValid) return;
     if (mouth.parent !== body) mouth.setParent(body, false);
-    const cam = playCam()?.node;
-    if (cam?.isValid) Vec3.transformQuat(_camUp, Vec3.UNIT_Y, cam.worldRotation);
-    else _camUp.set(0, 0.9063, -0.4226);
+    if (!cacheCamPose()) _camUp.set(0, 0.9063, -0.4226);
     mouth.setPosition(turretFireLocal(_aimDir, _camUp));
     mouth.setRotation(_ident);
   }

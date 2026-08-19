@@ -22,7 +22,7 @@ const UUID = {
 const PANEL_W = 860;
 const PANEL_H = Math.round((PANEL_W * 1386) / 959);
 const ICON = 336;
-const NAME_W = 480;
+const NAME_W = 680;
 const BTN_W = 374;
 const BTN_H = 145;
 const BTN_GAP = 20;
@@ -31,7 +31,7 @@ const AD_ICON_W = 76;
 const AD_ICON_H = 52;
 const TITLE_Y = Math.round(PANEL_H * 0.5 - 150);
 const ICON_Y = 44;
-const NAME_H = 56;
+const NAME_H = 100;
 const NAME_GAP = 10;
 const NAME_Y = Math.round(ICON_Y - ICON * 0.5 - NAME_GAP - NAME_H * 0.5);
 const BTN_Y = Math.round(-PANEL_H * 0.5 + 56 + BTN_H * 0.5);
@@ -307,7 +307,7 @@ function main() {
   addSprite(doc, frame, UUID.panel);
 
   const title = addBox(doc, 'Title', card, PANEL_W - 200, 72, 0, TITLE_Y);
-  addLabel(doc, title, '道具获取', 52, { r: 74, g: 68, b: 128, a: 255 }, {
+  addLabel(doc, title, '洗牌', 52, { r: 74, g: 68, b: 128, a: 255 }, {
     _outlineColor: { __type__: 'cc.Color', r: 255, g: 255, b: 255, a: 255 },
     _outlineWidth: 4,
   });
@@ -315,7 +315,10 @@ function main() {
   const icon = addBox(doc, 'Icon', card, ICON, ICON, 0, ICON_Y);
   addSprite(doc, icon, UUID.shuffle);
   const name = addBox(doc, 'Name', card, NAME_W, NAME_H, 0, NAME_Y);
-  addLabel(doc, name, '洗牌', 44, { r: 74, g: 68, b: 128, a: 255 }, {
+  addLabel(doc, name, '随机打乱备战区炮塔位置', 36, { r: 74, g: 68, b: 128, a: 255 }, {
+    _overflow: 1,
+    _enableWrapText: true,
+    _lineHeight: 46,
     _outlineColor: { __type__: 'cc.Color', r: 255, g: 255, b: 255, a: 255 },
     _outlineWidth: 4,
   });

@@ -19,6 +19,8 @@
     "ignoreDevUnusedFiles": true,
     "ignoreUploadUnusedFiles": true,
     "bigPackageSizeSupport": true,
+    "uploadWithSourceMap": false,
+    "minified": true,
     "useIsolateContext": true
   }
 }

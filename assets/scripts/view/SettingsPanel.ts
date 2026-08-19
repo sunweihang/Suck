@@ -14,7 +14,6 @@ import {
   Widget,
 } from 'cc';
 import { openGameCircle } from '../ads/GameCircleService';
-import { shareToFriend } from '../ads/WxShareService';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { styleQCaption, styleQNum } from './QChrome';
@@ -54,14 +53,16 @@ export class SettingsPanel extends Component {
   private _built = false;
   private _fromPrefab = false;
   private _onClose: (() => void) | null = null;
+  private _onRestart: (() => void) | null = null;
   private _bgmSlider: Slider | null = null;
   private _sfxSlider: Slider | null = null;
   private _bgmFill: Node | null = null;
   private _sfxFill: Node | null = null;
   private _sfxPreviewAt = 0;
 
-  setup(opts: { onClose: () => void }): void {
+  setup(opts: { onClose: () => void; onRestart: () => void }): void {
     this._onClose = opts.onClose;
+    this._onRestart = opts.onRestart;
     this._ensureTree();
     this.layoutChrome();
   }
@@ -86,11 +87,11 @@ export class SettingsPanel extends Component {
     this._paintNode(close, 'settingsClose');
     const lab = close?.getChildByName('Label');
     if (lab) lab.active = false;
+    this._styleActionLabel(card?.getChildByName('ShareButton')?.getChildByName('Label') ?? null, '重新开始', SHARE_OUTLINE);
+    this._styleActionLabel(card?.getChildByName('ClubButton')?.getChildByName('Label') ?? null, '游戏圈', CLUB_OUTLINE);
     if (!this._fromPrefab) {
       ensureBtnChrome(card?.getChildByName('ShareButton'), BTN_W, BTN_H, Color.WHITE, SHARE_OUTLINE, 'winDouble');
       ensureBtnChrome(card?.getChildByName('ClubButton'), BTN_W, BTN_H, Color.WHITE, CLUB_OUTLINE, 'winAction');
-      this._styleActionLabel(card?.getChildByName('ShareButton')?.getChildByName('Label') ?? null, '分享', SHARE_OUTLINE);
-      this._styleActionLabel(card?.getChildByName('ClubButton')?.getChildByName('Label') ?? null, '游戏圈', CLUB_OUTLINE);
       this._placeActions();
     }
     this._paintVolumeRow(card?.getChildByName('BgmRow') ?? null, 'icMusic');
@@ -210,7 +211,7 @@ export class SettingsPanel extends Component {
 
     this._volumeRow(card, 'BgmRow', '背景音乐', BGM_Y);
     this._volumeRow(card, 'SfxRow', '音效', SFX_Y);
-    this._action(card, 'ShareButton', '分享', SHARE_X, ACTION_Y, () => undefined);
+    this._action(card, 'ShareButton', '重新开始', SHARE_X, ACTION_Y, () => undefined);
     this._action(card, 'ClubButton', '游戏圈', CLUB_X, ACTION_Y, () => undefined);
 
     const close = this._mk('CloseBtn', card, CLOSE, CLOSE);
@@ -250,7 +251,7 @@ export class SettingsPanel extends Component {
       this._onClose?.();
     }, this);
     this._bindTap(card?.getChildByName('CloseBtn'), () => this._onClose?.());
-    this._bindTap(card?.getChildByName('ShareButton'), () => shareToFriend());
+    this._bindTap(card?.getChildByName('ShareButton'), () => this._onRestart?.());
     this._bindTap(card?.getChildByName('ClubButton'), () => openGameCircle());
   }
 

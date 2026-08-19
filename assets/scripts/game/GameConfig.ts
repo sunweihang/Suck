@@ -57,6 +57,38 @@ export const GAME = {
   slotPickR: 0.42,
 } as const;
 
+export type PlayViewBand = {
+  pinFrac: number;
+  ceilFrac: number;
+};
+
+/**
+ * Look-at Y that puts the turret dock bottom on `pinFrac` of the camera view
+ * (0 = bottom). Extra phone height stays above as the sculpture field.
+ */
+export function playCamLookAtY(pinFrac: number): number {
+  const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+  const py = benchSeatY() + STAGE.dockPinY;
+  const pz = benchSeatZ(BENCH.rows - 1) + STAGE.dockPinZ;
+  const t = Math.min(0.42, Math.max(0.05, pinFrac));
+  const targetCamY = GAME.worldCamOrthoHeight * (2 * t - 1);
+  return py - (targetCamY + (pz - GAME.worldCamLookAtZ) * Math.sin(pitch)) / Math.cos(pitch);
+}
+
+/** Camera-view fraction (0 = bottom) of a world point under the play ortho camera. */
+export function viewFracOfWorld(py: number, pz: number, lookY: number): number {
+  const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+  const camY = (py - lookY) * Math.cos(pitch) - (pz - GAME.worldCamLookAtZ) * Math.sin(pitch);
+  return (camY / GAME.worldCamOrthoHeight + 1) * 0.5;
+}
+
+/** World Y at `pz` that lands on camera-view fraction `frac`. */
+export function worldYAtViewFrac(frac: number, pz: number, lookY: number): number {
+  const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+  const camY = GAME.worldCamOrthoHeight * (2 * frac - 1);
+  return lookY + (camY + (pz - GAME.worldCamLookAtZ) * Math.sin(pitch)) / Math.cos(pitch);
+}
+
 export const PLAY = {
   levelId: 1,
   wallCols: GAME.wallCols,
@@ -87,41 +119,83 @@ export const PLAY = {
 
 /** World box that stays inside the fixed play camera (28x20 @ ~0.19). */
 const WALL_SAFE_HALF_W = 2.85;
-const WALL_SAFE_H = 4.18;
 /** World Y the play camera can still see; a peeking brick still counts. */
-export const VIEW_Y_MIN = 0.95;
-export const VIEW_Y_MAX = 8.6;
+export let VIEW_Y_MIN = 0.95;
+export let VIEW_Y_MAX = 8.6;
 const BLOCK_SIZE_RATIO = GAME.blockSize / GAME.blockStep;
 
 /**
  * One play-stage. `liftY` moves sculpture, pits, and bench together.
- * Every level's voxel volume is centered on `sculptureY + liftY`.
+ * Short models drop until their occupied bottom sits `sculptureGap` above the pits.
  */
 export const STAGE = {
   liftY: 0.55,
   sculptureY: 5.35,
+  /** World gap from pit stand to the lowest occupied brick. */
+  sculptureGap: 0.32,
+  /** Turret / slot pad height used to keep the model above the pit row. */
+  slotClearance: 0.62,
+  /** Extra camera-view fraction above the pit row before the model floor. */
+  modelFloorPad: 0.014,
   slotY: GAME.slotStandY,
   benchY: 2.10,
+  /** Last bench row → on-screen dock bottom (slightly below seat, toward camera). */
+  dockPinY: -0.06,
+  dockPinZ: 0.30,
 } as const;
 
-/** Shrink step/size, then pin the whole stage from one set of anchors. */
-export function fitPlayLayout(cols: number, rows: number, depth = 1): void {
+/** Shrink step/size, then sit the sculpture in the camera band above the pits. */
+export function fitPlayLayout(
+  cols: number,
+  rows: number,
+  depth = 1,
+  occMin = 0,
+  occMax = -1,
+  view: PlayViewBand = { pinFrac: 0.14, ceilFrac: 0.92 },
+): void {
   const spanX = Math.max(1, cols - 1 + BLOCK_SIZE_RATIO);
-  const spanY = Math.max(1, rows - 1 + BLOCK_SIZE_RATIO);
   const spanZ = Math.max(1, depth - 1 + BLOCK_SIZE_RATIO);
-  const step = Math.min(
-    GAME.blockStep,
-    (2 * WALL_SAFE_HALF_W) / spanX,
-    WALL_SAFE_H / spanY,
-    3.2 / spanZ,
-  );
-  PLAY.blockStep = step;
-  PLAY.blockSize = step * BLOCK_SIZE_RATIO;
   const lift = STAGE.liftY;
-  const height = Math.max(0, rows - 1) * step;
-  PLAY.wallBaseY = STAGE.sculptureY + lift - height * 0.5;
   PLAY.slotStandY = STAGE.slotY + lift;
   PLAY.benchStandY = STAGE.benchY + lift;
+  const y0 = Math.max(0, Math.min(Math.max(0, rows - 1), occMin));
+  const y1 = occMax >= y0 ? Math.min(Math.max(0, rows - 1), occMax) : Math.max(0, rows - 1);
+  const occSpan = Math.max(1, y1 - y0 + BLOCK_SIZE_RATIO);
+
+  let step = Math.min(GAME.blockStep, (2 * WALL_SAFE_HALF_W) / spanX, 3.2 / spanZ);
+  const applyStep = (s: number): { floorY: number; ceilY: number } => {
+    PLAY.blockStep = s;
+    PLAY.blockSize = s * BLOCK_SIZE_RATIO;
+    const lookY = playCamLookAtY(view.pinFrac);
+    const frontZ = voxelFrontZ();
+    const backZ = frontZ - Math.max(0, depth - 1) * s;
+    const slotTop = viewFracOfWorld(
+      PLAY.slotStandY + STAGE.slotClearance,
+      shooterStandZ(),
+      lookY,
+    );
+    const floorY = Math.max(
+      PLAY.slotStandY + STAGE.sculptureGap,
+      worldYAtViewFrac(slotTop + STAGE.modelFloorPad, frontZ, lookY),
+    );
+    const ceilY = Math.max(floorY + 0.8, worldYAtViewFrac(view.ceilFrac, backZ, lookY));
+    return { floorY, ceilY };
+  };
+
+  let band = applyStep(step);
+  step = Math.min(step, (band.ceilY - band.floorY) / occSpan);
+  band = applyStep(step);
+
+  const half = PLAY.blockSize * 0.5;
+  const mid = (band.floorY + band.ceilY) * 0.5;
+  let base = mid - (y0 + y1) * step * 0.5;
+  const top = base + y1 * step + half;
+  if (top > band.ceilY) base -= top - band.ceilY;
+  const bottom = base + y0 * step - half;
+  if (bottom < band.floorY) base += band.floorY - bottom;
+  PLAY.wallBaseY = base;
+  VIEW_Y_MIN = band.floorY - half;
+  VIEW_Y_MAX = band.ceilY + half;
 }
 
 export function slotSpacing(_count: number): number {
@@ -255,10 +329,10 @@ export function wallColAtX(x: number): number {
 
 export const BENCH = {
   cols: 4,
-  rows: 6,
+  rows: 4,
   /** Same as slotSpacing so each column sits under a turret. */
   stepX: 0.78,
-  stepZ: 1.70,
+  stepZ: 1.52,
   /** First bench row sits below the pads, not on them. */
   frontGap: 0.82,
   startZ: 0.50,

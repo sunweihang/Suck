@@ -2,7 +2,7 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "7e22bb20-0072-4b02-8002-000000000072",
+  "uuid": "66526370-5cb3-4e39-801b-f91bfd4cbeed",
   "files": [
     ".json",
     ".png"
@@ -10,8 +10,8 @@
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "7e22bb20-0072-4b02-8002-000000000072@6c48a",
-      "displayName": "ic-item-hook",
+      "uuid": "66526370-5cb3-4e39-801b-f91bfd4cbeed@6c48a",
+      "displayName": "ic-item-bomb",
       "id": "6c48a",
       "name": "texture",
       "userData": {
@@ -22,7 +22,7 @@
         "mipfilter": "none",
         "anisotropy": 0,
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "7e22bb20-0072-4b02-8002-000000000072",
+        "imageUuidOrDatabaseUri": "66526370-5cb3-4e39-801b-f91bfd4cbeed",
         "visible": false
       },
       "ver": "1.0.22",
@@ -34,8 +34,8 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "7e22bb20-0072-4b02-8002-000000000072@f9941",
-      "displayName": "ic-item-hook",
+      "uuid": "66526370-5cb3-4e39-801b-f91bfd4cbeed@f9941",
+      "displayName": "ic-item-bomb",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {
@@ -113,7 +113,7 @@
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "7e22bb20-0072-4b02-8002-000000000072@6c48a",
+        "imageUuidOrDatabaseUri": "66526370-5cb3-4e39-801b-f91bfd4cbeed@6c48a",
         "atlasUuid": "",
         "trimType": "none"
       },
@@ -129,7 +129,7 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
-    "redirect": "7e22bb20-0072-4b02-8002-000000000072@6c48a",
+    "redirect": "66526370-5cb3-4e39-801b-f91bfd4cbeed@6c48a",
     "maxWidth": 256,
     "maxHeight": 256,
     "compressSettings": {

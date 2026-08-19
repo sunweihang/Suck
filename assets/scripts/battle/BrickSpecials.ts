@@ -100,12 +100,21 @@ function blob(
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
-function paintLook(root: Node, look: VoxelLook): void {
+function paintLookOn(mrs: MeshRenderer[], look: VoxelLook): void {
   const mat = brickMat(look.rgb);
-  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+  for (let i = 0; i < mrs.length; i++) {
+    const mr = mrs[i];
     if (skipPaint(mr.node.name)) continue;
     mr.setSharedMaterial(mat, 0);
   }
+}
+
+function paintLook(root: Node, look: VoxelLook): void {
+  paintLookOn(root.getComponentsInChildren(MeshRenderer), look);
+}
+
+export function paintMeshRenderers(mrs: MeshRenderer[], token: ColorToken): void {
+  paintLookOn(mrs, lookOfRgb(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y));
 }
 
 export function preloadVoxelLook(): Promise<void> {

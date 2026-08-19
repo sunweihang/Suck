@@ -63,7 +63,6 @@ let _muzzleTex: Texture2D | null = null;
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
 let _cam: Camera | null = null;
-let _inkLogN = 0;
 type MuzzleFx = {
   node: Node;
   mr: MeshRenderer;
@@ -208,10 +207,18 @@ function mainCam(): Camera | null {
   return _cam;
 }
 
+const _camCached = new Vec3();
+let _camFrame = -1;
+
 function camPos(out: Vec3, fallback: Vec3): void {
-  const cam = mainCam();
-  if (cam?.node?.isValid) cam.node.getWorldPosition(out);
-  else out.set(fallback.x, fallback.y + 10, fallback.z);
+  const frame = director.getTotalFrames();
+  if (_camFrame !== frame) {
+    _camFrame = frame;
+    const cam = mainCam();
+    if (cam?.node?.isValid) cam.node.getWorldPosition(_camCached);
+    else _camCached.set(fallback.x, fallback.y + 10, fallback.z);
+  }
+  out.set(_camCached);
 }
 
 function faceCam(node: Node, camPosW: Vec3): void {
@@ -299,7 +306,19 @@ export function createInkShot(host: Node): InkShot {
   node.layer = Layers.Enum.DEFAULT;
   node.active = false;
   host.addChild(node);
-  return node.getComponent(InkShot) ?? node.addComponent(InkShot);
+  const shot = node.getComponent(InkShot) ?? node.addComponent(InkShot);
+  shot.prepareLook();
+  return shot;
+}
+
+export function warmInkShots(host: Node, count: number): InkShot[] {
+  const out: InkShot[] = [];
+  for (let i = 0; i < count; i++) {
+    const shot = createInkShot(host);
+    shot.node.name = `Shot_${i}`;
+    out.push(shot);
+  }
+  return out;
 }
 
 let _muzzleTick = false;
@@ -458,12 +477,25 @@ export class InkShot extends Component {
   private readonly _to = new Vec3();
   private _t = 0;
   private _dur = 0.16;
-  private _onHit: (() => void) | null = null;
-  private _seek: (() => Vec3) | null = null;
+  private _onHit: ((shot: InkShot) => void) | null = null;
   private _armed = false;
+  private _lookReady = false;
+  landUnit: unknown = null;
+  landBlock: unknown = null;
+  landBoom = false;
+  landPaint = false;
+  landToken = '';
 
   get busy(): boolean {
     return this.node.active && this._armed;
+  }
+
+  prepareLook(): void {
+    try {
+      this._ensureLook();
+    } catch {
+      this._lookReady = false;
+    }
   }
 
   fire(
@@ -472,15 +504,13 @@ export class InkShot extends Component {
     _token: string,
     duration: number,
     _arc: number,
-    onHit?: () => void,
-    seek?: () => Vec3,
+    onHit?: (shot: InkShot) => void,
   ): void {
     this._from.set(from);
     this._to.set(to);
     this._t = 0;
     this._dur = Math.max(0.06, duration);
     this._onHit = onHit ?? null;
-    this._seek = seek ?? null;
     this._armed = false;
     this.node.active = true;
     this.enabled = true;
@@ -491,17 +521,9 @@ export class InkShot extends Component {
       console.error('[Suck:fire] InkShot look failed', err);
     }
     this._armed = true;
-    if (_inkLogN < 8) {
-      _inkLogN += 1;
-      console.warn(
-        `[Suck:fire] ink ${this.node.name} from=${from.x.toFixed(2)},${from.y.toFixed(2)},${from.z.toFixed(2)}`
-        + ` to=${to.x.toFixed(2)},${to.y.toFixed(2)},${to.z.toFixed(2)} dur=${this._dur.toFixed(2)}`,
-      );
-    }
   }
 
   update(dt: number): void {
-    tickMuzzles(dt);
     if (!this._armed) return;
     this._t += dt;
     const u = Math.min(1, this._t / this._dur);
@@ -516,10 +538,11 @@ export class InkShot extends Component {
     this.enabled = false;
     const done = this._onHit;
     this._onHit = null;
-    done?.();
+    done?.(this);
   }
 
   private _ensureLook(): void {
+    if (this._lookReady && this._ball?.isValid) return;
     if (!_ballMat) _ballMat = addMat(null, 255, true);
     this.node.layer = Layers.Enum.DEFAULT;
     this.node.setScale(1, 1, 1);
@@ -553,11 +576,10 @@ export class InkShot extends Component {
     ball.active = !!_ballMat;
     if (_ballMat) applyMesh(ball, glowQuad(), _ballMat);
     this._ball = ball;
+    this._lookReady = true;
   }
 
   private _pose(u: number): void {
-    const seek = this._seek?.();
-    if (seek) this._to.set(seek);
     const dx = this._to.x - this._from.x;
     const dy = this._to.y - this._from.y;
     const dz = this._to.z - this._from.z;
@@ -581,7 +603,12 @@ export class InkShot extends Component {
       this._ball.setScale(BALL * fade, BALL * fade, 1);
     }
     if (this._glow?.isValid) {
-      faceCam(this._glow, _camP);
+      if (this._ball?.isValid) {
+        this._ball.getWorldRotation(_rot);
+        this._glow.setWorldRotation(_rot);
+      } else {
+        faceCam(this._glow, _camP);
+      }
       this._glow.setScale(GLOW * fade, GLOW * fade, 1);
     }
     if (this._haze?.isValid) {

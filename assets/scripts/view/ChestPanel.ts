@@ -42,9 +42,9 @@ const AD_ICON_H = 44;
 const REWARD_ICON = 88;
 const ITEM_ICON_KEY = {
   shuffle: 'icShuffle',
-  merge: 'icMerge',
   hook: 'icHook',
   shovel: 'icShovel',
+  bomb: 'icBomb',
 } as const;
 
 @ccclass('ChestPanel')

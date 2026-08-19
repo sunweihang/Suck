@@ -5,24 +5,6 @@
   "uuid": "7e22bb20-031a-4b02-8002-00000000000a",
   "files": [],
   "subMetas": {
-    "b7a02": {
-      "importer": "gltf-mesh",
-      "uuid": "7e22bb20-031a-4b02-8002-00000000000a@b7a02",
-      "displayName": "ToyBullet",
-      "id": "b7a02",
-      "name": "ToyBullet.mesh",
-      "userData": {
-        "gltfIndex": 0,
-        "triangleCount": 168
-      },
-      "ver": "1.1.1",
-      "imported": true,
-      "files": [
-        ".bin",
-        ".json"
-      ],
-      "subMetas": {}
-    },
     "2e258": {
       "importer": "gltf-mesh",
       "uuid": "7e22bb20-031a-4b02-8002-00000000000a@2e258",
