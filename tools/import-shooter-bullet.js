@@ -33,8 +33,8 @@ const UUID = {
   GltfBullet: '7e22bb20-031a-4b02-8002-00000000000a',
 };
 
-const MESH_SHOOTER = `${UUID.GltfShooter}@s7a01`;
-const MESH_BULLET = `${UUID.GltfBullet}@b7a02`;
+const MESH_SHOOTER = `${UUID.GltfShooter}@0d4df`;
+const MESH_BULLET = `${UUID.GltfBullet}@2e258`;
 
 const COLORS = [
   { token: 'o', name: 'Orange', unit: '7e22bb20-0004-4b02-8002-000000000004', mat: '9d11aa10-0001-4a01-8001-000000000001' },
@@ -553,8 +553,8 @@ function main() {
   const bScale = BULLET_R / br;
   const bullet = rebuildNormals(xform(bulletRaw, (x, y, z) => [x * bScale, y * bScale, z * bScale, 0, 1, 0]));
 
-  writeGltf(path.join(ASSETS, 'models/toy-shooter'), 'ToyShooter', shooter, UUID.GltfShooter, 's7a01');
-  writeGltf(path.join(ASSETS, 'models/toy-bullet'), 'ToyBullet', bullet, UUID.GltfBullet, 'b7a02');
+  writeGltf(path.join(ASSETS, 'models/toy-shooter'), 'ToyShooter', shooter, UUID.GltfShooter, '0d4df');
+  writeGltf(path.join(ASSETS, 'models/toy-bullet'), 'ToyBullet', bullet, UUID.GltfBullet, '2e258');
   writeMeshJson('toy-shooter', shooter, UUID.MeshShooterJson);
   writeMeshJson('toy-bullet', bullet, UUID.MeshBulletJson);
 

@@ -1,5 +1,5 @@
 import { Color, JsonAsset, Material, Mesh, MeshRenderer, Node, Vec3, resources, utils } from 'cc';
-import { ColorToken } from '../game/GameConfig';
+import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
 import { applyToyCaster } from './ToyBlockMesh';
 
 type MeshPack = {
@@ -12,20 +12,7 @@ type MeshPack = {
   r: number;
 };
 
-const CANDY: Record<ColorToken, [number, number, number]> = {
-  o: [255, 132, 28],
-  y: [255, 158, 72],
-  c: [24, 228, 236],
-  g: [96, 224, 48],
-  p: [255, 84, 164],
-  v: [164, 92, 255],
-  r: [220, 28, 34],
-  s: [72, 176, 255],
-  k: [255, 124, 100],
-  m: [0, 212, 128],
-  a: [240, 56, 216],
-  d: [255, 196, 44],
-};
+const CANDY: Record<ColorToken, readonly [number, number, number]> = TOKEN_RGB;
 
 let _body: Mesh | null = null;
 let _trim: Mesh | null = null;

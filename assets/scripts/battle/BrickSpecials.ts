@@ -36,19 +36,19 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return c;
 }
 
-/** Yesterday prefab mats: roughness 0.34, metal 0.04, emit 0.12. */
+/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash. */
 function brickMat(rgb: readonly [number, number, number]): Material {
   const key = `brick-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
   const color = colorOf(rgb);
   const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
+  mat.initialize({ effectName: 'builtin-standard', defines: { USE_INSTANCING: true } });
   mat.setProperty('mainColor', color);
   mat.setProperty('roughness', 0.34);
   mat.setProperty('metallic', 0.04);
   mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(0.12, 0.12, 0.12));
+  mat.setProperty('emissiveScale', new Vec3(0.04, 0.04, 0.04));
   _mats.set(key, mat);
   return mat;
 }
@@ -150,13 +150,42 @@ export function paintUnitColor(root: Node, token: ColorToken): void {
   const mat = glossy(
     `unit-${rgb[0]}-${rgb[1]}-${rgb[2]}`,
     colorOf(rgb),
-    0.26,
-    0.18,
+    0.34,
+    0.04,
   );
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (skipPaint(mr.node.name)) continue;
     mr.setSharedMaterial(mat, 0);
   }
+}
+
+function rgbFromMat(mr: MeshRenderer): readonly [number, number, number] | null {
+  const raw = mr.getSharedMaterial(0)?.getProperty('mainColor') as
+    | { r?: number; g?: number; b?: number }
+    | undefined;
+  if (typeof raw?.r !== 'number' || typeof raw.g !== 'number' || typeof raw.b !== 'number') return null;
+  const unit = raw.r <= 1 && raw.g <= 1 && raw.b <= 1;
+  return [
+    Math.round(unit ? raw.r * 255 : raw.r),
+    Math.round(unit ? raw.g * 255 : raw.g),
+    Math.round(unit ? raw.b * 255 : raw.b),
+  ];
+}
+
+/** The RGB the player sees on a painted turret / brick. Prefer the Body mesh. */
+export function readPaintRgb(root: Node): readonly [number, number, number] | null {
+  const body = root.getChildByName('Body') ?? root.getChildByName('Rig')?.getChildByName('Body');
+  const bodyMr = body?.getComponent(MeshRenderer);
+  if (bodyMr) {
+    const rgb = rgbFromMat(bodyMr);
+    if (rgb) return rgb;
+  }
+  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+    if (skipPaint(mr.node.name)) continue;
+    const rgb = rgbFromMat(mr);
+    if (rgb) return rgb;
+  }
+  return null;
 }
 
 export function applyPaintLook(root: Node, token: ColorToken = 'p'): void {

@@ -3,10 +3,19 @@ import {
   ColorToken,
   GAME,
   PLAY,
+  TOKEN_RGB,
   fitPlayLayout,
   isColorToken,
 } from './GameConfig';
-import { assignVoxelTokens, rgbOfVoxel } from './VoxelPalette';
+import {
+  assignVoxelTokens,
+  nearestTintToken,
+  officialTokenOfVoxel,
+  rgbDist2,
+  rgbOfVoxel,
+  PALETTE_MATCH_DIST2,
+  RGB_MATCH_DIST2,
+} from './VoxelPalette';
 import { playViewBand } from './ViewFit';
 
 export let LEVEL_COUNT = 100;
@@ -99,7 +108,7 @@ export function saveLevelIndex(n: number): void {
   }
 }
 
-export function applyLevel(def: LevelDef): void {
+export function applyLevel(def: LevelDef, opts?: { minDepth?: number }): void {
   PLAY.levelId = def.id;
   PLAY.wallCols = def.cols;
   PLAY.wallRows = def.rows;
@@ -111,11 +120,19 @@ export function applyLevel(def: LevelDef): void {
       if (cell) depth = Math.max(depth, cell.tokens.length);
     }
   }
-  PLAY.wallDepth = depth;
+  PLAY.wallDepth = Math.max(depth, opts?.minDepth ?? 0);
   PLAY.palette = def.palette.slice();
   const tints = { ...(def.tints ?? {}) };
   for (const v of def.voxels) tints[v.token] = rgbOfVoxel(v.colorId);
   PLAY.tints = tints;
+  const voxelTok = new Set<string>();
+  for (const v of def.voxels) voxelTok.add(`${v.token}:${v.colorId}`);
+  console.log('[Suck:fire] colors', {
+    id: def.id,
+    units: def.units.map((u) => `${u[0]}${u[1]}`).join(','),
+    voxels: [...voxelTok].join(','),
+    tints,
+  });
   PLAY.fieldYawDeg = def.fieldYaw ?? 0;
   PLAY.brickMix = def.brickMix;
   PLAY.ironRows = (def.ironRows ?? []).slice().sort((a, b) => a - b);
@@ -265,25 +282,48 @@ function decodeVoxels(
     counts[id] = (counts[id] || 0) + 1;
   }
   const mapped = assignVoxelTokens(counts).map;
-  const byRgb = new Map<string, ColorToken>();
-  if (tints) {
-    for (const key of Object.keys(tints)) {
-      if (!isColorToken(key)) continue;
-      const rgb = tints[key];
-      if (!rgb) continue;
-      byRgb.set(`${rgb[0] | 0},${rgb[1] | 0},${rgb[2] | 0}`, key);
-    }
-  }
+  const authored = tints ?? {};
   for (let i = 0; i + 3 < raw.length; i += 4) {
     const colorId = raw[i + 3] | 0;
     const rgb = rgbOfVoxel(colorId);
-    const fromTint = byRgb.get(`${rgb[0]},${rgb[1]},${rgb[2]}`);
-    const fromId = mapped[colorId];
     const fromPal = palette[colorId];
-    const token = fromTint ?? fromId ?? (isColorToken(fromPal) ? fromPal : 'o');
+    const official = officialTokenOfVoxel(colorId);
+    const token =
+      nearestTintToken(rgb, authored, RGB_MATCH_DIST2)
+      ?? official
+      ?? mapped[colorId]
+      ?? (isColorToken(fromPal) ? fromPal : 'o');
     out.push({ x: raw[i] | 0, y: raw[i + 1] | 0, z: raw[i + 2] | 0, token, colorId });
   }
   return out;
+}
+
+function remapUnits(
+  units: ReadonlyArray<UnitSpec>,
+  voxels: ReadonlyArray<{ token: ColorToken; colorId: number }>,
+  tints: Partial<Record<ColorToken, readonly [number, number, number]>>,
+): UnitSpec[] {
+  if (!voxels.length) return units.slice();
+  const brickRgb = new Map<ColorToken, readonly [number, number, number]>();
+  for (const v of voxels) {
+    if (!brickRgb.has(v.token)) brickRgb.set(v.token, rgbOfVoxel(v.colorId));
+  }
+  return units.map((u) => {
+    const token = u[0];
+    if (brickRgb.has(token)) return u[2] ? ([token, u[1], u[2]] as const) : ([token, u[1]] as const);
+    const rgb = tints[token] ?? TOKEN_RGB[token];
+    let best = token;
+    let bestD = Infinity;
+    brickRgb.forEach((brgb, bt) => {
+      const d = rgbDist2(rgb, brgb);
+      if (d < bestD) {
+        bestD = d;
+        best = bt;
+      }
+    });
+    const next = best !== token && bestD <= PALETTE_MATCH_DIST2 ? best : token;
+    return u[2] ? ([next, u[1], u[2]] as const) : ([next, u[1]] as const);
+  });
 }
 
 function decodeTints(
@@ -307,6 +347,16 @@ function decodeIronRows(raw: RawLevel): number[] {
 function decodeLevel(raw: RawLevel): LevelDef {
   const ironRows = decodeIronRows(raw);
   const tints = decodeTints(raw.tints);
+  const voxels = decodeVoxels(raw.voxels, raw.palette, tints);
+  const units = remapUnits(
+    raw.units.map((u) => {
+      const token = u[0] as ColorToken;
+      const n = u[1];
+      return u[2] ? ([token, n, u[2]] as const) : ([token, n] as const);
+    }),
+    voxels,
+    tints,
+  );
   return {
     id: raw.id,
     cols: raw.cols,
@@ -325,13 +375,9 @@ function decodeLevel(raw: RawLevel): LevelDef {
     brickMix: raw.brickMix ?? 0,
     tints,
     fieldYaw: raw.fieldYaw ?? 0,
-    voxels: decodeVoxels(raw.voxels, raw.palette, tints),
+    voxels,
     palette: [...raw.palette] as ColorToken[],
-    units: raw.units.map((u) => {
-      const token = u[0] as ColorToken;
-      const n = u[1];
-      return u[2] ? ([token, n, u[2]] as const) : ([token, n] as const);
-    }),
+    units,
     cells: raw.cells.map(decodeCell),
   };
 }

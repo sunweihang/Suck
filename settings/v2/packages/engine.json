@@ -116,7 +116,7 @@
             "_value": false
           },
           "particle-2d": {
-            "_value": false
+            "_value": true
           },
           "audio": {
             "_value": true
@@ -204,6 +204,7 @@
           "graphics",
           "mask",
           "particle",
+          "particle-2d",
           "primitive",
           "skeletal-animation",
           "tween",

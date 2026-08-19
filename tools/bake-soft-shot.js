@@ -66,11 +66,11 @@ function drawBall(w, h) {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const r = Math.hypot((x - cx) / rMax, (y - cy) / rMax);
-      const core = Math.exp(-r * r * 16);
-      const mid = Math.exp(-r * r * 6.2);
-      const halo = Math.exp(-r * r * 2.4);
+      const core = Math.exp(-r * r * 14);
+      const mid = Math.exp(-r * r * 5.4);
+      const halo = Math.exp(-r * r * 2.1);
       const edge = r > 0.94 ? Math.max(0, 1 - (r - 0.94) / 0.06) : 1;
-      put(rgba, (y * w + x) * 4, (core * 0.5 + mid * 0.32 + halo * 0.22) * edge);
+      put(rgba, (y * w + x) * 4, (core * 0.78 + mid * 0.28 + halo * 0.2) * edge);
     }
   }
   return rgba;
@@ -84,7 +84,7 @@ function drawGlow(w, h) {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const r = Math.hypot((x - cx) / rMax, (y - cy) / rMax);
-      const a = Math.exp(-r * r * 1.45) * 0.58;
+      const a = Math.exp(-r * r * 1.7) * 0.92;
       const edge = r > 0.92 ? Math.max(0, 1 - (r - 0.92) / 0.08) : 1;
       put(rgba, (y * w + x) * 4, a * edge);
     }
@@ -104,7 +104,7 @@ function drawTrail(w, h) {
     for (let y = 0; y < h; y++) {
       const dv = Math.abs(y - cy) / (h * 0.5);
       const radial = Math.exp(-(dv / half) * (dv / half) * 2.1);
-      put(rgba, (y * w + x) * 4, radial * along * 0.88);
+      put(rgba, (y * w + x) * 4, radial * along);
     }
   }
   return rgba;

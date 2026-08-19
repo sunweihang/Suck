@@ -23,6 +23,7 @@ import {
   utils,
 } from 'cc';
 import { PREFAB_UUID } from './PrefabCatalog';
+import { PLAY, TOKEN_RGB, isColorToken } from '../game/GameConfig';
 
 const { ccclass } = _decorator;
 
@@ -36,17 +37,19 @@ const _axisZ = new Vec3();
 const _rot = new Quat();
 const _fallback = new Vec3(0, 0, -1);
 
-/** Soft comet: small orb + short faded tail. Original video streak ~88px. */
-const BALL = 0.11;
-const GLOW = 0.22;
-const TRAIL_W = 0.048;
-const HAZE_W = 0.13;
-const TRAIL_LEN = 0.68;
-const HAZE_LEN = 0.5;
-const MUZZLE = 0.13;
-const HIT_LIFE = 0.14;
-const HIT_S0 = 0.16;
-const HIT_S1 = 0.4;
+/** Candy bolt: hot core, colored bloom, short comet. */
+const BALL = 0.15;
+const GLOW = 0.34;
+const TRAIL_W = 0.13;
+const TRAIL_L = 0.46;
+const SPARKS = 4;
+const SPARK_GAP = 0.085;
+const SPARK_S = [0.11, 0.082, 0.06, 0.044];
+const MUZZLE = 0.30;
+const MUZZLE_GLOW = 0.40;
+const HIT_LIFE = 0.16;
+const HIT_S0 = 0.22;
+const HIT_S1 = 0.58;
 const MUZZLE_COLS = 3;
 const MUZZLE_ROWS = 4;
 const MUZZLE_FRAMES = 12;
@@ -59,15 +62,21 @@ let _ballMat: Material | null = null;
 let _trailMat: Material | null = null;
 let _hazeMat: Material | null = null;
 let _glowMat: Material | null = null;
+let _ballTex: Texture2D | null = null;
+let _glowTex: Texture2D | null = null;
+let _trailTex: Texture2D | null = null;
 let _muzzleTex: Texture2D | null = null;
 let _prefab: Prefab | null = null;
 let _boot: Promise<void> | null = null;
 let _cam: Camera | null = null;
+const _mats = new Map<string, Material>();
 type MuzzleFx = {
   node: Node;
+  bloom: Node | null;
   mr: MeshRenderer;
   t: number;
   live: boolean;
+  along: Vec3;
 };
 const _muzzles: MuzzleFx[] = [];
 type HitFx = {
@@ -146,7 +155,7 @@ function muzzleFrame(i: number): Mesh {
   return _muzzleFrames[Math.max(0, Math.min(MUZZLE_FRAMES - 1, i))];
 }
 
-function addMat(tex: Texture2D | null, alpha: number, additive: boolean): Material {
+function addMat(tex: Texture2D | null, color: Color, additive: boolean): Material {
   const mat = new Material();
   mat.initialize({
     effectName: 'builtin-unlit',
@@ -155,9 +164,8 @@ function addMat(tex: Texture2D | null, alpha: number, additive: boolean): Materi
     states: {
       rasterizerState: { cullMode: gfx.CullMode.NONE },
       depthStencilState: {
-        depthTest: true,
+        depthTest: false,
         depthWrite: false,
-        depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
       },
       blendState: {
         targets: [{
@@ -171,7 +179,61 @@ function addMat(tex: Texture2D | null, alpha: number, additive: boolean): Materi
     },
   });
   if (tex) mat.setProperty('mainTexture', tex);
-  mat.setProperty('mainColor', new Color(248, 246, 255, alpha));
+  mat.setProperty('mainColor', color);
+  return mat;
+}
+
+function tokenRgb(token: string): readonly [number, number, number] {
+  if (!isColorToken(token)) return [248, 246, 255];
+  return PLAY.tints[token] ?? TOKEN_RGB[token];
+}
+
+function kindTex(kind: 'ball' | 'glow' | 'trail' | 'muzzle' | 'bloom' | 'hit'): Texture2D | null {
+  if (kind === 'ball') return _ballTex;
+  if (kind === 'trail') return _trailTex;
+  if (kind === 'muzzle') return _muzzleTex;
+  return _glowTex;
+}
+
+function luma(rgb: readonly [number, number, number]): number {
+  return (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+}
+
+/** Additive glow cannot paint black — it only adds light. */
+function isInk(rgb: readonly [number, number, number]): boolean {
+  return luma(rgb) < 80;
+}
+
+/** Keep a hot core; the grayscale texture already supplies the white center. */
+function lift(rgb: readonly [number, number, number], white: number, alpha: number): Color {
+  return new Color(
+    Math.min(255, Math.round(rgb[0] + (255 - rgb[0]) * white)),
+    Math.min(255, Math.round(rgb[1] + (255 - rgb[1]) * white)),
+    Math.min(255, Math.round(rgb[2] + (255 - rgb[2]) * white)),
+    alpha,
+  );
+}
+
+function matFor(
+  kind: 'ball' | 'glow' | 'trail' | 'muzzle' | 'bloom' | 'hit',
+  token: string,
+  rgb?: readonly [number, number, number],
+): Material {
+  const color = rgb ?? tokenRgb(token);
+  const ink = isInk(color);
+  const tex = kindTex(kind);
+  const key = `${kind}:${color[0]},${color[1]},${color[2]}:${tex ? 1 : 0}:${ink ? 'i' : 'a'}`;
+  const cached = _mats.get(key);
+  if (cached) return cached;
+  const add = !ink;
+  let mat: Material;
+  if (kind === 'ball') mat = addMat(tex, lift(color, ink ? 0 : 0.16, 255), add);
+  else if (kind === 'glow') mat = addMat(tex, lift(color, ink ? 0 : 0.04, ink ? 240 : 210), add);
+  else if (kind === 'trail') mat = addMat(tex, lift(color, ink ? 0 : 0.06, ink ? 245 : 235), add);
+  else if (kind === 'muzzle') mat = addMat(tex, lift(color, ink ? 0 : 0.08, 255), add);
+  else if (kind === 'bloom') mat = addMat(tex, lift(color, ink ? 0 : 0.04, ink ? 210 : 230), add);
+  else mat = addMat(tex, lift(color, ink ? 0 : 0.08, ink ? 230 : 230), add);
+  _mats.set(key, mat);
   return mat;
 }
 
@@ -183,6 +245,7 @@ function applyMesh(node: Node, mesh: Mesh | null, mat: Material | null): MeshRen
   mr.setSharedMaterial(mat, 0);
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  mr.priority = 80;
   mr.enabled = true;
   return mr;
 }
@@ -193,7 +256,7 @@ function child(host: Node, name: string): Node {
     n = new Node(name);
     host.addChild(n);
   }
-  n.layer = Layers.Enum.DEFAULT;
+  n.layer = Layers.Enum.UI_3D;
   n.active = true;
   return n;
 }
@@ -261,15 +324,19 @@ export function preloadInkShot(): Promise<void> {
     }),
     loadImage('fx/bullet-trail').then((img) => {
       if (!img) return;
-      const tex = texFrom(img);
-      _trailMat = addMat(tex, 105, true);
-      _hazeMat = addMat(tex, 42, true);
+      _trailTex = texFrom(img);
+      _trailMat = addMat(_trailTex, new Color(248, 246, 255, 200), true);
+      _hazeMat = addMat(_trailTex, new Color(248, 246, 255, 70), true);
     }),
     loadImage('fx/bullet-glow').then((img) => {
-      if (img) _glowMat = addMat(texFrom(img), 95, true);
+      if (!img) return;
+      _glowTex = texFrom(img);
+      _glowMat = addMat(_glowTex, new Color(248, 246, 255, 160), true);
     }),
     loadImage('fx/bullet-ball').then((img) => {
-      if (img) _ballMat = addMat(texFrom(img), 190, true);
+      if (!img) return;
+      _ballTex = texFrom(img);
+      _ballMat = addMat(_ballTex, new Color(255, 252, 255, 240), true);
     }),
     loadImage('fx/muzzle-flash').then((img) => {
       if (img) _muzzleTex = texFrom(img);
@@ -297,13 +364,40 @@ function sweepStuckMuzzles(host: Node): void {
   }
 }
 
+export function resetPlayFx(): void {
+  director.off(Director.EVENT_AFTER_UPDATE, onMuzzleUpdate);
+  _muzzleTick = false;
+  _muzzles.length = 0;
+  _hits.length = 0;
+  _cam = null;
+  _camFrame = -1;
+  if (_ballMat && !_ballMat.isValid) _ballMat = null;
+  if (_trailMat && !_trailMat.isValid) _trailMat = null;
+  if (_hazeMat && !_hazeMat.isValid) _hazeMat = null;
+  if (_glowMat && !_glowMat.isValid) _glowMat = null;
+  if (_glowQuad && !_glowQuad.isValid) _glowQuad = null;
+  if (_trailQuad && !_trailQuad.isValid) _trailQuad = null;
+  if (_muzzleFrames) {
+    _muzzleFrames = _muzzleFrames.some((m) => !m.isValid) ? null : _muzzleFrames;
+  }
+  for (const [key, mat] of [..._mats]) {
+    if (!mat?.isValid) _mats.delete(key);
+  }
+  if (_prefab && !_prefab.isValid) {
+    _prefab = null;
+    _boot = null;
+  }
+}
+
 export function createInkShot(host: Node): InkShot {
   sweepStuckMuzzles(host);
-  const node = _prefab ? instantiate(_prefab) : new Node('InkShot');
-  node.layer = Layers.Enum.DEFAULT;
+  const pf = _prefab?.isValid ? _prefab : null;
+  const node = pf ? instantiate(pf) : new Node('InkShot');
+  node.layer = Layers.Enum.UI_3D;
   node.active = false;
   host.addChild(node);
   const shot = node.getComponent(InkShot) ?? node.addComponent(InkShot);
+  shot.enabled = true;
   shot.prepareLook();
   return shot;
 }
@@ -324,6 +418,24 @@ function hideMuzzle(fx: MuzzleFx): void {
   fx.live = false;
   if (fx.mr.isValid) fx.mr.enabled = false;
   if (fx.node.isValid) fx.node.active = false;
+  if (fx.bloom?.isValid) fx.bloom.active = false;
+}
+
+function faceMuzzleAt(node: Node, at: Vec3, along: Vec3, camPosW: Vec3): void {
+  _toCam.set(camPosW.x - at.x, camPosW.y - at.y, camPosW.z - at.z);
+  if (_toCam.lengthSqr() < 1e-8) _toCam.set(0, 1, 0);
+  Vec3.normalize(_axisZ, _toCam);
+  _dir.set(along);
+  const d = _dir.x * _axisZ.x + _dir.y * _axisZ.y + _dir.z * _axisZ.z;
+  _axisX.set(_dir.x - _axisZ.x * d, _dir.y - _axisZ.y * d, _dir.z - _axisZ.z * d);
+  if (_axisX.lengthSqr() < 1e-8) {
+    _axisY.set(0, 1, 0);
+    Vec3.cross(_axisX, _axisY, _axisZ);
+  }
+  Vec3.normalize(_axisX, _axisX);
+  Vec3.cross(_axisY, _axisZ, _axisX);
+  Quat.fromAxes(_rot, _axisX, _axisY, _axisZ);
+  node.setWorldRotation(_rot);
 }
 
 function poseMuzzle(fx: MuzzleFx): void {
@@ -332,10 +444,16 @@ function poseMuzzle(fx: MuzzleFx): void {
   fx.mr.enabled = true;
   fx.node.getWorldPosition(_pos);
   camPos(_camP, _pos);
-  faceCamAt(fx.node, _pos, _camP);
+  faceMuzzleAt(fx.node, _pos, fx.along, _camP);
   const u = Math.min(1, fx.t / (MUZZLE_FRAMES / MUZZLE_FPS));
-  const pop = u < 0.2 ? 0.7 + u * 1.5 : 1.1 - u * 0.25;
-  fx.node.setScale(MUZZLE * pop, MUZZLE * pop, 1);
+  const pop = u < 0.18 ? 0.85 + u * 1.8 : 1.18 - u * 0.35;
+  fx.node.setScale(MUZZLE * pop * 1.2, MUZZLE * pop * 0.88, 1);
+  if (!fx.bloom?.isValid) return;
+  fx.bloom.setWorldPosition(_pos);
+  faceCamAt(fx.bloom, _pos, _camP);
+  const gs = MUZZLE_GLOW * pop;
+  fx.bloom.setScale(gs, gs, 1);
+  fx.bloom.active = true;
 }
 
 function poseHit(fx: HitFx): void {
@@ -401,7 +519,13 @@ function onMuzzleUpdate(): void {
   tickMuzzles(game.deltaTime);
 }
 
-export function playMuzzleFlash(host: Node, world: Vec3, _along: Vec3): void {
+export function playMuzzleFlash(
+  host: Node,
+  world: Vec3,
+  along: Vec3,
+  token = '',
+  rgb?: readonly [number, number, number],
+): void {
   if (!_muzzleTex) return;
   sweepStuckMuzzles(host);
   let fx: MuzzleFx | null = null;
@@ -415,20 +539,34 @@ export function playMuzzleFlash(host: Node, world: Vec3, _along: Vec3): void {
     const node = new Node(`Muzzle_${_muzzles.length}`);
     node.layer = Layers.Enum.UI_3D;
     host.addChild(node);
-    const mat = addMat(_muzzleTex, 255, true);
-    const mr = applyMesh(node, muzzleFrame(0), mat);
+    const mr = applyMesh(node, muzzleFrame(0), matFor('muzzle', token, rgb));
     if (!mr) return;
-    fx = { node, mr, t: 0, live: false };
+    fx = { node, bloom: null, mr, t: 0, live: false, along: new Vec3() };
     _muzzles.push(fx);
   }
   if (fx.node.parent !== host) host.addChild(fx.node);
+  applyMesh(fx.node, muzzleFrame(0), matFor('muzzle', token, rgb));
+  if (!fx.bloom?.isValid) {
+    const bloom = new Node(`${fx.node.name}_Bloom`);
+    bloom.layer = Layers.Enum.UI_3D;
+    host.addChild(bloom);
+    applyMesh(bloom, glowQuad(), matFor('bloom', token, rgb));
+    fx.bloom = bloom;
+  } else {
+    if (fx.bloom.parent !== host) host.addChild(fx.bloom);
+    applyMesh(fx.bloom, glowQuad(), matFor('bloom', token, rgb));
+  }
   fx.t = 0;
   fx.live = true;
   fx.node.layer = Layers.Enum.UI_3D;
-  _dir.set(_along);
-  if (_dir.lengthSqr() > 1e-8) {
-    Vec3.normalize(_dir, _dir);
-    fx.node.setWorldPosition(world.x + _dir.x * 0.05, world.y + _dir.y * 0.05, world.z + _dir.z * 0.05);
+  fx.along.set(along);
+  if (fx.along.lengthSqr() > 1e-8) {
+    Vec3.normalize(fx.along, fx.along);
+    fx.node.setWorldPosition(
+      world.x + fx.along.x * 0.06,
+      world.y + fx.along.y * 0.06,
+      world.z + fx.along.z * 0.06,
+    );
   } else {
     fx.node.setWorldPosition(world);
   }
@@ -437,8 +575,13 @@ export function playMuzzleFlash(host: Node, world: Vec3, _along: Vec3): void {
   bindFxTick();
 }
 
-export function playHitFlash(host: Node, world: Vec3): void {
-  if (!_glowMat) return;
+export function playHitFlash(
+  host: Node,
+  world: Vec3,
+  token = '',
+  rgb?: readonly [number, number, number],
+): void {
+  if (!_glowTex && !_glowMat) return;
   let fx: HitFx | null = null;
   for (let i = 0; i < _hits.length; i++) {
     if (!_hits[i].live) {
@@ -450,11 +593,12 @@ export function playHitFlash(host: Node, world: Vec3): void {
     const node = new Node(`Hit_${_hits.length}`);
     node.layer = Layers.Enum.UI_3D;
     host.addChild(node);
-    applyMesh(node, glowQuad(), _glowMat);
+    applyMesh(node, glowQuad(), matFor('hit', token, rgb));
     fx = { node, t: 0, live: false };
     _hits.push(fx);
   }
   if (fx.node.parent !== host) host.addChild(fx.node);
+  applyMesh(fx.node, glowQuad(), matFor('hit', token, rgb));
   fx.t = 0;
   fx.live = true;
   fx.node.layer = Layers.Enum.UI_3D;
@@ -467,9 +611,11 @@ export function playHitFlash(host: Node, world: Vec3): void {
 @ccclass('InkShot')
 export class InkShot extends Component {
   private _ball: Node | null = null;
-  private _trail: Node | null = null;
-  private _haze: Node | null = null;
   private _glow: Node | null = null;
+  private _trail: Node | null = null;
+  private readonly _sparks: Node[] = [];
+  private _token = '';
+  private _rgb: readonly [number, number, number] | null = null;
   private readonly _from = new Vec3();
   private readonly _to = new Vec3();
   private _t = 0;
@@ -477,14 +623,20 @@ export class InkShot extends Component {
   private _onHit: ((shot: InkShot) => void) | null = null;
   private _armed = false;
   private _lookReady = false;
+  private _stepFrame = -1;
   landUnit: unknown = null;
   landBlock: unknown = null;
   landBoom = false;
   landPaint = false;
   landToken = '';
+  readonly landKick = new Vec3();
 
   get busy(): boolean {
     return this.node.active && this._armed;
+  }
+
+  get progress(): number {
+    return this._armed && this._dur > 0 ? this._t / this._dur : 0;
   }
 
   prepareLook(): void {
@@ -498,13 +650,19 @@ export class InkShot extends Component {
   fire(
     from: Vec3,
     to: Vec3,
-    _token: string,
+    token: string,
     duration: number,
     _arc: number,
     onHit?: (shot: InkShot) => void,
+    rgb?: readonly [number, number, number],
   ): void {
+    this._token = token;
+    this._rgb = rgb ?? null;
     this._from.set(from);
     this._to.set(to);
+    _dir.set(to.x - from.x, to.y - from.y, to.z - from.z);
+    const kickLen = Math.sqrt(_dir.lengthSqr()) || 1;
+    this.landKick.set(_dir.x / kickLen, _dir.y / kickLen, _dir.z / kickLen);
     this._t = 0;
     this._dur = Math.max(0.06, duration);
     this._onHit = onHit ?? null;
@@ -515,24 +673,48 @@ export class InkShot extends Component {
     this.node.setScale(1, 1, 1);
     try {
       this._ensureLook();
+      this._paint(this._token, this._rgb);
       this._pose(0);
     } catch (err) {
       console.error('[Suck:fire] InkShot look failed', err);
     }
     this._armed = true;
+    this._stepFrame = -1;
   }
 
-  update(dt: number): void {
+  /** BattleDirector also ticks shots so a missing InkShot.update still lands. */
+  advance(dt: number): void {
+    const frame = director.getTotalFrames();
+    if (this._stepFrame === frame) return;
+    this._stepFrame = frame;
     if (!this._armed) return;
     this._t += dt;
     const u = Math.min(1, this._t / this._dur);
-    this._pose(u);
+    try {
+      this._pose(u);
+    } catch (err) {
+      console.error('[Suck:fire] InkShot pose failed', err);
+    }
     if (u < 1) return;
+    this._finish();
+  }
+
+  forceLand(): void {
+    if (!this._armed) return;
+    this._t = this._dur;
+    this._finish();
+  }
+
+  update(dt: number): void {
+    this.advance(dt);
+  }
+
+  private _finish(): void {
     this._armed = false;
-    if (this._trail?.isValid) this._trail.active = false;
-    if (this._haze?.isValid) this._haze.active = false;
+    this._hideSparks();
     if (this._glow?.isValid) this._glow.active = false;
     if (this._ball?.isValid) this._ball.active = false;
+    if (this._trail?.isValid) this._trail.active = false;
     this.node.active = false;
     this.enabled = false;
     const done = this._onHit;
@@ -542,32 +724,37 @@ export class InkShot extends Component {
 
   private _ensureLook(): void {
     if (this._lookReady && this._ball?.isValid) return;
-    if (!_ballMat) _ballMat = addMat(null, 255, true);
-    this.node.layer = Layers.Enum.DEFAULT;
+    if (!_ballMat) _ballMat = addMat(null, new Color(255, 255, 255, 255), true);
+    this.node.layer = Layers.Enum.UI_3D;
     this.node.setScale(1, 1, 1);
     const rootMr = this.node.getComponent(MeshRenderer);
     if (rootMr) rootMr.enabled = false;
 
     const glow = child(this.node, 'Glow');
     glow.setPosition(0, 0, 0);
-    glow.active = !!_glowMat;
+    glow.active = !!(_glowMat || _glowTex);
     if (_glowMat) applyMesh(glow, glowQuad(), _glowMat);
     this._glow = glow;
 
     const leftover = this.node.getChildByName('Streak');
     if (leftover) leftover.active = false;
-
-    const haze = child(this.node, 'Haze');
-    haze.setPosition(0, 0, 0);
-    haze.active = !!_hazeMat;
-    if (_hazeMat) applyMesh(haze, trailQuad(), _hazeMat);
-    this._haze = haze;
+    const haze = this.node.getChildByName('Haze');
+    if (haze) haze.active = false;
 
     const trail = child(this.node, 'Trail');
     trail.setPosition(0, 0, 0);
-    trail.active = !!_trailMat;
+    trail.active = !!(_trailMat || _trailTex);
     if (_trailMat) applyMesh(trail, trailQuad(), _trailMat);
     this._trail = trail;
+
+    this._sparks.length = 0;
+    for (let i = 0; i < SPARKS; i++) {
+      const spark = child(this.node, `Spark_${i}`);
+      spark.setPosition(0, 0, 0);
+      spark.active = false;
+      if (_glowMat) applyMesh(spark, glowQuad(), _glowMat);
+      this._sparks.push(spark);
+    }
 
     const ball = child(this.node, 'Ball');
     ball.setPosition(0, 0, 0);
@@ -576,6 +763,23 @@ export class InkShot extends Component {
     if (_ballMat) applyMesh(ball, glowQuad(), _ballMat);
     this._ball = ball;
     this._lookReady = true;
+  }
+
+  private _paint(token: string, rgb?: readonly [number, number, number] | null): void {
+    if (this._ball?.isValid) applyMesh(this._ball, glowQuad(), matFor('ball', token, rgb ?? undefined));
+    if (this._glow?.isValid) applyMesh(this._glow, glowQuad(), matFor('glow', token, rgb ?? undefined));
+    if (this._trail?.isValid) applyMesh(this._trail, trailQuad(), matFor('trail', token, rgb ?? undefined));
+    for (let i = 0; i < this._sparks.length; i++) {
+      const spark = this._sparks[i];
+      if (spark?.isValid) applyMesh(spark, glowQuad(), matFor('glow', token, rgb ?? undefined));
+    }
+  }
+
+  private _hideSparks(): void {
+    for (let i = 0; i < this._sparks.length; i++) {
+      const spark = this._sparks[i];
+      if (spark?.isValid) spark.active = false;
+    }
   }
 
   private _pose(u: number): void {
@@ -587,38 +791,50 @@ export class InkShot extends Component {
 
     _dir.set(dx, dy, dz);
     camPos(_camP, _pos);
-    if (_dir.lengthSqr() < 1e-8) _dir.set(_fallback);
+    const len = Math.sqrt(_dir.lengthSqr());
+    if (len < 1e-8) _dir.set(_fallback);
+    else _dir.multiplyScalar(1 / len);
 
     const fade = u > 0.88 ? (1 - u) / 0.12 : 1;
-    const flown = Math.hypot(dx, dy, dz) * u;
-    const trailLen = Math.min(TRAIL_LEN, Math.max(0, flown * 0.72));
-    const hazeLen = Math.min(HAZE_LEN, Math.max(0, flown * 0.58));
-    const showTrail = trailLen > 0.03;
+    const flown = len * u;
 
     if (this._ball?.isValid) {
       faceCamAt(this._ball, _pos, _camP);
       this._ball.setScale(BALL * fade, BALL * fade, 1);
+      this._ball.active = true;
     }
     if (this._glow?.isValid) {
       if (this._ball?.isValid) this._glow.setWorldRotation(_rot);
       else faceCamAt(this._glow, _pos, _camP);
       this._glow.setScale(GLOW * fade, GLOW * fade, 1);
+      this._glow.active = true;
     }
-    if (showTrail) {
+    if (this._trail?.isValid) {
+      const tail = Math.min(TRAIL_L, Math.max(0.06, flown * 0.92));
+      this._trail.active = flown > 0.03;
       faceTrailAt(_pos, _dir, _camP);
-      if (this._haze?.isValid) {
-        this._haze.active = !!_hazeMat;
-        this._haze.setWorldRotation(_rot);
-        this._haze.setScale(HAZE_W * fade, hazeLen, 1);
+      this._trail.setWorldRotation(_rot);
+      this._trail.setScale(TRAIL_W * fade, tail, 1);
+    }
+
+    const sparkMat = _glowMat ?? _ballMat ?? _glowTex;
+    for (let i = 0; i < this._sparks.length; i++) {
+      const spark = this._sparks[i];
+      if (!spark?.isValid) continue;
+      const back = SPARK_GAP * (i + 1);
+      if (!sparkMat || flown < back + 0.02) {
+        spark.active = false;
+        continue;
       }
-      if (this._trail?.isValid) {
-        this._trail.active = !!_trailMat;
-        this._trail.setWorldRotation(_rot);
-        this._trail.setScale(TRAIL_W * fade, trailLen, 1);
-      }
-    } else {
-      if (this._haze?.isValid) this._haze.active = false;
-      if (this._trail?.isValid) this._trail.active = false;
+      spark.active = true;
+      spark.setWorldPosition(
+        _pos.x - _dir.x * back,
+        _pos.y - _dir.y * back,
+        _pos.z - _dir.z * back,
+      );
+      faceCamAt(spark, spark.worldPosition, _camP);
+      const s = SPARK_S[i] * fade * (1 - i * 0.12);
+      spark.setScale(s, s, 1);
     }
   }
 }

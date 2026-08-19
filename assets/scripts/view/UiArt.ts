@@ -30,6 +30,7 @@ const KEYS = [
   'settingsBg',
   'settingsGear',
   'settingsClose',
+  'ugcBtn',
   'shareBtn',
   'clubBtn',
   'settingsCard',
@@ -45,6 +46,19 @@ const KEYS = [
   'icHook',
   'icShovel',
   'icBomb',
+  'icUgcAdd',
+  'icUgcDown',
+  'icUgcUp',
+  'icUgcUndo',
+  'icUgcErase',
+  'icUgcDel',
+  'icUgcVis',
+  'icUgcEdit',
+  'icUgcLoad',
+  'icUgcExport',
+  'icUgcNew',
+  'icUgcRun',
+  'icUgcExit',
   'goldIcon',
   'goldBg',
   'icAd',
@@ -58,6 +72,7 @@ const KEYS = [
   'winPanel',
   'failPanel',
   'lockSeal',
+  'tipBase',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
@@ -74,6 +89,7 @@ function pathOf(key: ArtKey): string {
   if (key === 'settingsBg') return 'ui/btn-settings-bg/spriteFrame';
   if (key === 'settingsGear') return 'ui/ic-gear/spriteFrame';
   if (key === 'settingsClose') return 'ui/btn-close/spriteFrame';
+  if (key === 'ugcBtn') return 'ui/btn-ugc/spriteFrame';
   if (key === 'shareBtn') return 'ui/btn-clear-next/spriteFrame';
   if (key === 'clubBtn') return 'ui/btn-clear-reward/spriteFrame';
   if (key === 'settingsCard') return 'ui/panel-clear/spriteFrame';
@@ -89,6 +105,19 @@ function pathOf(key: ArtKey): string {
   if (key === 'icHook') return 'ui/ic-item-hook/spriteFrame';
   if (key === 'icShovel') return 'ui/ic-item-shovel/spriteFrame';
   if (key === 'icBomb') return 'ui/ic-item-bomb/spriteFrame';
+  if (key === 'icUgcAdd') return 'ui/ic-ugc-layer-add/spriteFrame';
+  if (key === 'icUgcDown') return 'ui/ic-ugc-layer-down/spriteFrame';
+  if (key === 'icUgcUp') return 'ui/ic-ugc-layer-up/spriteFrame';
+  if (key === 'icUgcUndo') return 'ui/ic-ugc-undo/spriteFrame';
+  if (key === 'icUgcErase') return 'ui/ic-ugc-erase/spriteFrame';
+  if (key === 'icUgcDel') return 'ui/ic-ugc-layer-del/spriteFrame';
+  if (key === 'icUgcVis') return 'ui/ic-ugc-vis/spriteFrame';
+  if (key === 'icUgcEdit') return 'ui/ic-ugc-edit/spriteFrame';
+  if (key === 'icUgcLoad') return 'ui/ic-ugc-load/spriteFrame';
+  if (key === 'icUgcExport') return 'ui/ic-ugc-export/spriteFrame';
+  if (key === 'icUgcNew') return 'ui/ic-ugc-new/spriteFrame';
+  if (key === 'icUgcRun') return 'ui/ic-ugc-run/spriteFrame';
+  if (key === 'icUgcExit') return 'ui/ic-ugc-exit/spriteFrame';
   if (key === 'goldIcon') return 'ui/ui-gold-icon/spriteFrame';
   if (key === 'goldBg') return 'ui/ui-gold-bg/spriteFrame';
   if (key === 'icAd') return 'ui/ic-ad-video/spriteFrame';
@@ -102,6 +131,7 @@ function pathOf(key: ArtKey): string {
   if (key === 'itemGetBox') return 'ui/item-get-box/spriteFrame';
   if (key === 'itemGetClose') return 'ui/btn-item-close/spriteFrame';
   if (key === 'lockSeal') return 'ui/lock-seal/spriteFrame';
+  if (key === 'tipBase') return 'ui/tip-base/spriteFrame';
   if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
@@ -126,8 +156,15 @@ function resBundle(): AssetManager.Bundle | null {
   return assetManager.getBundle('resources');
 }
 
-function stashFrame(key: string, sf: SpriteFrame | null | undefined): boolean {
+function frameOk(sf: SpriteFrame | null | undefined): boolean {
   if (!sf) return false;
+  const w = sf.rect?.width ?? 0;
+  const h = sf.rect?.height ?? 0;
+  return w >= 8 && h >= 8;
+}
+
+function stashFrame(key: string, sf: SpriteFrame | null | undefined): boolean {
+  if (!sf || !frameOk(sf)) return false;
   if (sf.texture) sharpenUiTex(sf.texture as Texture2D);
   frames.set(key, sf);
   return true;
@@ -273,6 +310,7 @@ function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number }
   if (key === 'itemTray') return { t: 72, b: 72, l: 120, r: 120 };
   if (key === 'goldBg') return { t: 0, b: 0, l: 20, r: 20 };
   if (key === 'volumeFill') return { t: 0, b: 0, l: 14, r: 2 };
+  if (key === 'tipBase') return { t: 68, b: 68, l: 68, r: 68 };
   return null;
 }
 
@@ -420,7 +458,7 @@ export function applyArtSprite(
 ): boolean {
   if (!node) return false;
   const sf = frames.get(key);
-  if (!sf) return false;
+  if (!sf || !frameOk(sf)) return false;
   paintSprite(node, sf, w, h, sliced, key);
   return true;
 }
@@ -432,11 +470,18 @@ export function applyArtSpriteSoon(
   w: number,
   h: number,
   sliced = false,
+  onApplied?: () => void,
 ): void {
   if (!node) return;
-  if (applyArtSprite(node, key, w, h, sliced)) return;
+  if (applyArtSprite(node, key, w, h, sliced)) {
+    onApplied?.();
+    return;
+  }
   void loadArtRetry(key).then((sf) => {
-    if (sf && node.isValid) paintSprite(node, sf, w, h, sliced, key);
+    if (sf && node.isValid) {
+      paintSprite(node, sf, w, h, sliced, key);
+      onApplied?.();
+    }
   });
 }
 

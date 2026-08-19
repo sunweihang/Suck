@@ -10,9 +10,15 @@
   },
   "_techIdx": 0,
   "_defines": [
-    {},
-    {},
-    {}
+    {
+      "USE_INSTANCING": true
+    },
+    {
+      "USE_INSTANCING": true
+    },
+    {
+      "USE_INSTANCING": true
+    }
   ],
   "_states": [
     {
@@ -31,25 +37,25 @@
     {
       "mainColor": {
         "__type__": "cc.Color",
-        "r": 164,
-        "g": 92,
-        "b": 255,
+        "r": 113,
+        "g": 52,
+        "b": 226,
         "a": 255
       },
       "roughness": 0.34,
       "metallic": 0.04,
       "emissive": {
         "__type__": "cc.Color",
-        "r": 164,
-        "g": 92,
-        "b": 255,
+        "r": 113,
+        "g": 52,
+        "b": 226,
         "a": 255
       },
       "emissiveScale": {
         "__type__": "cc.Vec3",
-        "x": 0.12,
-        "y": 0.12,
-        "z": 0.12
+        "x": 0.04,
+        "y": 0.04,
+        "z": 0.04
       }
     },
     {},

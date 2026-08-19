@@ -72,6 +72,13 @@ export class PlayerWallet {
     }
   }
 
+  reset(): void {
+    this._coins = GOLD.start;
+    this._items = { ...EMPTY_ITEMS };
+    this.save();
+    this._onChange?.(this._coins, false);
+  }
+
   get coins(): number {
     return this._coins;
   }

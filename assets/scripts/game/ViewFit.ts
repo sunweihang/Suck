@@ -137,12 +137,18 @@ export function playModelCeilFrac(viewH?: number, safeTop?: number): number {
   return 1 - (top + 64) / h;
 }
 
-export function playViewBand(viewH?: number): PlayViewBand {
+/**
+ * Design-space lift so the UGC dock sits just above the 试玩 button
+ * (home 开始游戏 art at 0.62, plus the 6px air in UgcHud).
+ */
+export const UGC_PLAY_BTN_LIFT = 145 * 0.62 + 6;
+
+export function playViewBand(viewH?: number, pinExtra = 0): PlayViewBand {
   const vis = uiVisibleSize();
   const h = viewH ?? vis.h;
   const safe = uiSafeInsetsRaw(vis.w, h);
   return {
-    pinFrac: playDockPinFrac(h, safe.bottom),
+    pinFrac: playDockPinFrac(h, safe.bottom) + pinExtra / h,
     ceilFrac: playModelCeilFrac(h, safe.top),
   };
 }

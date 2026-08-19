@@ -1,4 +1,4 @@
-import { ColorToken, TOKEN_RGB } from './GameConfig';
+import { ALL_COLOR_TOKENS, ColorToken, TOKEN_RGB, TOKEN_VOXEL_ID } from './GameConfig';
 
 export type VoxelLook = {
   rgb: readonly [number, number, number];
@@ -71,11 +71,109 @@ function shadeOf(rgb: readonly [number, number, number]): readonly [number, numb
   ];
 }
 
-function dist2(a: readonly [number, number, number], b: readonly [number, number, number]): number {
+/** Authored yellow tint [245,220,40] vs official yellow [224,197,43] is ~31. */
+export const RGB_MATCH_DIST2 = 48 * 48;
+/** Catalog white [255,255,255] vs official voxel 16 [207,205,198] is ~90. */
+export const PALETTE_MATCH_DIST2 = 96 * 96;
+
+/** Same ColorLibrary swatch, including white 0 / 16. */
+export function voxelsAlias(a: number, b: number): boolean {
+  if (a === b) return true;
+  if (a < 0 || b < 0) return false;
+  const ra = rgbOfVoxel(a);
+  const rb = rgbOfVoxel(b);
+  return ra[0] === rb[0] && ra[1] === rb[1] && ra[2] === rb[2];
+}
+
+/** Closest official ColorLibrary id, or -1 if nothing is within `maxDist2`. */
+export function nearestVoxelId(
+  rgb: readonly [number, number, number],
+  maxDist2 = RGB_MATCH_DIST2,
+): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (const key of Object.keys(LOOK)) {
+    const id = Number(key);
+    const d = rgbDist2(rgb, LOOK[id].rgb);
+    if (d < bestD || (d === bestD && id > best)) {
+      bestD = d;
+      best = id;
+    }
+  }
+  return best >= 0 && bestD <= maxDist2 ? best : -1;
+}
+
+export function rgbDist2(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
   const dr = a[0] - b[0];
   const dg = a[1] - b[1];
   const db = a[2] - b[2];
   return dr * dr + dg * dg + db * db;
+}
+
+function dist2(a: readonly [number, number, number], b: readonly [number, number, number]): number {
+  return rgbDist2(a, b);
+}
+
+/** Catalog tints win over official ColorId — `d` is often painted yellow. */
+export function nearestTintToken(
+  rgb: readonly [number, number, number],
+  tints: Partial<Record<ColorToken, readonly [number, number, number]>>,
+  maxDist2 = RGB_MATCH_DIST2,
+): ColorToken | null {
+  let best: ColorToken | null = null;
+  let bestD = Infinity;
+  for (let i = 0; i < ALL_COLOR_TOKENS.length; i++) {
+    const t = ALL_COLOR_TOKENS[i];
+    const tint = tints[t];
+    if (!tint) continue;
+    const d = dist2(rgb, tint);
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
+  }
+  return best && bestD <= maxDist2 ? best : null;
+}
+
+export function uniqueVoxelIds(): number[] {
+  const seen = new Set<string>();
+  const out: number[] = [];
+  for (const key of Object.keys(LOOK)) {
+    const id = Number(key);
+    const sig = LOOK[id].rgb.join(',');
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push(id);
+  }
+  return out;
+}
+
+export function tokenForVoxel(id: number): ColorToken {
+  const pinned = officialTokenOfVoxel(id);
+  if (pinned) return pinned;
+  const rgb = rgbOfVoxel(id);
+  let best: ColorToken = 'o';
+  let bestD = Infinity;
+  for (let i = 0; i < ALL_COLOR_TOKENS.length; i++) {
+    const t = ALL_COLOR_TOKENS[i];
+    const d = rgbDist2(rgb, TOKEN_RGB[t]);
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
+export function officialTokenOfVoxel(id: number): ColorToken | null {
+  for (let i = 0; i < ALL_COLOR_TOKENS.length; i++) {
+    const t = ALL_COLOR_TOKENS[i];
+    if (TOKEN_VOXEL_ID[t] === id) return t;
+  }
+  return null;
 }
 
 export function assignVoxelTokens(counts: Record<number, number>): {
@@ -87,6 +185,15 @@ export function assignVoxelTokens(counts: Record<number, number>): {
   const map: Record<number, ColorToken> = {};
   const tints: Partial<Record<ColorToken, readonly [number, number, number]>> = {};
   for (const id of ids) {
+    const pinned = officialTokenOfVoxel(id);
+    if (pinned && !used.has(pinned)) {
+      map[id] = pinned;
+      used.add(pinned);
+      tints[pinned] = rgbOfVoxel(id);
+    }
+  }
+  for (const id of ids) {
+    if (map[id]) continue;
     const rgb = rgbOfVoxel(id);
     let best: ColorToken = 'o';
     let bestD = Infinity;

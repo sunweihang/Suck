@@ -9,7 +9,7 @@
     "__expectedType__": "cc.EffectAsset"
   },
   "_techIdx": 0,
-  "_defines": [{}, {}, {}],
+  "_defines": [{"USE_INSTANCING": true}, {"USE_INSTANCING": true}, {"USE_INSTANCING": true}],
   "_states": [
     { "rasterizerState": {}, "depthStencilState": {}, "blendState": { "targets": [{}] } },
     {},

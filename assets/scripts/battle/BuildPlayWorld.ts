@@ -1,6 +1,5 @@
 import { assetManager, instantiate, Layers, Node, Prefab, Sprite, SpriteFrame, UITransform, Vec3, resources } from 'cc';
 import {
-  ALL_COLOR_TOKENS,
   BENCH,
   ColorToken,
   GAME,
@@ -20,6 +19,7 @@ import {
   wallStartX,
   parseColorToken,
   isColorToken,
+  TOKEN_VOXEL_ID,
 } from '../game/GameConfig';
 import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
@@ -36,21 +36,75 @@ import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
-import { createInkShot, preloadInkShot } from './InkShot';
+import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
 import { preloadTurretLooks } from './TurretLook';
 import { UnitActor } from './UnitActor';
 
-function loadPrefab(uuid: string): Promise<Prefab> {
-  return new Promise((resolve, reject) => {
+const prefabJobs = new Map<string, Promise<Prefab | null>>();
+const DEBRIS_SEED = 8;
+
+function loadPrefabMaybe(uuid: string): Promise<Prefab | null> {
+  let job = prefabJobs.get(uuid);
+  if (job) return job;
+  job = new Promise((resolve) => {
     assetManager.loadAny({ uuid }, (err, asset) => {
-      if (err || !asset) {
-        reject(err ?? new Error(`prefab missing ${uuid}`));
-        return;
-      }
-      resolve(asset as Prefab);
+      resolve(!err && asset ? (asset as Prefab) : null);
     });
   });
+  prefabJobs.set(uuid, job);
+  return job;
+}
+
+function loadPrefab(uuid: string): Promise<Prefab> {
+  return loadPrefabMaybe(uuid).then((asset) => {
+    if (!asset) throw new Error(`prefab missing ${uuid}`);
+    return asset;
+  });
+}
+
+function tokensNeeded(level: LevelDef): ColorToken[] {
+  const set = new Set<ColorToken>(['o']);
+  for (const t of level.palette) if (isColorToken(t)) set.add(t);
+  for (const u of level.units) if (isColorToken(u[0])) set.add(u[0]);
+  for (const v of level.voxels) if (isColorToken(v.token)) set.add(v.token);
+  for (const cell of level.cells) {
+    if (!cell) continue;
+    for (const t of cell.tokens) if (isColorToken(t)) set.add(t);
+    if (cell.rescue && isColorToken(cell.rescue)) set.add(cell.rescue);
+  }
+  return [...set];
+}
+
+function levelNeeds(level: LevelDef): {
+  nails: boolean;
+  bombs: boolean;
+  paint: boolean;
+  raft: boolean;
+  iron: boolean;
+  chest: boolean;
+} {
+  let nails = false;
+  let bombs = false;
+  let paint = false;
+  let chest = false;
+  if (!level.voxels.length) {
+    for (const cell of level.cells) {
+      if (!cell) continue;
+      if (cell.chest) chest = true;
+      if (cell.locked?.some(Boolean)) nails = true;
+      if (cell.bomb?.some(Boolean)) bombs = true;
+      if (cell.paint?.some(Boolean)) paint = true;
+    }
+  }
+  return {
+    nails,
+    bombs,
+    paint,
+    raft: (level.raftW ?? 0) > 0,
+    iron: (level.ironRows?.length ?? 0) > 0 || level.ironRow >= 0,
+    chest,
+  };
 }
 
 function onRaft(level: LevelDef, x: number, y: number): boolean {
@@ -69,11 +123,7 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
 }
 
 function loadChestPrefab(): Promise<Prefab | null> {
-  return new Promise((resolve) => {
-    assetManager.loadAny({ uuid: PREFAB_UUID.Chest }, (err, asset) => {
-      resolve(!err && asset ? (asset as Prefab) : null);
-    });
-  });
+  return loadPrefabMaybe(PREFAB_UUID.Chest);
 }
 
 function spawnChestFallback(parent: Node, name: string, pos: Vec3): Node {
@@ -121,24 +171,25 @@ function spawnChest(
 export async function buildPlayWorld(
   scene: Node,
   level?: LevelDef,
+  opts?: { name?: string; active?: boolean },
 ): Promise<{ root: Node; battle: BattleDirector }> {
   await ensureLevels();
   level = level ?? getLevel(1);
   applyLevel(level);
-  const blockUuids = ALL_COLOR_TOKENS.map((t) => BLOCK_PREFAB[t]);
-  const unitUuids = ALL_COLOR_TOKENS.map((t) => UNIT_PREFAB[t]);
+  const tokens = tokensNeeded(level);
+  const needs = levelNeeds(level);
   const [groundPf, slotPf, debrisPf, ironPf, chestPf, ...colorPfs] = await Promise.all([
     loadPrefab(PREFAB_UUID.Ground),
     loadPrefab(PREFAB_UUID.Slot),
     loadPrefab(PREFAB_UUID.Debris),
-    loadPrefab(PREFAB_UUID.IronPlate),
-    loadChestPrefab(),
-    ...blockUuids.map(loadPrefab),
-    ...unitUuids.map(loadPrefab),
-    preloadLockNails(),
-    preloadBombs(),
-    preloadPaintCan(),
-    preloadRaftBoard(),
+    needs.iron ? loadPrefab(PREFAB_UUID.IronPlate) : Promise.resolve(null),
+    needs.chest ? loadChestPrefab() : Promise.resolve(null),
+    ...tokens.map((t) => loadPrefab(BLOCK_PREFAB[t])),
+    ...tokens.map((t) => loadPrefab(UNIT_PREFAB[t])),
+    needs.nails ? preloadLockNails() : Promise.resolve(),
+    needs.bombs ? preloadBombs() : Promise.resolve(),
+    needs.paint ? preloadPaintCan() : Promise.resolve(),
+    needs.raft ? preloadRaftBoard() : Promise.resolve(),
     preloadPowerDigits().then(() => null),
     preloadInkShot(),
     preloadTurretLooks(),
@@ -147,12 +198,12 @@ export async function buildPlayWorld(
   ]);
   const blockPfs = new Map<ColorToken, Prefab>();
   const unitPfs = new Map<ColorToken, Prefab>();
-  ALL_COLOR_TOKENS.forEach((token, i) => {
-    blockPfs.set(token, colorPfs[i]);
-    unitPfs.set(token, colorPfs[ALL_COLOR_TOKENS.length + i]);
+  tokens.forEach((token, i) => {
+    blockPfs.set(token, colorPfs[i] as Prefab);
+    unitPfs.set(token, colorPfs[tokens.length + i] as Prefab);
   });
 
-  const root = new Node('PlayWorld');
+  const root = new Node(opts?.name ?? 'PlayWorld');
   scene.addChild(root);
 
   applyToyGround(spawn(groundPf, root, 'Ground', new Vec3(0, -0.12, 0)));
@@ -180,6 +231,7 @@ export async function buildPlayWorld(
       const cell = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
       cell.syncFromName();
       if (isColorToken(token)) cell.colorId = parseColorToken(token);
+      cell.voxelId = v.colorId;
       paintVoxelId(n, v.colorId);
     }
   } else
@@ -213,7 +265,9 @@ export async function buildPlayWorld(
             frontZ - z * step + (big ? 0.06 : 0),
           ),
         );
-        (n.getComponent(BlockCell) ?? n.addComponent(BlockCell)).syncFromName();
+        const brick = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
+        brick.syncFromName();
+        if (isColorToken(token)) brick.voxelId = TOKEN_VOXEL_ID[token];
         if (locked && z === 0) applyLockNails(n);
         if (bombed) applyBombs(n, token);
         if (paint) applyPaintLook(n, token);
@@ -228,7 +282,7 @@ export async function buildPlayWorld(
     : level.ironRow >= 0
       ? [level.ironRow]
       : [];
-  if (ironRows.length) {
+  if (ironRows.length && ironPf) {
     const plates = new Node('Plates');
     root.addChild(plates);
     const ironZ = frontZ - Math.max(0, PLAY.wallDepth - 1) * step * 0.5;
@@ -280,6 +334,7 @@ export async function buildPlayWorld(
     if (isColorToken(token)) {
       unit.colorId = parseColorToken(token);
       paintUnitColor(n, token);
+      unit.syncVoxelId();
     }
   });
 
@@ -298,20 +353,18 @@ export async function buildPlayWorld(
 
   const fly = new Node('FlyRoot');
   root.addChild(fly);
-  for (let i = 0; i < GAME.suckMaxFlightTotal; i++) {
-    const shot = createInkShot(fly);
-    shot.node.name = `Shot_${i}`;
-  }
 
   const pool = new Node('DebrisPool');
   root.addChild(pool);
-  for (let i = 0; i < 96; i++) {
+  for (let i = 0; i < DEBRIS_SEED; i++) {
     const n = spawn(debrisPf, pool, `Debris_${i}`, new Vec3(0, -2, 0));
     n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
     n.active = false;
   }
 
   const battle = root.addComponent(BattleDirector);
-  battle.armSpawn(unitPfs, reserve);
+  battle.armSpawn(unitPfs, reserve, debrisPf);
+  // Build while active so Cocos schedules update; hide only after onLoad/onEnable.
+  if (opts?.active === false) root.active = false;
   return { root, battle };
 }

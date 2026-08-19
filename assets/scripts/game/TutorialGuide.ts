@@ -85,6 +85,15 @@ export function completeGuide(id: GuideId | null): void {
   saveDone();
 }
 
+export function resetGuideProgress(): void {
+  _done = {};
+  try {
+    sys.localStorage.removeItem(SAVE_KEY);
+  } catch (e) {
+    console.warn('[TutorialGuide] reset failed', e);
+  }
+}
+
 export function isItemGuide(id: GuideId | null): id is ItemId {
   return id === 'shuffle' || id === 'hook' || id === 'shovel' || id === 'bomb';
 }

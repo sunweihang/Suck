@@ -42,6 +42,7 @@ const WIN_BG = new Color(236, 140, 48, 255);
 const FAIL_BG = new Color(220, 72, 72, 255);
 const SKIP_BG = new Color(64, 148, 220, 255);
 const RESET_BG = new Color(48, 168, 132, 255);
+const WIPE_BG = new Color(132, 72, 176, 255);
 const KEY_BG = new Color(236, 220, 196, 255);
 const KEY_INK = new Color(56, 36, 24, 255);
 const TOGGLE_BG = new Color(236, 156, 64, 255);
@@ -76,6 +77,7 @@ export class GmPanel extends Component {
   private _onWin: (() => void) | null = null;
   private _onFail: (() => void) | null = null;
   private _onReset: (() => void) | null = null;
+  private _onWipe: (() => void) | null = null;
   private _onSkip: ((level: number) => void) | null = null;
   private _onAddGold: ((delta: number) => void) | null = null;
   private _onSetGold: ((n: number) => void) | null = null;
@@ -91,6 +93,7 @@ export class GmPanel extends Component {
     onWin: () => void;
     onFail: () => void;
     onReset?: () => void;
+    onWipe?: () => void;
     onSkip: (level: number) => void;
     onAddGold?: (delta: number) => void;
     onSetGold?: (n: number) => void;
@@ -98,6 +101,7 @@ export class GmPanel extends Component {
     this._onWin = opts.onWin;
     this._onFail = opts.onFail;
     this._onReset = opts.onReset ?? null;
+    this._onWipe = opts.onWipe ?? null;
     this._onSkip = opts.onSkip;
     this._onAddGold = opts.onAddGold ?? null;
     this._onSetGold = opts.onSetGold ?? null;
@@ -138,10 +142,11 @@ export class GmPanel extends Component {
     const safe = uiSafeInsets();
     const gold = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
     const goldShown = !!this.node.parent?.getChildByName('GoldHud')?.active;
-    const toggleX = vis.w * 0.5 - TOGGLE_W * 0.5 - GOLD_HUD.pad;
-    const toggleY = goldShown
-      ? gold.y - GOLD_HUD.rootH * 0.5 - GOLD_HUD.gapBelow - TOGGLE_H * 0.5
-      : gold.y;
+    const toggleX = -vis.w * 0.5 + TOGGLE_W * 0.5 + GOLD_HUD.pad + safe.left;
+    let toggleY = gold.y;
+    if (goldShown) {
+      toggleY = gold.y - GOLD_HUD.rootH * 0.5 - GOLD_HUD.gapBelow - TOGGLE_H * 0.5;
+    }
     if (toggle) {
       toggle.active = this._entryShown;
       toggle.setPosition(toggleX, toggleY, 0);
@@ -206,7 +211,8 @@ export class GmPanel extends Component {
     this._label(card, 'Title', `GM  第${this._level}关`, 42, INK, 0, 430, 520, 56);
     this._btn(card, 'WinBtn', WIN_BG, '一键胜利', BTN_TEXT, 0, 322, () => this._onWin?.());
     this._btn(card, 'FailBtn', FAIL_BG, '一键失败', BTN_TEXT, 0, 218, () => this._onFail?.());
-    this._btn(card, 'ResetBtn', RESET_BG, '重置关卡', BTN_TEXT, 0, 114, () => this._onReset?.());
+    this._btn(card, 'ResetBtn', RESET_BG, '重置关卡', BTN_TEXT, -126, 114, () => this._onReset?.(), 228, BTN_H);
+    this._btn(card, 'WipeBtn', WIPE_BG, '清理本地数据', BTN_TEXT, 126, 114, () => this._onWipe?.(), 228, BTN_H);
     this._btn(card, 'Gold100', TOGGLE_BG, '+100', BTN_TEXT, -164, 22, () => this._onAddGold?.(100), 148, 64, false);
     this._btn(card, 'Gold1k', TOGGLE_BG, '+1000', BTN_TEXT, 0, 22, () => this._onAddGold?.(1000), 148, 64, false);
     this._btn(card, 'GoldZero', FAIL_BG, '清零', BTN_TEXT, 164, 22, () => this._onSetGold?.(0), 148, 64, false);

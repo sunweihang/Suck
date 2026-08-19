@@ -4,6 +4,7 @@ import {
   Color,
   Component,
   Layers,
+  Node,
   Quat,
   RenderRoot2D,
   Sprite,
@@ -15,22 +16,36 @@ import {
 
 const { ccclass } = _decorator;
 
-const HAND_W = 180;
-const HAND_H = 220;
-const WORLD_SCALE = 0.0035;
-const UI_SCALE = 0.78;
-const UI_BOB = 10;
+const HAND_W = 280;
+const HAND_H = 275;
+const RING1 = 96;
+const RING2 = 168;
+const WORLD_SCALE = 0.003;
+const UI_SCALE = 0.86;
+const TIP_AX = 0.018;
+const TIP_AY = 0.989;
+const TAP_CYCLE = 1.05;
+const SWIPE_CYCLE = 1.7;
+
+function smooth(t: number): number {
+  const x = t < 0 ? 0 : t > 1 ? 1 : t;
+  return x * x * (3 - 2 * x);
+}
 
 @ccclass('HintHand')
 export class HintHand extends Component {
   private readonly _from = new Vec3();
   private readonly _to = new Vec3();
+  private readonly _pos = new Vec3();
+  private readonly _camQ = new Quat();
   private _t = 0;
   private _hidden = false;
   private _hasPath = false;
   private _ui = false;
   private _cam: Camera | null = null;
-  private readonly _camQ = new Quat();
+  private _hand: Node | null = null;
+  private _shadow: Node | null = null;
+  private _rings: Node[] = [];
 
   onLoad(): void {
     this._ui = this.node.parent?.layer === Layers.Enum.UI_2D;
@@ -54,6 +69,7 @@ export class HintHand extends Component {
     this._to.set(to);
     this._hasPath = true;
     this.node.active = true;
+    this._syncLayer();
   }
 
   placeUi(from: Vec3, to: Vec3): void {
@@ -63,40 +79,17 @@ export class HintHand extends Component {
     this._to.set(to);
     this._hasPath = true;
     this.node.active = true;
+    this._syncLayer();
   }
 
   update(dt: number): void {
     if (this._hidden || !this.node.active || !this._hasPath) return;
     this._t += dt;
-    const cycle = 2.4;
-    const p = (this._t % cycle) / cycle;
-    const same =
-      Math.abs(this._from.x - this._to.x) +
-        Math.abs(this._from.y - this._to.y) +
-        Math.abs(this._from.z - this._to.z) <
-      (this._ui ? 2 : 0.04);
-    let atTo = false;
-    let show = true;
-    let bob = 0;
-    const bobAmp = this._ui ? UI_BOB : 0.03;
-    if (same) {
-      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
-    } else if (p < 0.38) {
-      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
-    } else if (p < 0.48) {
-      show = false;
-    } else if (p < 0.86) {
-      atTo = true;
-      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
-    } else {
-      show = false;
-      atTo = true;
-    }
-    const src = atTo ? this._to : this._from;
+    const tap = this._samePoint();
     const scale = this._ui ? UI_SCALE : WORLD_SCALE;
-    this.node.setWorldPosition(src.x, src.y + bob, src.z);
-    // Flip Y so the finger points up from below instead of covering the target.
-    this.node.setScale(show ? scale : 0, show ? -scale : 0, show ? scale : 0);
+    this.node.setScale(scale, scale, scale);
+    if (tap) this._poseTap();
+    else this._poseSwipe();
     if (this._ui) {
       this.node.setRotationFromEuler(0, 0, 0);
       return;
@@ -108,34 +101,151 @@ export class HintHand extends Component {
     }
   }
 
+  private _samePoint(): boolean {
+    const lim = this._ui ? 2 : 0.04;
+    return (
+      Math.abs(this._from.x - this._to.x) +
+        Math.abs(this._from.y - this._to.y) +
+        Math.abs(this._from.z - this._to.z) <
+      lim
+    );
+  }
+
+  private _poseTap(): void {
+    const u = (this._t % TAP_CYCLE) / TAP_CYCLE;
+    let press = 0;
+    if (u < 0.31) press = smooth(u / 0.31);
+    else if (u < 0.48) press = 1;
+    else if (u < 0.84) press = 1 - smooth((u - 0.48) / 0.36);
+    this.node.setWorldPosition(this._from);
+    this._poseHand(press);
+    this._poseRings(u);
+  }
+
+  private _poseSwipe(): void {
+    const u = (this._t % SWIPE_CYCLE) / SWIPE_CYCLE;
+    let show = true;
+    let k = 0;
+    if (u < 0.12) k = 0;
+    else if (u < 0.55) k = smooth((u - 0.12) / 0.43);
+    else if (u < 0.70) k = 1;
+    else show = false;
+    Vec3.lerp(this._pos, this._from, this._to, k);
+    this.node.setWorldPosition(this._pos);
+    this.node.setScale(show ? (this._ui ? UI_SCALE : WORLD_SCALE) : 0, show ? (this._ui ? UI_SCALE : WORLD_SCALE) : 0, 1);
+    this._poseHand(show ? 0.35 + k * 0.25 : 0);
+    this._hideRings();
+  }
+
+  private _poseHand(press: number): void {
+    const lift = 1 - press;
+    const x = 18 * lift;
+    const y = -22 * lift;
+    const rot = -10 * lift + 7 * press;
+    this._hand?.setPosition(x, y, 0);
+    this._hand?.setRotationFromEuler(0, 0, rot);
+    this._hand?.setScale(1 - press * 0.04, 1 - press * 0.04, 1);
+    this._shadow?.setPosition(x + 10, y - 8, 0);
+    this._shadow?.setRotationFromEuler(0, 0, rot);
+    this._shadow?.setScale(1 - press * 0.04, 1 - press * 0.04, 1);
+    const sd = this._shadow?.getComponent(Sprite);
+    if (sd) sd.color = new Color(255, 255, 255, Math.round(70 + press * 50));
+  }
+
+  private _poseRings(u: number): void {
+    const on = u >= 0.22 && u < 0.90;
+    const t = on ? (u - 0.22) / 0.68 : 0;
+    this._ring(0, on, 0.55 + t * 0.9, this._fade(t, 0.06, 0.42));
+    this._ring(1, on && t > 0.04, 0.5 + t * 1.65, this._fade(t, 0.1, 0.72));
+    this._ring(2, on && t > 0.14, 0.8 + t * 1.95, this._fade(t, 0.16, 0.82) * 0.8);
+  }
+
+  private _fade(t: number, a: number, b: number): number {
+    if (t <= a) return smooth(t / Math.max(0.001, a));
+    if (t >= b) return 1 - smooth((t - b) / Math.max(0.001, 1 - b));
+    return 1;
+  }
+
+  private _ring(i: number, on: boolean, scale: number, alpha: number): void {
+    const n = this._rings[i];
+    if (!n) return;
+    n.active = on && alpha > 0.02;
+    if (!n.active) return;
+    n.setScale(scale, scale, 1);
+    const sp = n.getComponent(Sprite);
+    if (sp) sp.color = new Color(255, 255, 255, Math.round(255 * alpha));
+  }
+
+  private _hideRings(): void {
+    for (const n of this._rings) n.active = false;
+  }
+
   private _setupNode(): void {
-    if (!this._ui) {
-      this.node.layer = Layers.Enum.UI_3D;
-      if (!this.node.getComponent(RenderRoot2D)) this.node.addComponent(RenderRoot2D);
-    }
+    this._syncLayer();
     let ut = this.node.getComponent(UITransform);
     if (!ut) ut = this.node.addComponent(UITransform);
-    ut.setContentSize(HAND_W, HAND_H);
-    ut.setAnchorPoint(0.5, 0.1);
+    ut.setContentSize(8, 8);
+    ut.setAnchorPoint(0.5, 0.5);
+    const rootSp = this.node.getComponent(Sprite);
+    if (rootSp) {
+      rootSp.spriteFrame = null;
+      rootSp.enabled = false;
+    }
+    this._rings = [
+      this._child('Ring1', RING1, RING1, 0.5, 0.5),
+      this._child('Ring2', RING2, RING2, 0.5, 0.5),
+      this._child('Ring3', RING2, RING2, 0.5, 0.5),
+    ];
+    this._shadow = this._child('Shadow', HAND_W, HAND_H, TIP_AX, TIP_AY, true);
+    this._hand = this._child('Hand', HAND_W, HAND_H, TIP_AX, TIP_AY, true);
     const scale = this._ui ? UI_SCALE : WORLD_SCALE;
-    this.node.setScale(scale, -scale, scale);
-    if (!this.node.getComponent(Sprite)) this.node.addComponent(Sprite);
+    this.node.setScale(scale, scale, scale);
+  }
+
+  private _syncLayer(): void {
+    if (this._ui) {
+      this.node.layer = Layers.Enum.UI_2D;
+      return;
+    }
+    this.node.layer = Layers.Enum.UI_3D;
+    if (!this.node.getComponent(RenderRoot2D)) this.node.addComponent(RenderRoot2D);
+    for (const n of this.node.children) n.layer = Layers.Enum.UI_3D;
+  }
+
+  private _child(name: string, w: number, h: number, ax: number, ay: number, on = false): Node {
+    let n = this.node.getChildByName(name);
+    if (!n) {
+      n = new Node(name);
+      this.node.addChild(n);
+    }
+    n.layer = this.node.layer;
+    let ut = n.getComponent(UITransform);
+    if (!ut) ut = n.addComponent(UITransform);
+    ut.setContentSize(w, h);
+    ut.setAnchorPoint(ax, ay);
+    if (!n.getComponent(Sprite)) n.addComponent(Sprite);
+    n.active = on;
+    return n;
   }
 
   private _loadArt(): void {
-    resources.load('ui/hint-hand/spriteFrame', SpriteFrame, (err, sf) => {
-      if (!this.isValid || err || !sf) return;
-      this._apply(sf);
-    });
+    this._load('ui/hint-hand/spriteFrame', this._hand);
+    this._load('ui/hint-hand-sd/spriteFrame', this._shadow);
+    this._load('ui/hint-ring-1/spriteFrame', this._rings[0]);
+    this._load('ui/hint-ring-2/spriteFrame', this._rings[1]);
+    this._load('ui/hint-ring-2/spriteFrame', this._rings[2]);
   }
 
-  private _apply(sf: SpriteFrame): void {
-    const sp = this.node.getComponent(Sprite);
-    if (!sp) return;
-    sp.spriteFrame = sf;
-    sp.sizeMode = Sprite.SizeMode.CUSTOM;
-    sp.type = Sprite.Type.SIMPLE;
-    sp.color = Color.WHITE;
-    this.node.getComponent(UITransform)?.setContentSize(HAND_W, HAND_H);
+  private _load(path: string, node: Node | null): void {
+    if (!node) return;
+    resources.load(path, SpriteFrame, (err, sf) => {
+      if (!this.isValid || err || !sf) return;
+      const sp = node.getComponent(Sprite);
+      if (!sp) return;
+      sp.spriteFrame = sf;
+      sp.sizeMode = Sprite.SizeMode.CUSTOM;
+      sp.type = Sprite.Type.SIMPLE;
+      sp.color = Color.WHITE;
+    });
   }
 }

@@ -3,24 +3,24 @@
 const fs = require('fs');
 const path = require('path');
 
-/** Matte toy plastic — no self-glow, softer specular (avoids washed-out tops). */
+/** Official M_Pixel _BaseColor. Tiny emit matches ColorLibrary 0.078 gray. */
 const FX_STD = 'c8f66d17-351a-48da-a12c-0212d28575c4';
-const ROUGHNESS = 0.62;
-const EMIT = 0;
+const ROUGHNESS = 0.34;
+const EMIT = 0.04;
 
 const COLORS = {
-  Orange: [255, 132, 28],
-  Yellow: [255, 158, 72],
-  Cyan: [24, 228, 236],
-  Lime: [96, 224, 48],
-  Pink: [255, 84, 164],
-  Violet: [164, 92, 255],
-  Red: [255, 60, 76],
-  Sky: [72, 176, 255],
-  Coral: [255, 124, 100],
-  Mint: [0, 212, 128],
-  Magenta: [240, 56, 216],
-  Gold: [255, 196, 44],
+  Orange: [214, 123, 19],
+  Yellow: [224, 197, 43],
+  Cyan: [17, 183, 214],
+  Lime: [61, 149, 30],
+  Pink: [231, 58, 148],
+  Violet: [113, 52, 226],
+  Red: [207, 36, 48],
+  Sky: [33, 95, 200],
+  Coral: [236, 99, 136],
+  Mint: [2, 161, 144],
+  Magenta: [238, 143, 199],
+  Gold: [195, 175, 113],
 };
 
 const ROOT = path.join(__dirname, '..');
@@ -46,7 +46,7 @@ function stdMat(name, rgb) {
         mainColor: { __type__: 'cc.Color', r, g, b, a: 255 },
         roughness: ROUGHNESS,
         metallic: 0.04,
-        emissive: { __type__: 'cc.Color', r: 0, g: 0, b: 0, a: 255 },
+        emissive: { __type__: 'cc.Color', r, g, b, a: 255 },
         emissiveScale: { __type__: 'cc.Vec3', x: EMIT, y: EMIT, z: EMIT },
       },
       {},

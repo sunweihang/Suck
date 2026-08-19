@@ -24,8 +24,8 @@ export const GAME = {
   suckRefInterval: 0.08,
   suckFlightSec: 0.34,
   suckArc: 0.62,
-  suckMaxFlight: 8,
-  suckMaxFlightTotal: 28,
+  suckMaxFlight: 6,
+  suckMaxFlightTotal: 16,
   suckMinInterval: 0.05,
   suckMaxInterval: 0.16,
   /** First shot after an octopus lands in a pit. */
@@ -400,19 +400,36 @@ const TOKEN_TO_ID: Record<ColorToken, ColorId> = {
   d: ColorId.Gold,
 };
 
+/** Official ColorLibrary id each token stands for. */
+export const TOKEN_VOXEL_ID: Record<ColorToken, number> = {
+  o: 11,
+  y: 17,
+  c: 2,
+  g: 7,
+  p: 15,
+  v: 12,
+  r: 14,
+  s: 1,
+  k: 22,
+  m: 4,
+  a: 20,
+  d: 10,
+};
+
+/** Official M_Pixel _BaseColor for each token. Keep in sync with VoxelPalette LOOK. */
 export const TOKEN_RGB: Record<ColorToken, readonly [number, number, number]> = {
-  o: [255, 132, 28],
-  y: [255, 158, 72],
-  c: [24, 228, 236],
-  g: [96, 224, 48],
-  p: [255, 84, 164],
-  v: [164, 92, 255],
-  r: [255, 60, 76],
-  s: [72, 176, 255],
-  k: [255, 124, 100],
-  m: [0, 212, 128],
-  a: [240, 56, 216],
-  d: [255, 196, 44],
+  o: [214, 123, 19],
+  y: [224, 197, 43],
+  c: [17, 183, 214],
+  g: [61, 149, 30],
+  p: [231, 58, 148],
+  v: [113, 52, 226],
+  r: [207, 36, 48],
+  s: [33, 95, 200],
+  k: [236, 99, 136],
+  m: [2, 161, 144],
+  a: [238, 143, 199],
+  d: [195, 175, 113],
 };
 
 export function isColorToken(token: string): token is ColorToken {

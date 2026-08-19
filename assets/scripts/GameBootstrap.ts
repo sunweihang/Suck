@@ -33,10 +33,11 @@ import { initWxShare } from './ads/WxShareService';
 import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
+import { resetPlayFx } from './battle/InkShot';
 import { GAME, playCamLookAtY } from './game/GameConfig';
-import { playViewBand } from './game/ViewFit';
-import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
-import { completeGuide, grantGuideItem, guideIdForLevel, shouldSkipItemShop } from './game/TutorialGuide';
+import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
+import { applyLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
+import { completeGuide, grantGuideItem, guideIdForLevel, resetGuideProgress, shouldSkipItemShop } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -45,6 +46,7 @@ import {
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
 import { rollChestReward, type ChestReward } from './game/ChestLoot';
+import { consumePendingChest, markChestPending, peekPendingChest, resetChestProgress } from './game/ChestProgress';
 import { GOLD, goldAdReward, itemGoldCost, PlayerWallet, slotGoldCost } from './game/PlayerWallet';
 import { ChestActor } from './battle/ChestActor';
 import { SlotPad } from './battle/SlotPad';
@@ -56,7 +58,10 @@ import { GoldHud } from './view/GoldHud';
 import { HomePanel } from './view/HomePanel';
 import { PlayHud } from './view/PlayHud';
 import { SettingsPanel } from './view/SettingsPanel';
+import { UgcHud } from './view/UgcHud';
 import { VictoryPanel } from './view/VictoryPanel';
+import { UgcEditor } from './ugc/UgcEditor';
+import { encodeUgcText, getUgcMap, listUgcMaps, newUgcMap, parseUgcText, saveUgcMap, ugcToLevelDef } from './ugc/UgcStore';
 import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinFlyFx';
@@ -74,6 +79,15 @@ function loadPrefab(uuid: string): Promise<Prefab> {
       resolve(asset as Prefab);
     });
   });
+}
+
+function consumeClearChest(self: { _clearChest: ChestReward | null; _wallet: PlayerWallet }): ChestReward {
+  const chest = self._clearChest;
+  self._clearChest = null;
+  if (!chest) return { gold: 0, items: [] };
+  consumePendingChest();
+  for (const id of chest.items) self._wallet.addItem(id, 1);
+  return chest;
 }
 
 const { ccclass } = _decorator;
@@ -108,6 +122,15 @@ export class GameBootstrap extends Component {
   private _canvas: Node | null = null;
   private _home: HomePanel | null = null;
   private _settings: SettingsPanel | null = null;
+  private _ugcHud: UgcHud | null = null;
+  private _ugcEditor: UgcEditor | null = null;
+  private _ugcPlay = false;
+  private _ugcHoldPlay = false;
+  private _ugcMapId: string | null = null;
+  private _ugcLevel: ReturnType<typeof ugcToLevelDef> | null = null;
+  private _worldKey = '';
+  private _worldTouched = false;
+  private _standby: { root: Node; battle: BattleDirector; key: string } | null = null;
   private _playHud: PlayHud | null = null;
   private _victory: VictoryPanel | null = null;
   private _fail: FailPanel | null = null;
@@ -118,6 +141,7 @@ export class GameBootstrap extends Component {
   private _chestActor: ChestActor | null = null;
   private _pendingSlot: SlotPad | null = null;
   private _chestBusy = false;
+  private _clearChest: ChestReward | null = null;
   private _itemShopBusy = false;
   private _wallet = new PlayerWallet();
   private _battle: BattleDirector | null = null;
@@ -161,6 +185,7 @@ export class GameBootstrap extends Component {
   private _revealHomeAndLiftSplash(): void {
     if (this._homeDrawn) return;
     this._homeDrawn = true;
+    this._ugcHud?.hide();
     if (this._letterboxCam?.isValid) {
       this._letterboxCam.clearColor = LETTERBOX_CLEAR;
       this._letterboxCam.enabled = true;
@@ -179,6 +204,7 @@ export class GameBootstrap extends Component {
       await ensureLevels();
       this._restoreProgress();
       this._wallet.load();
+      void this._bootWorld();
       await this._buildUi();
       this._ensureAudio();
       this._applyPortraitFrame();
@@ -191,6 +217,7 @@ export class GameBootstrap extends Component {
       await ensureHomeLevelArt();
       if (this.node.scene) await spawnToyBackdrop(this.node.scene);
       this._home?.applyArt();
+      this._ugcHud?.hide();
       this._playHud?.applyArt();
       this._gold?.applyArt();
       this._settings?.applyArt();
@@ -214,9 +241,12 @@ export class GameBootstrap extends Component {
     destroyGameClubButton();
     setGameAudio(null);
     this._audio = null;
+    this._dropStandby();
+    this._disposeUgcEditor();
   }
 
   private _onKeyDown(e: EventKeyboard): void {
+    if (this._ugcPlay || this._ugcEditor) return;
     if (e.keyCode === KeyCode.KEY_N || e.keyCode === KeyCode.ARROW_RIGHT || e.keyCode === KeyCode.BRACKET_RIGHT) {
       this._gmSkip(this._level + 1);
       return;
@@ -242,6 +272,7 @@ export class GameBootstrap extends Component {
     n.name = `${name}_disposed`;
     n.removeFromParent();
     this._disposeTree(n);
+    if (name === 'PlayWorld' || name === 'PlayWorldStandby') resetPlayFx();
   }
 
   /** Drop renderers with a missing GPU descriptor set before engine destroyModel. */
@@ -265,19 +296,87 @@ export class GameBootstrap extends Component {
     return this._bootJob;
   }
 
+  private _playWorldKey(): string {
+    return this._ugcPlay ? `ugc:${this._ugcMapId}` : `lv:${this._level}`;
+  }
+
+  private _dropStandby(): void {
+    const s = this._standby;
+    this._standby = null;
+    if (!s?.root?.isValid) return;
+    s.root.name = 'PlayWorld_standby_disposed';
+    s.root.removeFromParent();
+    this._disposeTree(s.root);
+    resetPlayFx();
+  }
+
+  private _adoptStandby(key: string): boolean {
+    const s = this._standby;
+    if (!s || s.key !== key || !s.root?.isValid || !s.battle?.isValid) return false;
+    this._standby = null;
+    this._disposeNamed('PlayWorld');
+    this._disposeUgcEditor();
+    s.root.name = 'PlayWorld';
+    this._battle = s.battle;
+    this._worldKey = key;
+    this._builtLevel = this._ugcPlay ? 1 : this._level;
+    this._frameMainCamera();
+    this._home?.setLevel(this._level, LEVEL_COUNT);
+    this._playHud?.setLevel(this._builtLevel);
+    this._setWorldLive(false);
+    return true;
+  }
+
+  private _queueStandby(): void {
+    if (this._ugcPlay || this._bootJob) return;
+    const key = this._playWorldKey();
+    if (this._standby?.key === key && this._standby.battle?.isValid) return;
+    this._bootJob = this._fillStandby(key).finally(() => {
+      this._bootJob = null;
+    });
+  }
+
+  private async _fillStandby(key: string): Promise<void> {
+    try {
+      if (!this.node.scene) return;
+      this._dropStandby();
+      const level = getLevel(this._level);
+      const world = await buildPlayWorld(this.node.scene, level, {
+        name: 'PlayWorldStandby',
+        active: false,
+      });
+      if (!this.isValid) {
+        world.root.name = 'PlayWorld_standby_disposed';
+        world.root.removeFromParent();
+        this._disposeTree(world.root);
+        return;
+      }
+      this._standby = { root: world.root, battle: world.battle, key };
+    } catch (err) {
+      console.error('[Suck] standby world failed', err);
+    }
+  }
+
   private async _bootWorldInner(): Promise<void> {
     try {
-      if (!this._canvas && this._uiJob) await this._uiJob;
+      await loadGameBundles();
+      await ensureLevels();
       if (!this.node.scene) return;
+      const key = this._playWorldKey();
+      if (this._worldKey === key && this._battle?.isValid) return;
+      if (this._adoptStandby(key)) return;
       this._disposeNamed('PlayWorld');
-      const world = await buildPlayWorld(this.node.scene, getLevel(this._level));
+      this._disposeUgcEditor();
+      const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
+      const world = await buildPlayWorld(this.node.scene, level);
       this._battle = world.battle;
-      this._builtLevel = this._level;
+      this._worldKey = key;
+      this._builtLevel = this._ugcPlay ? 1 : this._level;
       this._frameMainCamera();
       this._bindBattle();
       this._home?.setLevel(this._level, LEVEL_COUNT);
       this._playHud?.setLevel(this._level);
-      if (this._home?.node.active) this._setWorldLive(false);
+      this._setWorldLive(false);
     } catch (err) {
       console.error('[Suck] boot world failed', err);
     }
@@ -303,13 +402,36 @@ export class GameBootstrap extends Component {
 
   private async _ensureWorld(): Promise<void> {
     if (this._bootJob) await this._bootJob;
-    if (this._builtLevel === this._level && this._battle?.isValid) return;
+    const key = this._playWorldKey();
+    if (this._worldKey === key && this._battle?.isValid) return;
+    if (this._adoptStandby(key)) return;
     await this._bootWorld();
   }
 
   private _onLevelCleared(): void {
     if (this._settledBuilt === this._builtLevel) return;
     this._settledBuilt = this._builtLevel;
+    if (this._ugcPlay) {
+      this._clearGold = 0;
+      this._clearChest = null;
+      this._home?.hide();
+      this._ugcHud?.hide();
+      this._settings?.hide();
+      this._fail?.hide();
+      this._chest?.hide();
+      this._itemShop?.hide();
+      this._gm?.collapse();
+      this._battle?.setPlaying(false);
+      this._setGoldVisible(false);
+      this._victory?.show({
+        hasNext: true,
+        gold: 0,
+        canDouble: false,
+        nextLabel: '返回创作',
+        cleared: 0,
+      });
+      return;
+    }
     const cleared = this._level;
     if (this._level < LEVEL_COUNT) this._level += 1;
     saveLevelIndex(this._level);
@@ -325,15 +447,19 @@ export class GameBootstrap extends Component {
     this._gm?.collapse();
     this._battle?.setPlaying(false);
     this._setGoldVisible(true);
+    markChestPending(cleared);
+    this._clearChest = peekPendingChest() ? rollChestReward(cleared) : null;
     this._victory?.show({
       hasNext: this._level > cleared && cleared < WIN_DOUBLE_ONLY_FROM,
       gold: GOLD.win,
       canDouble: true,
+      cleared,
     });
     if (this._canvas) {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
+    this._queueStandby();
   }
 
   private _claimNext(): void {
@@ -349,7 +475,8 @@ export class GameBootstrap extends Component {
     const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
     const amount = this._clearGold > 0 ? this._clearGold : fallback;
     this._clearGold = 0;
-    void this._flyGoldThen(amount, kind);
+    const extra = consumeClearChest(this);
+    void this._flyGoldThen(amount + extra.gold, kind, extra.items);
   }
 
   private _claimDouble(): void {
@@ -367,10 +494,11 @@ export class GameBootstrap extends Component {
     const result = await showRewardedVideoAd();
     const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
     const base = this._clearGold > 0 ? this._clearGold : fallback;
-    const amount = result === 'rewarded' ? base * 2 : base;
+    const extra = consumeClearChest(this);
+    const amount = (result === 'rewarded' ? base * 2 : base) + extra.gold;
     this._clearGold = 0;
     this._doubleBusy = false;
-    void this._flyGoldThen(amount, kind);
+    void this._flyGoldThen(amount, kind, extra.items);
   }
 
   private _lockSettle(kind: 'win' | 'fail'): void {
@@ -378,7 +506,7 @@ export class GameBootstrap extends Component {
     else this._victory?.lock();
   }
 
-  private async _flyGoldThen(amount: number, kind: 'win' | 'fail'): Promise<void> {
+  private async _flyGoldThen(amount: number, kind: 'win' | 'fail', items: readonly ItemId[] = []): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
     this._lockSettle(kind);
@@ -390,6 +518,7 @@ export class GameBootstrap extends Component {
     const canvas = this._canvas;
     if (!canvas?.isValid || amount <= 0) {
       if (amount > 0) this._wallet.add(amount);
+      if (kind === 'win' && items.length) await this._flyChestItems(items);
       after();
       return;
     }
@@ -415,13 +544,29 @@ export class GameBootstrap extends Component {
         onDone: () => resolve(),
       });
     });
+    if (kind === 'win' && items.length) await this._flyChestItems(items);
     after();
   }
 
   private _onLevelFailed(): void {
     if (this._settledBuilt === this._builtLevel) return;
     this._settledBuilt = this._builtLevel;
+    if (this._ugcPlay) {
+      this._clearGold = 0;
+      this._home?.hide();
+      this._ugcHud?.hide();
+      this._settings?.hide();
+      this._victory?.hide();
+      this._chest?.hide();
+      this._itemShop?.hide();
+      this._gm?.collapse();
+      this._battle?.setPlaying(false);
+      this._setGoldVisible(false);
+      this._fail?.show({ gold: 0, canDouble: false });
+      return;
+    }
     this._clearGold = GOLD.fail;
+    this._clearChest = null;
     this._home?.hide();
     this._settings?.hide();
     this._victory?.hide();
@@ -438,6 +583,7 @@ export class GameBootstrap extends Component {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
+    this._queueStandby();
   }
 
   private _onChestReady(chest: ChestActor): void {
@@ -470,6 +616,22 @@ export class GameBootstrap extends Component {
     this._chestActor = null;
     this._chest?.hide();
     if (actor) this._battle?.claimChest(actor);
+    this._battle?.setPlaying(true);
+    this._flyGrantedItems(reward.items);
+  }
+
+  private _takeClearChest(): ChestReward {
+    return consumeClearChest(this);
+  }
+
+  private _grantLeftoverChest(): void {
+    if (this._ugcPlay) return;
+    const cleared = peekPendingChest();
+    if (!cleared) return;
+    consumePendingChest();
+    const reward = rollChestReward(cleared);
+    this._wallet.add(reward.gold);
+    for (const id of reward.items) this._wallet.addItem(id, 1);
     this._flyGrantedItems(reward.items);
   }
 
@@ -637,16 +799,26 @@ export class GameBootstrap extends Component {
   }
 
   private _flyGrantedItems(ids: readonly ItemId[]): void {
+    void this._flyChestItems(ids);
+  }
+
+  private _flyChestItems(ids: readonly ItemId[]): Promise<void> {
     const canvas = this._canvas;
     this._playHud?.show();
     this._playHud?.setItems(this._playItemState());
     this._playHud?.layoutChrome();
-    if (!canvas?.isValid || ids.length <= 0) return;
-    playItemGrantFly({
-      canvas,
-      ids,
-      slotWorldPos: (id, out) => this._playHud?.itemIconWorldPos(id, out) ?? false,
-      onLand: (id) => this._playHud?.pulseItem(id),
+    if (!canvas?.isValid || ids.length <= 0) return Promise.resolve();
+    const start = new Vec3();
+    this._victory?.chestStartWorld(start);
+    return new Promise((resolve) => {
+      playItemGrantFly({
+        canvas,
+        ids,
+        startWorld: start,
+        slotWorldPos: (id, out) => this._playHud?.itemIconWorldPos(id, out) ?? false,
+        onLand: (id) => this._playHud?.pulseItem(id),
+        onDone: () => resolve(),
+      });
     });
   }
 
@@ -669,6 +841,7 @@ export class GameBootstrap extends Component {
   private _gmSkip(n: number): void {
     this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
     saveLevelIndex(this._level);
+    this._dropStandby();
     this._builtLevel = 0;
     this._gm?.setLevel(this._level);
     this._home?.setLevel(this._level, LEVEL_COUNT);
@@ -681,12 +854,21 @@ export class GameBootstrap extends Component {
   }
 
   private _gmReset(): void {
+    this._worldKey = '';
     this._builtLevel = 0;
+    this._dropStandby();
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
     this._itemShop?.hide();
     this._enterPlay();
+  }
+
+  private _gmWipeLocal(): void {
+    resetGuideProgress();
+    resetChestProgress();
+    this._wallet.reset();
+    this._gmSkip(1);
   }
 
   private _tuneMainCamera(): void {
@@ -717,7 +899,12 @@ export class GameBootstrap extends Component {
     const dist = GAME.worldCamDist;
     const look = new Vec3(
       GAME.worldCamLookAtX,
-      playCamLookAtY(playViewBand(portraitVisibleSize().height).pinFrac),
+      playCamLookAtY(
+        playViewBand(
+          portraitVisibleSize().height,
+          this._ugcEditor && !this._ugcPlay ? UGC_PLAY_BTN_LIFT : 0,
+        ).pinFrac,
+      ),
       GAME.worldCamLookAtZ,
     );
     camNode.setPosition(
@@ -805,6 +992,7 @@ export class GameBootstrap extends Component {
     }
     layoutWorldBg(this.node.scene);
     this._home?.layoutChrome();
+    this._ugcHud?.layoutChrome();
     this._settings?.layoutChrome();
     this._playHud?.layoutChrome();
     this._gold?.layoutChrome();
@@ -859,9 +1047,64 @@ export class GameBootstrap extends Component {
     const homeN = await this._spawnHome(canvasN);
     this._home = homeN.getComponent(HomePanel) ?? homeN.addComponent(HomePanel);
     this._home.setup({
-      onPlay: () => this._restartPlay(),
+      onPlay: () => this._enterPlay(),
       onSettings: () => this._showSettings(),
     });
+
+    const ugcHudN = new Node('UgcHud');
+    ugcHudN.active = false;
+    canvasN.addChild(ugcHudN);
+    this._ugcHud = ugcHudN.addComponent(UgcHud);
+    this._ugcHud.setup({
+      onBack: () => this._leaveUgcEditor(),
+      onPlay: () => {
+        const ed = this._ugcEditor;
+        if (!ed || ed.brickCount <= 0) return;
+        ed.persist();
+        this._enterUgcPlay(ed.map.id);
+      },
+      onTool: (t) => {
+        this._ugcEditor?.setTool(t);
+        this._syncUgcHud();
+      },
+      onLayer: (n) => {
+        this._ugcEditor?.setLayer(n);
+        this._syncUgcHud();
+      },
+      onDepth: (n) => {
+        this._ugcEditor?.setDepth(n);
+        this._syncUgcHud();
+      },
+      onUndo: () => {
+        this._ugcEditor?.undo();
+        this._syncUgcHud();
+      },
+      onDel: () => {
+        this._ugcEditor?.removeLayer();
+        this._syncUgcHud();
+      },
+      onPreview: () => {
+        this._ugcEditor?.setPreview(true);
+        this._syncUgcHud();
+      },
+      onEdit: () => {
+        this._ugcEditor?.setPreview(false);
+        this._syncUgcHud();
+      },
+      onLoad: (text) => this._loadUgcText(text),
+      onExport: () => {
+        const ed = this._ugcEditor;
+        if (!ed) return '';
+        ed.persist();
+        return encodeUgcText(ed.map);
+      },
+      onClear: () => {
+        this._ugcEditor?.clearModel();
+        this._syncUgcHud();
+      },
+      onExit: () => this._leaveUgcEditor(),
+    });
+    this._ugcHud.hide();
 
     const settingsN = await this._spawnSettings(canvasN);
     this._settings = settingsN.getComponent(SettingsPanel) ?? settingsN.addComponent(SettingsPanel);
@@ -875,10 +1118,11 @@ export class GameBootstrap extends Component {
     canvasN.addChild(hudN);
     this._playHud = hudN.addComponent(PlayHud);
     this._playHud.setup({
-      onHome: () => this._showHome(),
+      onHome: () => (this._ugcPlay ? this._returnToEditor() : this._showHome()),
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
       onRevealGm: () => this._gm?.revealEntry(),
+      onUgc: () => this._openUgcFromPlay(),
       onItem: (id) => this._onPlayItem(id),
     });
     this._playHud.hide();
@@ -947,6 +1191,7 @@ export class GameBootstrap extends Component {
       onWin: () => this._gmWin(),
       onFail: () => this._gmLose(),
       onReset: () => this._gmReset(),
+      onWipe: () => this._gmWipeLocal(),
       onSkip: (n) => this._gmSkip(n),
       onAddGold: (delta) => this._wallet.add(delta),
       onSetGold: (n) => this._wallet.setCoins(n),
@@ -1055,7 +1300,7 @@ export class GameBootstrap extends Component {
 
   /** Home covers the 3D field; keep the world and shadow pass off until play. */
   private _setWorldLive(on: boolean): void {
-    const world = this._battle?.node;
+    const world = this._ugcEditor?.node ?? this._battle?.node;
     if (world?.isValid) world.active = on;
     if (this._mainCam?.isValid) this._mainCam.enabled = on;
     const shadows = this.node.scene?.globals?.shadows;
@@ -1064,8 +1309,12 @@ export class GameBootstrap extends Component {
 
   private _showHome(): void {
     this._unlockAudio();
+    this._disposeUgcEditor();
+    this._clearUgcPlay();
+    this._ugcHoldPlay = false;
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.show();
+    this._ugcHud?.hide();
     this._settings?.hide();
     this._playHud?.hide();
     this._victory?.hide();
@@ -1076,6 +1325,16 @@ export class GameBootstrap extends Component {
     this._gm?.setLevel(this._level);
     this._gm?.collapse();
     this._battle?.setPlaying(false);
+    if (this._worldTouched) {
+      this._worldTouched = false;
+      this._dropStandby();
+      this._disposeNamed('PlayWorld');
+      this._battle = null;
+      this._worldKey = '';
+      this._builtLevel = 0;
+      void this._bootWorld();
+      return;
+    }
     this._setWorldLive(false);
   }
 
@@ -1102,41 +1361,192 @@ export class GameBootstrap extends Component {
   private _enterPlay(): void {
     this._settledBuilt = -1;
     this._unlockAudio();
+    const key = this._playWorldKey();
+    if (this._worldKey === key && this._battle?.isValid) {
+      this._revealPlay();
+      return;
+    }
     void this._ensureWorld().then(() => {
-      this._frameMainCamera();
-      this._setWorldLive(true);
-      this._bindBattle();
-      this._home?.hide();
-      this._settings?.hide();
-      this._victory?.hide();
-      this._fail?.hide();
-      this._chest?.hide();
-      this._itemShop?.hide();
-      this._gm?.collapse();
-      this._playHud?.setLevel(this._builtLevel);
-      this._gm?.setLevel(this._builtLevel);
-      this._playHud?.show();
-      this._setGoldVisible(true);
-      const gifted = grantGuideItem(this._wallet, this._builtLevel);
-      this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
-      if (gifted) this._flyGrantedItems([gifted]);
-      this._battle?.setPlaying(true);
+      if (!this.isValid || this._ugcEditor) return;
+      if (this._ugcHoldPlay && !this._ugcPlay) return;
+      this._revealPlay();
     });
   }
 
-  private _restartPlay(): void {
-    this._builtLevel = 0;
-    this._enterPlay();
+  private _revealPlay(): void {
+    const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
+    applyLevel(level);
+    this._frameMainCamera();
+    this._setWorldLive(true);
+    if (this._battle?.isValid) {
+      this._battle.enabled = false;
+      this._battle.enabled = true;
+    }
+    this._bindBattle();
+    this._home?.hide();
+    this._ugcHud?.hide();
+    this._settings?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
+    this._gm?.collapse();
+    this._playHud?.setUgc(this._ugcPlay);
+    this._playHud?.setLevel(this._builtLevel);
+    this._gm?.setLevel(this._builtLevel);
+    this._playHud?.show();
+    this._setGoldVisible(!this._ugcPlay);
+    const gifted = this._ugcPlay ? null : grantGuideItem(this._wallet, this._builtLevel);
+    this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
+    if (gifted) this._flyGrantedItems([gifted]);
+    this._worldTouched = true;
+    this._battle?.setPlaying(true);
+    this._clearChest = null;
+    this._grantLeftoverChest();
   }
 
   private _retryPlay(): void {
+    this._worldKey = '';
     this._builtLevel = 0;
     this._enterPlay();
   }
 
   private async _enterNext(): Promise<void> {
     this._clearGold = 0;
-    await this._ensureWorld();
+    if (this._ugcPlay) {
+      this._returnToEditor();
+      return;
+    }
+    if (this._bootJob) await this._bootJob;
+    this._dropStandby();
+    this._worldKey = '';
+    this._builtLevel = 0;
+    this._disposeNamed('PlayWorld');
+    this._battle = null;
+    resetPlayFx();
+    await this._bootWorld();
+    this._enterPlay();
+  }
+
+  private _clearUgcPlay(): void {
+    this._ugcPlay = false;
+    this._ugcMapId = null;
+    this._ugcLevel = null;
+  }
+
+  private _disposeUgcEditor(): void {
+    this._ugcEditor?.dispose();
+    this._ugcEditor = null;
+    this._disposeNamed('UgcWorld');
+  }
+
+  private _syncUgcHud(): void {
+    const ed = this._ugcEditor;
+    if (!ed) return;
+    this._ugcHud?.setState({
+      token: ed.token,
+      tool: ed.tool,
+      layer: ed.layer,
+      depth: ed.depth,
+      bricks: ed.brickCount,
+      canUndo: ed.canUndo,
+      undoCount: ed.undoCount,
+      showAll: ed.showAll,
+    });
+  }
+
+  private _openUgcFromPlay(): void {
+    if (this._ugcPlay) return;
+    this._ugcHoldPlay = true;
+    void this._enterUgcEditor();
+  }
+
+  private _loadUgcText(text: string): string | true {
+    const parsed = parseUgcText(text);
+    if (!parsed || parsed.bricks.length <= 0) return '配置无效，请检查粘贴内容';
+    const id = this._ugcEditor?.map.id ?? parsed.id;
+    saveUgcMap({ ...parsed, id });
+    void this._enterUgcEditor(id);
+    return true;
+  }
+
+  private _leaveUgcEditor(): void {
+    this._ugcEditor?.persist();
+    this._disposeUgcEditor();
+    this._ugcHud?.hide();
+    if (this._ugcHoldPlay && !this._ugcPlay) {
+      this._ugcHoldPlay = false;
+      this._enterPlay();
+      return;
+    }
+    this._ugcHoldPlay = false;
+    this._showHome();
+  }
+
+  private _returnToEditor(): void {
+    const id = this._ugcMapId;
+    this._ugcEditor?.persist();
+    this._disposeUgcEditor();
+    this._ugcHud?.hide();
+    if (this._ugcPlay) {
+      this._ugcPlay = false;
+      this._ugcLevel = null;
+      this._dropStandby();
+      this._disposeNamed('PlayWorld');
+      this._battle = null;
+      this._worldKey = '';
+    }
+    void this._enterUgcEditor(id ?? undefined);
+  }
+
+  private async _enterUgcEditor(id?: string): Promise<void> {
+    const map = id ? getUgcMap(id) : (listUgcMaps()[0] ?? newUgcMap());
+    if (!map || !this.node.scene || !this._mainCam) return;
+    this._unlockAudio();
+    try {
+      this._dropStandby();
+      this._disposeNamed('PlayWorld');
+      this._battle = null;
+      this._worldKey = '';
+      this._disposeUgcEditor();
+      this._ugcEditor = await UgcEditor.open(this.node.scene, map, {
+        camera: this._mainCam,
+        overUi: (loc) => this._ugcHud?.hitsChrome(loc) ?? false,
+        onDirty: () => this._syncUgcHud(),
+      });
+    } catch (err) {
+      console.error('[Suck] ugc editor failed', err);
+      this._disposeUgcEditor();
+      this._leaveUgcEditor();
+      return;
+    }
+    this._home?.hide();
+    this._playHud?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._settings?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
+    this._setGoldVisible(false);
+    this._ugcMapId = map.id;
+    this._frameMainCamera();
+    this._setWorldLive(true);
+    this._ugcHud?.show();
+    this._syncUgcHud();
+  }
+
+  private _enterUgcPlay(id: string): void {
+    const map = getUgcMap(id);
+    if (!map || map.bricks.length <= 0) return;
+    this._ugcEditor?.persist();
+    this._disposeUgcEditor();
+    this._ugcPlay = true;
+    this._ugcMapId = id;
+    this._ugcLevel = ugcToLevelDef(map);
+    this._dropStandby();
+    this._worldKey = '';
+    this._builtLevel = 0;
+    this._ugcHud?.hide();
     this._enterPlay();
   }
 }

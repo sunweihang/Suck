@@ -376,11 +376,7 @@ def main() -> None:
         dest = OUT / name
         im.save(dest, "PNG")
         print("drew", name, im.size, "bbox", im.getbbox())
-    gold = draw_gold(256)
-    gold_path = OUT / "ui-gold-icon.png"
-    gold.save(gold_path, "PNG")
-    write_meta(gold_path, GOLD_UUID, *gold.size)
-    print("drew", gold_path.name, gold.size, "bbox", gold.getbbox())
+    # Gold is an authored 3D asset (tools/install-gold-icon.py). Do not overwrite it.
 
 
 if __name__ == "__main__":

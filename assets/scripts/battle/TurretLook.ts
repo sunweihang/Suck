@@ -7,7 +7,8 @@ import {
   resources,
   utils,
 } from 'cc';
-import { ColorId } from '../game/GameConfig';
+import { ColorId, tokenOfColorId } from '../game/GameConfig';
+import { paintUnitColor } from './BrickSpecials';
 import { applyToyCaster } from './ToyBlockMesh';
 import { applyTurretPose } from './TurretPose';
 import { TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
@@ -115,7 +116,7 @@ function placeMuzzle(host: Node): void {
   for (const child of mouth.children) child.active = false;
 }
 
-export function applyTurretLook(host: Node, _colorId: ColorId): void {
+export function applyTurretLook(host: Node, colorId: ColorId): void {
   hideFace(host);
   placeMuzzle(host);
   const body = bodyOf(host);
@@ -128,6 +129,7 @@ export function applyTurretLook(host: Node, _colorId: ColorId): void {
     host.setScale(TURRET_SCALE, TURRET_SCALE, TURRET_SCALE);
     mr.mesh = mesh;
     mr.enabled = true;
+    paintUnitColor(host, tokenOfColorId(colorId));
     void preloadToyOutline().then(() => {
       if (host.isValid) applyToyOutline(host);
     });
@@ -163,7 +165,7 @@ export function lockQueueBlockPose(host: Node): void {
 }
 
 /** Queued / unactivated: original Shooter_Hidden + T_Hidden_Pattern. */
-export function applyQueueBlockLook(host: Node, _colorId: ColorId = 0): void {
+export function applyQueueBlockLook(host: Node, colorId: ColorId = 0): void {
   hideFace(host);
   const body = bodyOf(host);
   if (!body) return;
@@ -174,6 +176,7 @@ export function applyQueueBlockLook(host: Node, _colorId: ColorId = 0): void {
     lockQueueBlockPose(host);
     mr.mesh = mesh;
     mr.enabled = true;
+    paintUnitColor(host, tokenOfColorId(colorId));
     void preloadToyOutline().then(() => {
       if (host.isValid) applyToyOutline(host);
     });

@@ -77,6 +77,7 @@ export function playItemGrantFly(opts: {
   canvas: Node;
   ids: readonly ItemId[];
   slotWorldPos: (id: ItemId, out: Vec3) => boolean;
+  startWorld?: Vec3;
   onLand?: (id: ItemId) => void;
   onDone?: () => void;
 }): void {
@@ -97,6 +98,8 @@ export function playItemGrantFly(opts: {
     opts.onDone?.();
     return;
   }
+  const start = new Vec3();
+  if (opts.startWorld) worldToFxLocal(fx, opts.startWorld, start);
   const oneLanded = (id: ItemId): void => {
     opts.onLand?.(id);
     left -= 1;
@@ -110,7 +113,7 @@ export function playItemGrantFly(opts: {
       continue;
     }
     worldToFxLocal(fx, _tmp, _tmp);
-    spawnItemFlyer(fx, 0, 0, _tmp.x, _tmp.y, artFrame(ITEM_ART[id]), i * STAGGER, () => oneLanded(id));
+    spawnItemFlyer(fx, start.x, start.y, _tmp.x, _tmp.y, artFrame(ITEM_ART[id]), i * STAGGER, () => oneLanded(id));
   }
 }
 

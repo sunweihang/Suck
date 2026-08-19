@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Vec3 } from 'cc';
-import { benchColOf, benchRankOf, ColorId, SPECIAL_SPAN, parseColorToken, tokenOfColorId } from '../game/GameConfig';
+import { benchColOf, benchRankOf, ColorId, PLAY, SPECIAL_SPAN, TOKEN_RGB, parseColorToken, tokenOfColorId } from '../game/GameConfig';
+import { nearestVoxelId } from '../game/VoxelPalette';
 import { applyGhostLook, paintUnitColor } from './BrickSpecials';
 import { TurretAnim } from './TurretAnim';
 import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from './PowerMark';
@@ -15,6 +16,8 @@ export type UnitState = 'bench' | 'drag' | 'walk' | 'attack';
 export class UnitActor extends Component {
   static animLive = true;
   colorId: ColorId = ColorId.Orange;
+  /** Official ColorLibrary id this turret shoots. -1 if unknown. */
+  voxelId = -1;
   ghost = false;
   magnet = false;
   trapped = false;
@@ -378,6 +381,11 @@ export class UnitActor extends Component {
     if (this.ghost) applyGhostLook(this.node);
   }
 
+  syncVoxelId(): void {
+    const token = tokenOfColorId(this.colorId);
+    this.voxelId = nearestVoxelId(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.o);
+  }
+
   refreshSeatLook(): void {
     const kind = this._queued() ? 'queue' : 'turret';
     if (kind !== this._lookKind || this.colorId !== this._lookColor) {
@@ -392,6 +400,7 @@ export class UnitActor extends Component {
         this._queuePosed = false;
       }
       paintUnitColor(this.node, tokenOfColorId(this.colorId));
+      this.syncVoxelId();
     }
     if (this._powerTag?.isValid) posePowerMark(this.node, this._powerTag);
     this.refreshPowerVisible();
