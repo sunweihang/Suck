@@ -157,6 +157,8 @@ export class TurretAnim {
   private readonly _aimP = new Vec3();
   private readonly _aimQ = new Quat();
   private _hasAim = false;
+  private _phase = 0;
+  private _poseReady = false;
 
   rest(): void {
     const rig = this._rig;
@@ -181,13 +183,14 @@ export class TurretAnim {
       ?? root.getChildByName('Mouth')
       ?? this._rig.getChildByName('Mouth')
       ?? null;
-    void seed;
     this._idleT = sharedIdle;
     this._oneshot = null;
     this._oneshotT = 0;
     this._hold = false;
     this._onDone = null;
     this._hasAim = false;
+    this._phase = seed & 1;
+    this._poseReady = false;
     this._rig.setScale(1, 1, 1);
     this._rig.setRotationFromEuler(0, 0, 0);
     root.setRotationFromEuler(0, 0, 0);
@@ -266,6 +269,7 @@ export class TurretAnim {
 
     const lock = _state === 'bench' || _state === 'attack';
     const pose = this._aimPose(body, _state, step);
+    let writeXform = true;
     if (_state === 'attack') {
       rig.setRotation(_ident);
       if (this._oneshot) {
@@ -291,18 +295,24 @@ export class TurretAnim {
         _idleFrame = frame;
         evalClip(CLIP_IDLE, sharedIdle, true, _idleQ, _idleS, _idleP);
       }
-      rig.setRotation(_ident);
-      Quat.multiply(_rootQ, _restQ, _idleQ);
-      body.setRotation(_rootQ);
-      body.setScale(1, 1, 1);
       _scale.set(1, 1, 1);
       _pos.set(_idleP);
+      writeXform = !this._poseReady || ((frame + this._phase) & 1) === 1;
+      if (writeXform) {
+        this._poseReady = true;
+        rig.setRotation(_ident);
+        Quat.multiply(_rootQ, _restQ, _idleQ);
+        body.setRotation(_rootQ);
+        body.setScale(1, 1, 1);
+      }
     }
-    rig.setPosition(
-      lock ? 0 : _pos.x * CLIP_POS_SCALE,
-      this._oneshot && !lock ? _pos.y * CLIP_POS_SCALE : 0,
-      lock ? 0 : _pos.z * CLIP_POS_SCALE,
-    );
+    if (writeXform) {
+      rig.setPosition(
+        lock ? 0 : _pos.x * CLIP_POS_SCALE,
+        this._oneshot && !lock ? _pos.y * CLIP_POS_SCALE : 0,
+        lock ? 0 : _pos.z * CLIP_POS_SCALE,
+      );
+    }
     if (this._hasAim || this._oneshot || _state === 'attack') this._placeMuzzle();
     if (finished) finished();
   }

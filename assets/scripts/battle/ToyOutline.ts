@@ -114,13 +114,35 @@ function sleep(node: Node | null | undefined): void {
   node.active = false;
 }
 
+function outlineNodeOf(root: Node): Node | null {
+  const src = sourceOf(root);
+  const underSrc = src?.node.getChildByName('Outline');
+  if (alive(underSrc)) return underSrc;
+  const underBody = bodyOf(root)?.getChildByName('Outline');
+  if (alive(underBody)) return underBody;
+  const underRoot = root.getChildByName('Outline');
+  return alive(underRoot) ? underRoot : null;
+}
+
+function setToyOutlineVisible(root: Node, on: boolean): void {
+  const node = outlineNodeOf(root);
+  if (!node) return;
+  const mr = node.getComponent(MeshRenderer);
+  if (mr) mr.enabled = on;
+  node.active = on;
+}
+
 /** Hairline hue-matched TCP2 stroke — screen-space only, no fat hull. */
-export function applyToyOutline(root: Node): void {
+export function applyToyOutline(root: Node, visible = true): void {
   if (!alive(root)) return;
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (mr.node.name === 'Crease' || (mr.node.name === 'Outline' && mr.node.parent !== bodyOf(root))) {
       sleep(mr.node);
     }
+  }
+  if (!visible) {
+    setToyOutlineVisible(root, false);
+    return;
   }
   const src = sourceOf(root);
   if (!src?.mesh || !alive(src.node)) return;

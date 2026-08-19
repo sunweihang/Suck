@@ -6,7 +6,7 @@ import { TurretAnim } from './TurretAnim';
 import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from './PowerMark';
 import { applyToyCaster } from './ToyBlockMesh';
 import { TURRET_SCALE } from './ToyLook';
-import { applyQueueBlockLook, applyTurretLook, lockQueueBlockPose } from './TurretLook';
+import { applyQueueBlockLook, applyTurretLook } from './TurretLook';
 
 const { ccclass } = _decorator;
 
@@ -50,6 +50,7 @@ export class UnitActor extends Component {
   private _flyArc = 0;
   private _flying = false;
   private _prevState: UnitState = 'bench';
+  private _prevTrapped = false;
   private _prevPower = 40;
   private _prevInflight = 0;
   private _armed = false;
@@ -61,6 +62,7 @@ export class UnitActor extends Component {
   private _queuePosed = false;
   private _lookKind = '';
   private _lookColor = -1;
+  private _lookOutline = false;
   private _aimX = NaN;
   private _aimY = NaN;
   private _aimZ = NaN;
@@ -79,6 +81,7 @@ export class UnitActor extends Component {
     this._queuePosed = false;
     this._lookKind = '';
     this._lookColor = -1;
+    this._lookOutline = false;
     this._aimX = NaN;
     this._aimY = NaN;
     this._aimZ = NaN;
@@ -87,6 +90,7 @@ export class UnitActor extends Component {
     this._ensurePowerLabel();
     this.refreshPowerVisible();
     this._prevState = this.state;
+    this._prevTrapped = this.trapped;
     this._prevPower = this.power;
     this._prevInflight = this.inflight;
     this._armed = false;
@@ -174,6 +178,7 @@ export class UnitActor extends Component {
     this._queuePosed = false;
     this._lookKind = '';
     this._lookColor = -1;
+    this._lookOutline = false;
     this._aimX = NaN;
     this._aimY = NaN;
     this._aimZ = NaN;
@@ -297,6 +302,7 @@ export class UnitActor extends Component {
           this.node.setRotationFromEuler(0, 0, 0);
           this.node.setPosition(this._slideTo);
           this._q.punchLand();
+          this.refreshSeatLook();
           this.refreshPowerVisible();
           const done = this._flyDone;
           this._flyDone = null;
@@ -307,16 +313,18 @@ export class UnitActor extends Component {
     if (!this._armed) {
       this._armed = true;
       this._prevState = this.state;
+      this._prevTrapped = this.trapped;
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     } else {
-      if (this.state !== this._prevState) {
+      if (this.state !== this._prevState || this.trapped !== this._prevTrapped) {
         if (!this._vanish) {
           if (this.state === 'drag') this._q.punchPick();
           else if (this._prevState === 'drag') this._q.punchLand();
           if (!this._flying) this.refreshSeatLook();
         }
         this._prevState = this.state;
+        this._prevTrapped = this.trapped;
       }
       if (this.inflight > this._prevInflight) this._q.punchSpit();
       if (this.power < this._prevPower) this._q.punchEat();
@@ -332,12 +340,15 @@ export class UnitActor extends Component {
         this.clearAim();
         this._queuePosed = true;
       }
-      lockQueueBlockPose(this.node);
     } else {
       this._queuePosed = false;
       if (this._wantsAnim()) this._q.tick(dt, this.state, this.inflight);
     }
     if (this._shownPower !== this.power) this._syncPowerText();
+  }
+
+  private _wantsOutline(): boolean {
+    return !this.trapped && !this.asBlock && !this._queued();
   }
 
   private _queued(): boolean {
@@ -397,15 +408,17 @@ export class UnitActor extends Component {
 
   refreshSeatLook(): void {
     const kind = this._queued() ? 'queue' : 'turret';
-    if (kind !== this._lookKind || this.colorId !== this._lookColor) {
+    const outline = this._wantsOutline();
+    if (kind !== this._lookKind || this.colorId !== this._lookColor || outline !== this._lookOutline) {
       this._lookKind = kind;
       this._lookColor = this.colorId;
+      this._lookOutline = outline;
       if (kind === 'queue') {
         this._q.rest();
         applyQueueBlockLook(this.node, this.colorId);
         this._queuePosed = true;
       } else {
-        applyTurretLook(this.node, this.colorId);
+        applyTurretLook(this.node, this.colorId, outline);
         this._queuePosed = false;
       }
       paintUnitColor(this.node, tokenOfColorId(this.colorId));

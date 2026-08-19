@@ -116,7 +116,7 @@ function placeMuzzle(host: Node): void {
   for (const child of mouth.children) child.active = false;
 }
 
-export function applyTurretLook(host: Node, colorId: ColorId): void {
+export function applyTurretLook(host: Node, colorId: ColorId, outline = true): void {
   hideFace(host);
   placeMuzzle(host);
   const body = bodyOf(host);
@@ -131,7 +131,7 @@ export function applyTurretLook(host: Node, colorId: ColorId): void {
     mr.enabled = true;
     paintUnitColor(host, tokenOfColorId(colorId));
     void preloadToyOutline().then(() => {
-      if (host.isValid) applyToyOutline(host);
+      if (host.isValid) applyToyOutline(host, outline);
     });
     applyBlobShadow(host);
     applyTurretPose(host);
@@ -148,7 +148,7 @@ export function applyTurretLook(host: Node, colorId: ColorId): void {
 }
 
 /** Same 45° sit as live turrets so the lid tilts toward the camera. */
-export function lockQueueBlockPose(host: Node): void {
+function lockQueueBlockPose(host: Node): void {
   host.setRotationFromEuler(0, 0, 0);
   host.setScale(HIDDEN_SCALE, HIDDEN_SCALE, HIDDEN_SCALE);
   const rig = host.getChildByName('Rig');
@@ -177,9 +177,11 @@ export function applyQueueBlockLook(host: Node, colorId: ColorId = 0): void {
     mr.mesh = mesh;
     mr.enabled = true;
     paintUnitColor(host, tokenOfColorId(colorId));
-    void preloadToyOutline().then(() => {
-      if (host.isValid) applyToyOutline(host);
-    });
+    applyToyOutline(host, false);
+    const mouth = host.getChildByName('Mouth')
+      ?? host.getChildByName('Rig')?.getChildByName('Mouth')
+      ?? body.getChildByName('Mouth');
+    if (mouth) mouth.active = false;
     applyBlobShadow(host);
   };
   const mesh = _hidden ?? _cube;
