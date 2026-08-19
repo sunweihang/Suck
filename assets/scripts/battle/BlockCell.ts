@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, SPECIAL_SPAN, TOKEN_RGB, isColorToken, parseColorToken, tokenOfColorId } from '../game/GameConfig';
-import { applyBrickGray, applyBrickPlastic } from './ToyBlockMesh';
+import { applyBrickGray, applyBrickPlastic, wakeBrickMesh } from './ToyBlockMesh';
 import { hideBlowTrail, poseBlowTrail } from './BlowTrail';
 import { clearLockLook } from './LockNails';
 
@@ -137,6 +137,8 @@ export class BlockCell extends Component {
   releaseClaim(): void {
     if (!this._claimed || this._sucking || this._priming || this._blown) return;
     this._claimed = false;
+    this.node.active = true;
+    wakeBrickMesh(this.node);
   }
 
   worldPos(out: Vec3): Vec3 {
@@ -194,6 +196,7 @@ export class BlockCell extends Component {
     this.node.setScale(this._baseScale);
     this.node.active = true;
     this.enabled = true;
+    wakeBrickMesh(this.node);
   }
 
   /** Stay put: swell, shake, then boom. */

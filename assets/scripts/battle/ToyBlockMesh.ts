@@ -99,6 +99,33 @@ export function applyBrickGray(node: Node, on: boolean): void {
   }
 }
 
+const SKIP_BRICK_DRAW = /^(Chip_|Trail_|Hit_|Muzzle_)/;
+
+/** Toggle every brick mesh (root + bomb/paint/lock parts), not just the root renderer. */
+export function setBrickMeshEnabled(node: Node, on: boolean): void {
+  if (!node?.isValid) return;
+  const mrs = node.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) {
+    if (SKIP_BRICK_DRAW.test(mrs[i].node.name)) continue;
+    mrs[i].enabled = on;
+  }
+}
+
+/** Rebind mesh + material after reparent / pool reuse so a dead GPU descriptor cannot stick. */
+export function wakeBrickMesh(node: Node): void {
+  if (!node?.isValid) return;
+  const mrs = node.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) {
+    const mr = mrs[i];
+    if (!mr.mesh || SKIP_BRICK_DRAW.test(mr.node.name)) continue;
+    const mat = mr.getSharedMaterial(0);
+    mr.enabled = false;
+    if (mat?.passes?.length) mr.setSharedMaterial(mat, 0);
+    mr.mesh = mr.mesh;
+    mr.enabled = true;
+  }
+}
+
 export function applyMesh(
   mr: MeshRenderer | null,
   mesh: Mesh | null,

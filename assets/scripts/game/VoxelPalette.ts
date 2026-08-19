@@ -60,7 +60,9 @@ export function lookOfRgb(rgb: readonly [number, number, number]): VoxelLook {
       best = look;
     }
   }
-  return bestD < 48 * 48 ? best : { rgb, shade: shadeOf(rgb), hi: [192, 192, 192] };
+  if (bestD <= RGB_MATCH_DIST2) return best;
+  if (isPaperWhite(rgb) && isPaperWhite(best.rgb) && bestD <= PALETTE_MATCH_DIST2) return best;
+  return { rgb, shade: shadeOf(rgb), hi: [192, 192, 192] };
 }
 
 function shadeOf(rgb: readonly [number, number, number]): readonly [number, number, number] {
@@ -75,6 +77,22 @@ function shadeOf(rgb: readonly [number, number, number]): readonly [number, numb
 export const RGB_MATCH_DIST2 = 48 * 48;
 /** Catalog white [255,255,255] vs official voxel 16 [207,205,198] is ~90. */
 export const PALETTE_MATCH_DIST2 = 96 * 96;
+
+/** Off-white clay (voxel 0/16) and authored [255,255,255] are the same swatch. */
+export function isPaperWhite(rgb: readonly [number, number, number]): boolean {
+  const max = Math.max(rgb[0], rgb[1], rgb[2]);
+  const min = Math.min(rgb[0], rgb[1], rgb[2]);
+  return max >= 190 && max - min <= 28;
+}
+
+export function rgbLooksSame(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): boolean {
+  const d = rgbDist2(a, b);
+  if (d <= RGB_MATCH_DIST2) return true;
+  return d <= PALETTE_MATCH_DIST2 && isPaperWhite(a) && isPaperWhite(b);
+}
 
 /** Same ColorLibrary swatch, including white 0 / 16. */
 export function voxelsAlias(a: number, b: number): boolean {
@@ -100,7 +118,8 @@ export function nearestVoxelId(
       best = id;
     }
   }
-  return best >= 0 && bestD <= maxDist2 ? best : -1;
+  const limit = isPaperWhite(rgb) ? Math.max(maxDist2, PALETTE_MATCH_DIST2) : maxDist2;
+  return best >= 0 && bestD <= limit ? best : -1;
 }
 
 export function rgbDist2(
@@ -176,15 +195,49 @@ export function officialTokenOfVoxel(id: number): ColorToken | null {
   return null;
 }
 
-export function assignVoxelTokens(counts: Record<number, number>): {
+/**
+ * One colorId → one token. Authored tints win, uniquely, so catalog white
+ * `[255,255,255]` lands on voxel 0/16 instead of stealing a pink/yellow token.
+ */
+export function assignTokensForVoxels(
+  counts: Record<number, number>,
+  authored?: Partial<Record<ColorToken, readonly [number, number, number]>>,
+  unitPower?: Partial<Record<ColorToken, number>>,
+): {
   map: Record<number, ColorToken>;
   tints: Partial<Record<ColorToken, readonly [number, number, number]>>;
 } {
-  const ids = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
+  const ids = Object.keys(counts).map(Number);
+  const byCount = ids.slice().sort((a, b) => counts[b] - counts[a]);
   const used = new Set<ColorToken>();
   const map: Record<number, ColorToken> = {};
   const tints: Partial<Record<ColorToken, readonly [number, number, number]>> = {};
-  for (const id of ids) {
+
+  if (authored) {
+    const pairs: Array<{ id: number; token: ColorToken; d: number }> = [];
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      const rgb = rgbOfVoxel(id);
+      for (let t = 0; t < TOKENS.length; t++) {
+        const token = TOKENS[t];
+        const tint = authored[token];
+        if (!tint || !rgbLooksSame(rgb, tint)) continue;
+        pairs.push({ id, token, d: rgbDist2(rgb, tint) });
+      }
+    }
+    pairs.sort((a, b) => a.d - b.d || counts[b.id] - counts[a.id]);
+    for (let i = 0; i < pairs.length; i++) {
+      const p = pairs[i];
+      if (map[p.id] != null || used.has(p.token)) continue;
+      map[p.id] = p.token;
+      used.add(p.token);
+      tints[p.token] = rgbOfVoxel(p.id);
+    }
+  }
+
+  for (let i = 0; i < byCount.length; i++) {
+    const id = byCount[i];
+    if (map[id] != null) continue;
     const pinned = officialTokenOfVoxel(id);
     if (pinned && !used.has(pinned)) {
       map[id] = pinned;
@@ -192,22 +245,162 @@ export function assignVoxelTokens(counts: Record<number, number>): {
       tints[pinned] = rgbOfVoxel(id);
     }
   }
-  for (const id of ids) {
-    if (map[id]) continue;
+
+  for (let i = 0; i < byCount.length; i++) {
+    const id = byCount[i];
+    if (map[id] != null) continue;
     const rgb = rgbOfVoxel(id);
-    let best: ColorToken = 'o';
-    let bestD = Infinity;
-    for (const t of TOKENS) {
-      if (used.has(t)) continue;
-      const d = dist2(rgb, TOKEN_RGB[t]);
-      if (d < bestD) {
-        bestD = d;
-        best = t;
-      }
-    }
+    const reuse = used.size >= TOKENS.length;
+    const best = pickSpareToken(id, rgb, counts[id], map, counts, used, reuse, unitPower);
     map[id] = best;
     used.add(best);
-    tints[best] = rgb;
+    if (!tints[best]) tints[best] = rgb;
   }
+  if (unitPower) rebalanceTokenMap(map, counts, unitPower);
   return { map, tints };
+}
+
+function brickCountOn(
+  token: ColorToken,
+  map: Record<number, ColorToken>,
+  counts: Record<number, number>,
+): number {
+  let n = 0;
+  const ids = Object.keys(counts);
+  for (let i = 0; i < ids.length; i++) {
+    const id = Number(ids[i]);
+    if (map[id] === token) n += counts[id];
+  }
+  return n;
+}
+
+function pickSpareToken(
+  _id: number,
+  rgb: readonly [number, number, number],
+  need: number,
+  map: Record<number, ColorToken>,
+  counts: Record<number, number>,
+  used: Set<ColorToken>,
+  reuse: boolean,
+  unitPower?: Partial<Record<ColorToken, number>>,
+): ColorToken {
+  let best: ColorToken = 'o';
+  let bestD = Infinity;
+  if (!reuse) {
+    for (let t = 0; t < TOKENS.length; t++) {
+      const token = TOKENS[t];
+      if (used.has(token)) continue;
+      const d = dist2(rgb, TOKEN_RGB[token]);
+      if (d < bestD) {
+        bestD = d;
+        best = token;
+      }
+    }
+    return best;
+  }
+  let fit: ColorToken | null = null;
+  let fitD = Infinity;
+  let any: ColorToken = 'o';
+  let anySurplus = -1e9;
+  for (let t = 0; t < TOKENS.length; t++) {
+    const token = TOKENS[t];
+    const surplus = (unitPower?.[token] ?? 0) - brickCountOn(token, map, counts);
+    const d = dist2(rgb, TOKEN_RGB[token]);
+    if (surplus > anySurplus || (surplus === anySurplus && d < dist2(rgb, TOKEN_RGB[any]))) {
+      anySurplus = surplus;
+      any = token;
+    }
+    if (surplus < need) continue;
+    if (d < fitD) {
+      fitD = d;
+      fit = token;
+    }
+  }
+  return fit ?? any;
+}
+
+/** When a 13th swatch shares a token, hang it on a unit pile that still has spare power. */
+function rebalanceTokenMap(
+  map: Record<number, ColorToken>,
+  counts: Record<number, number>,
+  unitPower: Partial<Record<ColorToken, number>>,
+): void {
+  for (let guard = 0; guard < 16; guard++) {
+    const bricks: Partial<Record<ColorToken, number>> = {};
+    const ids = Object.keys(counts).map(Number);
+    for (let i = 0; i < ids.length; i++) {
+      const t = map[ids[i]];
+      bricks[t] = (bricks[t] ?? 0) + counts[ids[i]];
+    }
+    let shortTok: ColorToken | null = null;
+    let shortBy = 0;
+    for (let t = 0; t < TOKENS.length; t++) {
+      const token = TOKENS[t];
+      const gap = (bricks[token] ?? 0) - (unitPower[token] ?? 0);
+      if (gap > shortBy) {
+        shortBy = gap;
+        shortTok = token;
+      }
+    }
+    if (!shortTok) return;
+    const group = ids.filter((id) => map[id] === shortTok).sort((a, b) => counts[a] - counts[b]);
+    if (group.length < 2) return;
+    const move = group[0];
+    let dest: ColorToken | null = null;
+    let destSurplus = 0;
+    for (let t = 0; t < TOKENS.length; t++) {
+      const token = TOKENS[t];
+      const surplus = (unitPower[token] ?? 0) - (bricks[token] ?? 0);
+      if (surplus > destSurplus) {
+        destSurplus = surplus;
+        dest = token;
+      }
+    }
+    if (!dest || dest === shortTok) return;
+    map[move] = dest;
+  }
+}
+
+export function assignVoxelTokens(counts: Record<number, number>): {
+  map: Record<number, ColorToken>;
+  tints: Partial<Record<ColorToken, readonly [number, number, number]>>;
+} {
+  return assignTokensForVoxels(counts);
+}
+
+/** Map each unit token onto a unique brick token by authored tint. */
+export function alignUnitTokens(
+  unitTokens: readonly ColorToken[],
+  brickRgb: ReadonlyMap<ColorToken, readonly [number, number, number]>,
+  tints: Partial<Record<ColorToken, readonly [number, number, number]>>,
+): Map<ColorToken, ColorToken> {
+  const seen = new Set<ColorToken>();
+  const unique: ColorToken[] = [];
+  for (let i = 0; i < unitTokens.length; i++) {
+    const t = unitTokens[i];
+    if (seen.has(t)) continue;
+    seen.add(t);
+    unique.push(t);
+  }
+  const pairs: Array<{ ut: ColorToken; bt: ColorToken; d: number }> = [];
+  for (let i = 0; i < unique.length; i++) {
+    const ut = unique[i];
+    const rgb = tints[ut] ?? TOKEN_RGB[ut];
+    brickRgb.forEach((brgb, bt) => {
+      if (!rgbLooksSame(rgb, brgb)) return;
+      pairs.push({ ut, bt, d: rgbDist2(rgb, brgb) });
+    });
+  }
+  pairs.sort((a, b) => a.d - b.d);
+  const mapped = new Map<ColorToken, ColorToken>();
+  const usedBrick = new Set<ColorToken>();
+  const usedUnit = new Set<ColorToken>();
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i];
+    if (usedUnit.has(p.ut) || usedBrick.has(p.bt)) continue;
+    mapped.set(p.ut, p.bt);
+    usedUnit.add(p.ut);
+    usedBrick.add(p.bt);
+  }
+  return mapped;
 }

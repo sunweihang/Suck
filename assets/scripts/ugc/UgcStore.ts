@@ -204,7 +204,9 @@ export function ugcToLevelDef(map: UgcMap): LevelDef {
     used.add(token);
     return { x: b.x, y: b.y, z: b.z, token, colorId };
   });
-  const palette = (used.size ? [...used] : [...UGC_PALETTE]) as ColorToken[];
+  const palette: ColorToken[] = [];
+  if (used.size) used.forEach((t) => palette.push(t));
+  else UGC_PALETTE.forEach((t) => palette.push(t));
   const tints: Partial<Record<ColorToken, readonly [number, number, number]>> = {};
   for (const t of palette) tints[t] = assigned.tints[t] ?? TOKEN_RGB[t];
   for (const v of voxels) tints[v.token] = rgbOfVoxel(v.colorId);
@@ -237,6 +239,24 @@ export function ugcBlankLevel(map: UgcMap): LevelDef {
   return ugcToLevelDef({ ...map, bricks: [] });
 }
 
+function paletteText(pal: unknown): string {
+  if (typeof pal === 'string') return pal;
+  const out: string[] = [];
+  if (Array.isArray(pal)) {
+    for (let i = 0; i < pal.length; i++) {
+      const t = pal[i];
+      if (typeof t === 'string') out.push(t);
+    }
+    return out.join('');
+  }
+  if (pal && typeof (pal as { forEach?: unknown }).forEach === 'function') {
+    (pal as Set<unknown>).forEach((t) => {
+      if (typeof t === 'string') out.push(t);
+    });
+  }
+  return out.join('');
+}
+
 export function encodeUgcText(map: UgcMap): string {
   const def = ugcToLevelDef(map);
   const voxels: number[] = [];
@@ -254,7 +274,7 @@ export function encodeUgcText(map: UgcMap): string {
       token: b.token,
       voxelId: b.voxelId ?? TOKEN_VOXEL_ID[b.token],
     })),
-    palette: def.palette.join(''),
+    palette: paletteText(def.palette),
     units: def.units.map((u) => (u[2] ? [u[0], u[1], u[2]] : [u[0], u[1]])),
     voxels,
     cells: [],

@@ -46,6 +46,7 @@ import { applyLevel } from '../game/LevelCatalog';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import {
+  UGC_DEPTH,
   UGC_LAYOUT_DEPTH,
   UGC_MAX_DEPTH,
   UGC_MIN_DEPTH,
@@ -214,6 +215,13 @@ function ghostLook(): { mesh: Mesh | null; edge: Material; layerFill: Material; 
 type CellPaint = { token: ColorToken; voxelId: number };
 type CellUndo = { kind: 'cell'; x: number; y: number; z: number; before: CellPaint | null; after: CellPaint | null };
 
+/** Copy Map keys without spread — Babel emits `[].concat(map.keys())`, which does not flatten iterators. */
+function brickKeys(bricks: Map<string, CellPaint>): string[] {
+  const keys: string[] = [];
+  bricks.forEach((_paint, key) => keys.push(key));
+  return keys;
+}
+
 const PAL_COLS = 5;
 
 function cellPaint(token: ColorToken, voxelId?: number): CellPaint {
@@ -347,7 +355,7 @@ export class UgcEditor {
     const prevLayer = this._layer;
     if (next > prevDepth) this._pushUndo({ kind: 'addLayer', depth: prevDepth, layer: prevLayer });
     if (next < this._map.depth) {
-      const keys = [...this._bricks.keys()];
+      const keys = brickKeys(this._bricks);
       for (const key of keys) {
         const [x, y, z] = key.split(',').map(Number);
         if (z >= next) this._writeCell(x, y, z, null, false);
@@ -386,15 +394,16 @@ export class UgcEditor {
   }
 
   clearModel(): boolean {
-    if (this._bricks.size <= 0) return false;
-    const keys = [...this._bricks.keys()];
-    for (const key of keys) {
-      const [x, y, z] = key.split(',').map(Number);
+    const keys = brickKeys(this._bricks);
+    for (let i = 0; i < keys.length; i++) {
+      const [x, y, z] = keys[i].split(',').map(Number);
       this._writeCell(x, y, z, null, false);
     }
     this._undo.length = 0;
-    this._rebuildGhosts();
-    this._applyLayerVis();
+    this._map.depth = UGC_DEPTH;
+    this._layer = 0;
+    this._showAll = false;
+    this._syncEdit();
     this._markDirty();
     this.persist();
     return true;
@@ -540,7 +549,7 @@ export class UgcEditor {
   }
 
   private _restoreAfterAdd(op: AddLayerUndo): void {
-    const keys = [...this._bricks.keys()];
+    const keys = brickKeys(this._bricks);
     for (const key of keys) {
       const [x, y, z] = key.split(',').map(Number);
       if (z >= op.depth) this._writeCell(x, y, z, null, false);

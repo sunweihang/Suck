@@ -1121,8 +1121,9 @@ export class GameBootstrap extends Component {
         return encodeUgcText(ed.map);
       },
       onClear: () => {
+        const id = this._ugcEditor?.map.id ?? this._ugcMapId;
         this._ugcEditor?.clearModel();
-        this._syncUgcHud();
+        void this._enterUgcEditor(id ?? undefined);
       },
       onExit: () => this._leaveUgcEditor(),
     });

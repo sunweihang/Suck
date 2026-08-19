@@ -1,20 +1,17 @@
 import { JsonAsset, resources, sys } from 'cc';
 import {
   ColorToken,
-  GAME,
   PLAY,
   TOKEN_RGB,
   fitPlayLayout,
   isColorToken,
 } from './GameConfig';
 import {
-  assignVoxelTokens,
-  nearestTintToken,
+  alignUnitTokens,
+  assignTokensForVoxels,
   officialTokenOfVoxel,
-  rgbDist2,
+  rgbLooksSame,
   rgbOfVoxel,
-  PALETTE_MATCH_DIST2,
-  RGB_MATCH_DIST2,
 } from './VoxelPalette';
 import { playViewBand } from './ViewFit';
 
@@ -125,14 +122,6 @@ export function applyLevel(def: LevelDef, opts?: { minDepth?: number }): void {
   const tints = { ...(def.tints ?? {}) };
   for (const v of def.voxels) tints[v.token] = rgbOfVoxel(v.colorId);
   PLAY.tints = tints;
-  const voxelTok = new Set<string>();
-  for (const v of def.voxels) voxelTok.add(`${v.token}:${v.colorId}`);
-  console.log('[Suck:fire] colors', {
-    id: def.id,
-    units: def.units.map((u) => `${u[0]}${u[1]}`).join(','),
-    voxels: Array.from(voxelTok).join(','),
-    tints,
-  });
   PLAY.fieldYawDeg = def.fieldYaw ?? 0;
   PLAY.brickMix = def.brickMix;
   PLAY.ironRows = (def.ironRows ?? []).slice().sort((a, b) => a - b);
@@ -273,6 +262,7 @@ function decodeVoxels(
   raw: number[] | undefined,
   palette: string,
   tints?: Partial<Record<ColorToken, readonly [number, number, number]>>,
+  units?: ReadonlyArray<UnitSpec>,
 ): Array<{ x: number; y: number; z: number; token: ColorToken; colorId: number }> {
   const out: Array<{ x: number; y: number; z: number; token: ColorToken; colorId: number }> = [];
   if (!raw?.length) return out;
@@ -281,17 +271,20 @@ function decodeVoxels(
     const id = raw[i + 3] | 0;
     counts[id] = (counts[id] || 0) + 1;
   }
-  const mapped = assignVoxelTokens(counts).map;
-  const authored = tints ?? {};
+  const unitPower: Partial<Record<ColorToken, number>> = {};
+  if (units) {
+    for (let i = 0; i < units.length; i++) {
+      const t = units[i][0];
+      unitPower[t] = (unitPower[t] ?? 0) + units[i][1];
+    }
+  }
+  const mapped = assignTokensForVoxels(counts, tints, unitPower).map;
   for (let i = 0; i + 3 < raw.length; i += 4) {
     const colorId = raw[i + 3] | 0;
-    const rgb = rgbOfVoxel(colorId);
     const fromPal = palette[colorId];
-    const official = officialTokenOfVoxel(colorId);
     const token =
-      nearestTintToken(rgb, authored, RGB_MATCH_DIST2)
-      ?? official
-      ?? mapped[colorId]
+      mapped[colorId]
+      ?? officialTokenOfVoxel(colorId)
       ?? (isColorToken(fromPal) ? fromPal : 'o');
     out.push({ x: raw[i] | 0, y: raw[i + 1] | 0, z: raw[i + 2] | 0, token, colorId });
   }
@@ -304,24 +297,31 @@ function remapUnits(
   tints: Partial<Record<ColorToken, readonly [number, number, number]>>,
 ): UnitSpec[] {
   if (!voxels.length) return units.slice();
+  const colorRgb = new Map<number, readonly [number, number, number]>();
   const brickRgb = new Map<ColorToken, readonly [number, number, number]>();
   for (const v of voxels) {
+    if (!colorRgb.has(v.colorId)) colorRgb.set(v.colorId, rgbOfVoxel(v.colorId));
     if (!brickRgb.has(v.token)) brickRgb.set(v.token, rgbOfVoxel(v.colorId));
   }
-  return units.map((u) => {
-    const token = u[0];
-    if (brickRgb.has(token)) return u[2] ? ([token, u[1], u[2]] as const) : ([token, u[1]] as const);
+  const covers = (token: ColorToken): boolean => {
     const rgb = tints[token] ?? TOKEN_RGB[token];
-    let best = token;
-    let bestD = Infinity;
-    brickRgb.forEach((brgb, bt) => {
-      const d = rgbDist2(rgb, brgb);
-      if (d < bestD) {
-        bestD = d;
-        best = bt;
-      }
+    let ok = false;
+    colorRgb.forEach((brgb) => {
+      if (rgbLooksSame(rgb, brgb)) ok = true;
     });
-    const next = best !== token && bestD <= PALETTE_MATCH_DIST2 ? best : token;
+    return ok;
+  };
+  const orphans: ColorToken[] = [];
+  const seen = new Set<ColorToken>();
+  for (let i = 0; i < units.length; i++) {
+    const t = units[i][0];
+    if (seen.has(t)) continue;
+    seen.add(t);
+    if (!covers(t)) orphans.push(t);
+  }
+  const aligned = orphans.length ? alignUnitTokens(orphans, brickRgb, tints) : null;
+  return units.map((u) => {
+    const next = aligned?.get(u[0]) ?? u[0];
     return u[2] ? ([next, u[1], u[2]] as const) : ([next, u[1]] as const);
   });
 }
@@ -338,6 +338,30 @@ function decodeTints(
   return out;
 }
 
+function warnPowerGap(
+  id: number,
+  voxels: ReadonlyArray<{ token: ColorToken; colorId: number }>,
+  units: ReadonlyArray<UnitSpec>,
+): void {
+  if (!voxels.length) return;
+  const bricks = new Map<ColorToken, number>();
+  const power = new Map<ColorToken, number>();
+  for (let i = 0; i < voxels.length; i++) {
+    const t = voxels[i].token;
+    bricks.set(t, (bricks.get(t) ?? 0) + 1);
+  }
+  for (let i = 0; i < units.length; i++) {
+    const t = units[i][0];
+    power.set(t, (power.get(t) ?? 0) + units[i][1]);
+  }
+  const short: string[] = [];
+  bricks.forEach((n, t) => {
+    const have = power.get(t) ?? 0;
+    if (have < n) short.push(`${t}:${have}/${n}`);
+  });
+  if (short.length) console.warn(`[Suck] L${id} color power short`, short.join(' '));
+}
+
 function decodeIronRows(raw: RawLevel): number[] {
   if (raw.ironRows?.length) return raw.ironRows.filter((n) => n >= 0).sort((a, b) => a - b);
   if ((raw.ironRow ?? -1) >= 0) return [raw.ironRow as number];
@@ -347,16 +371,14 @@ function decodeIronRows(raw: RawLevel): number[] {
 function decodeLevel(raw: RawLevel): LevelDef {
   const ironRows = decodeIronRows(raw);
   const tints = decodeTints(raw.tints);
-  const voxels = decodeVoxels(raw.voxels, raw.palette, tints);
-  const units = remapUnits(
-    raw.units.map((u) => {
-      const token = u[0] as ColorToken;
-      const n = u[1];
-      return u[2] ? ([token, n, u[2]] as const) : ([token, n] as const);
-    }),
-    voxels,
-    tints,
-  );
+  const rawUnits = raw.units.map((u) => {
+    const token = u[0] as ColorToken;
+    const n = u[1];
+    return u[2] ? ([token, n, u[2]] as const) : ([token, n] as const);
+  });
+  const voxels = decodeVoxels(raw.voxels, raw.palette, tints, rawUnits);
+  const units = remapUnits(rawUnits, voxels, tints);
+  warnPowerGap(raw.id, voxels, units);
   return {
     id: raw.id,
     cols: raw.cols,

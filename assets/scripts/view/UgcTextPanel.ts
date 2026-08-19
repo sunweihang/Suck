@@ -63,37 +63,118 @@ function whiteFrame(): SpriteFrame {
   return sf;
 }
 
-declare const wx: undefined | {
-  setClipboardData?: (opts: { data: string; success?: () => void; fail?: () => void }) => void;
+type ClipBridge = {
+  setClipboardData?: (opts: {
+    data: string;
+    success?: () => void;
+    fail?: () => void;
+    complete?: () => void;
+  }) => void;
   getClipboardData?: (opts: {
     success?: (res: { data?: string }) => void;
     fail?: () => void;
   }) => void;
+  getSystemInfoSync?: () => unknown;
 };
+
+function clipBridge(): ClipBridge | null {
+  const g = globalThis as {
+    wx?: ClipBridge;
+    tt?: ClipBridge;
+    ks?: ClipBridge;
+    qq?: ClipBridge;
+    my?: ClipBridge;
+    swan?: ClipBridge;
+    GameGlobal?: { wx?: ClipBridge };
+  };
+  const list = [g.wx, g.tt, g.ks, g.qq, g.my, g.swan, g.GameGlobal?.wx];
+  for (let i = 0; i < list.length; i++) {
+    const b = list[i];
+    if (b && typeof b.setClipboardData === 'function' && typeof b.getSystemInfoSync === 'function') return b;
+  }
+  return null;
+}
+
+function copyViaDom(text: string): boolean {
+  const doc = (globalThis as { document?: Document }).document;
+  if (!doc?.body) return false;
+  const ta = doc.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', 'readonly');
+  ta.style.position = 'fixed';
+  ta.style.left = '0';
+  ta.style.top = '0';
+  ta.style.width = '1px';
+  ta.style.height = '1px';
+  ta.style.opacity = '0';
+  doc.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    ta.setSelectionRange(0, text.length);
+  } catch {
+    /* some webviews omit this */
+  }
+  let ok = false;
+  try {
+    ok = !!doc.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  doc.body.removeChild(ta);
+  return ok;
+}
 
 function copyText(text: string): Promise<boolean> {
   return new Promise((resolve) => {
-    if (typeof wx !== 'undefined' && wx.setClipboardData) {
-      wx.setClipboardData({
-        data: text,
-        success: () => resolve(true),
-        fail: () => resolve(false),
-      });
+    const done = (ok: boolean) => resolve(ok);
+    const wxApi = clipBridge();
+    if (wxApi?.setClipboardData) {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (ok) {
+          done(true);
+          return;
+        }
+        if (copyViaDom(text)) {
+          done(true);
+          return;
+        }
+        const clip = (globalThis as { navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } } }).navigator?.clipboard;
+        if (clip?.writeText) {
+          clip.writeText(text).then(() => done(true)).catch(() => done(false));
+          return;
+        }
+        done(false);
+      };
+      try {
+        wxApi.setClipboardData({
+          data: text,
+          success: () => finish(true),
+          fail: () => finish(false),
+          complete: () => finish(false),
+        });
+      } catch {
+        finish(false);
+      }
       return;
     }
     const clip = (globalThis as { navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } } }).navigator?.clipboard;
     if (clip?.writeText) {
-      clip.writeText(text).then(() => resolve(true)).catch(() => resolve(false));
+      clip.writeText(text).then(() => done(true)).catch(() => done(copyViaDom(text)));
       return;
     }
-    resolve(false);
+    done(copyViaDom(text));
   });
 }
 
 function readClipboard(): Promise<string> {
   return new Promise((resolve) => {
-    if (typeof wx !== 'undefined' && wx.getClipboardData) {
-      wx.getClipboardData({
+    const wxApi = clipBridge();
+    if (wxApi?.getClipboardData) {
+      wxApi.getClipboardData({
         success: (res) => resolve(res?.data ?? ''),
         fail: () => resolve(''),
       });
@@ -274,9 +355,16 @@ export class UgcTextPanel extends Component {
   private async _confirm(): Promise<void> {
     const text = this._draft;
     if (this._mode === 'export') {
+      if (!text.trim()) {
+        this._hint('当前没有可复制的积木', 'err');
+        return;
+      }
       const ok = await copyText(text);
       if (ok) this._flashCopy();
-      else this._hint('请长按文本框全选复制', 'err');
+      else {
+        this._offerSelectCopy();
+        this._hint('请长按文本框全选复制', 'err');
+      }
       return;
     }
     if (!text.trim()) {
@@ -344,6 +432,24 @@ export class UgcTextPanel extends Component {
     if (face) face.active = true;
     if (this._box) this._box.string = this._draft;
     this._paintBody();
+  }
+
+  private _offerSelectCopy(): void {
+    const card = this.node.getChildByName('Card');
+    const input = card?.getChildByName('Input');
+    const face = card?.getChildByName('Face');
+    if (input) input.active = true;
+    if (face) face.active = false;
+    if (this._box) {
+      this._box.string = this._draft;
+      if (this._box.textLabel) {
+        this._box.textLabel.string = this._draft;
+        this._box.textLabel.color = INK;
+      }
+    }
+    const sp = input?.getComponent(Sprite);
+    if (sp) sp.color = new Color(255, 248, 238, 255);
+    this._focusBox();
   }
 
   private _compact(text: string): string {

@@ -16,7 +16,7 @@ import { UGC_MAX_DEPTH, UGC_MIN_DEPTH, type UgcTool } from '../ugc/UgcStore';
 import { gameAudio } from '../audio/AudioService';
 import { GOLD_HUD } from './GoldHud';
 import { styleQCaption } from './QChrome';
-import { applyArtSpriteSoon, layoutHomeLevel } from './UiArt';
+import { applyArtSpriteSoon, fillInvisibleHit, layoutHomeLevel } from './UiArt';
 import { UgcTextPanel } from './UgcTextPanel';
 
 const { ccclass } = _decorator;
@@ -276,8 +276,21 @@ export class UgcHud extends Component {
       caption.outlineColor = Color.WHITE;
       caption.outlineWidth = 3;
     }
-    this._bindTap(n, () => this._onSideTap(id));
+    this._armSide(n, id);
     return n;
+  }
+
+  private _armSide(n: Node, id: SideId): void {
+    fillInvisibleHit(n);
+    this._noHit(n.getChildByName('Bg'));
+    this._noHit(n.getChildByName('Icon'));
+    this._noHit(n.getChildByName('Lab'));
+    this._bindTap(n, () => this._onSideTap(id));
+  }
+
+  private _noHit(node: Node | null): void {
+    const ut = node?.getComponent(UITransform) as (UITransform & { hitTest?: () => boolean }) | null;
+    if (ut) ut.hitTest = () => false;
   }
 
   private _onSideTap(id: SideId): void {
@@ -387,6 +400,7 @@ export class UgcHud extends Component {
       applyArtSpriteSoon(n.getChildByName('Icon'), SIDE_ICON[id], 80, 80);
       const lab = n.getChildByName('Lab')?.getComponent(Label);
       if (lab) lab.string = SIDE_CAPTION[id];
+      this._armSide(n, id);
     });
   }
 

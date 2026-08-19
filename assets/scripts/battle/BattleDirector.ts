@@ -9,7 +9,6 @@ import {
   input,
   Input,
   instantiate,
-  MeshRenderer,
   Node,
   Prefab,
   Quat,
@@ -47,7 +46,7 @@ import {
   shooterStandZ,
   slotY,
 } from '../game/GameConfig';
-import { nearestVoxelId, RGB_MATCH_DIST2, rgbDist2, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
+import { nearestVoxelId, rgbLooksSame, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
@@ -61,6 +60,7 @@ import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
+import { setBrickMeshEnabled, wakeBrickMesh } from './ToyBlockMesh';
 import { UnitActor } from './UnitActor';
 
 const { ccclass } = _decorator;
@@ -195,8 +195,7 @@ function cellKey(col: number, row: number, layer: number): number {
 }
 
 function setBrickDrawn(cell: BlockCell, on: boolean): void {
-  const mr = cell.node.getComponent(MeshRenderer);
-  if (mr) mr.enabled = on;
+  setBrickMeshEnabled(cell.node, on);
 }
 
 function pullFrom(list: BlockCell[] | undefined, block: BlockCell): void {
@@ -245,7 +244,6 @@ export class BattleDirector extends Component {
   private _visSkip = 0;
   private _unstickT = 0;
   private _shotStuck = 0;
-  private _fireDbgT = 0;
   private readonly _raftBricks: BlockCell[] = [];
   private readonly _aimBest = new Map<UnitActor, BlockCell>();
   private _aimVisKey = 0x7fffffff;
@@ -366,11 +364,6 @@ export class BattleDirector extends Component {
     this._bindUiHits();
     this._bindTouch();
     this.setPlaying(false);
-    console.log('[Suck:fire] dbg v5 armed', {
-      blocks: this._blocks.length,
-      units: this._units.length,
-      slots: this._slots.length,
-    });
     void preloadMergeBurst();
     void preloadShuaxinBurst();
     void preloadBaozhaBurst();
@@ -916,7 +909,7 @@ export class BattleDirector extends Component {
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
     this._visDirty = true;
-    setBrickDrawn(block, true);
+    wakeBrickMesh(block.node);
     this._revealAround(block);
   }
 
@@ -1248,15 +1241,7 @@ export class BattleDirector extends Component {
     gameAudio()?.playUiClick();
     slot.occupant = unit;
     unit.lockedCol = slot.homeCol;
-    console.log('[Suck:fire] place', {
-      name: unit.node.name,
-      colorId: unit.colorId,
-      token: tokenOfColorId(unit.colorId),
-      power: unit.power,
-      slot: slot.index,
-      homeCol: slot.homeCol,
-      lockedCol: unit.lockedCol,
-    });
+    unit.asBlock = false;
     unit.state = 'walk';
     slot.node.getWorldPosition(_tmp);
     _tmp.y += SLOT_PAD_TOP + SLOT_UNIT_LIFT;
@@ -1309,24 +1294,21 @@ export class BattleDirector extends Component {
     const units = this._units;
     if (!units) return;
     let flying = this._flightBusy();
-    let seated = 0;
-    let shot = 0;
-    let noTarget = 0;
+    let seated = false;
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
-      if (!u.node.activeInHierarchy || u.trapped || u.power <= 0) continue;
+      if (!u.node.activeInHierarchy || u.trapped || u.asBlock || u.power <= 0) continue;
       if (u.lockedCol < 0) this._recoverSeat(u);
       if (!this._canFire(u)) continue;
-      if (seated === 0) this._ensureVis();
-      seated += 1;
+      if (!seated) {
+        this._ensureVis();
+        seated = true;
+      }
       u.suckWait -= dt;
       u.state = 'attack';
       const block = this._bestBlock(u);
       if (block) u.aimAt(block.worldPos(_world));
-      else {
-        u.clearAim();
-        noTarget += 1;
-      }
+      else u.clearAim();
       if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
       if (flying >= GAME.suckMaxFlightTotal) continue;
       if (!block) {
@@ -1338,79 +1320,8 @@ export class BattleDirector extends Component {
       }
       this._shootBrick(u, block);
       flying += 1;
-      shot += 1;
       u.suckWait += this._suckInterval(u);
     }
-    this._tickFireDbg(dt, seated, shot, noTarget);
-  }
-
-  private _tickFireDbg(dt: number, seated: number, shot: number, noTarget: number): void {
-    this._fireDbgT += dt;
-    if (this._fireDbgT < 0.7) return;
-    this._fireDbgT = 0;
-    const units: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < this._units.length; i++) {
-      const u = this._units[i];
-      if (!u.node?.isValid || !u.node.active) continue;
-      const tint = this._tintOf(u.colorId);
-      const canon = this._canonRgb(u.colorId);
-      let match = 0;
-      let suck = 0;
-      for (let j = 0; j < this._blocks.length; j++) {
-        const b = this._blocks[j];
-        if (!this._sameColor(b, u)) continue;
-        match += 1;
-        if (b.suckable && !this._plateBlocks(b.row, b.col)) suck += 1;
-      }
-      units.push({
-        name: u.node.name,
-        colorId: u.colorId,
-        voxelId: u.voxelId,
-        token: tokenOfColorId(u.colorId),
-        tint: `${tint[0]},${tint[1]},${tint[2]}`,
-        canon: `${canon[0]},${canon[1]},${canon[2]}`,
-        power: u.power,
-        state: u.state,
-        lockedCol: u.lockedCol,
-        traveling: u.traveling,
-        suckWait: +u.suckWait.toFixed(3),
-        inflight: u.inflight,
-        match,
-        suck,
-      });
-    }
-    const bricks: Array<Record<string, unknown>> = [];
-    const seen = new Set<string>();
-    for (let i = 0; i < this._blocks.length && bricks.length < 8; i++) {
-      const b = this._blocks[i];
-      const key = `${b.colorId}:${b.voxelId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const tint = this._tintOf(b.colorId);
-      bricks.push({
-        name: b.node.name,
-        colorId: b.colorId,
-        voxelId: b.voxelId,
-        token: tokenOfColorId(b.colorId),
-        tint: `${tint[0]},${tint[1]},${tint[2]}`,
-        suckable: b.suckable,
-        locked: b.locked,
-        plate: this._plateBlocks(b.row, b.col),
-      });
-    }
-    console.log('[Suck:fire] tick', {
-      playing: this._playing,
-      seated,
-      shot,
-      noTarget,
-      blocks: this._blocks.length,
-      vis: this._visList.length,
-      flying: this._flightBusy(),
-      unitTok: units.map((u) => `${u.token}#${u.colorId} m${u.match}/s${u.suck}`).join(' '),
-      brickTok: bricks.map((b) => `${b.token}#${b.colorId} v${b.voxelId}`).join(' '),
-      units,
-      bricks,
-    });
   }
 
   /** Shots, incoming bricks, or debris still on the field. */
@@ -1496,8 +1407,7 @@ export class BattleDirector extends Component {
     const fireRgb = readPaintRgb(u.node) ?? this._tintOf(u.colorId);
     shot.fire(_tmp, _world, fireToken, dur, 0, this._onShotLand, fireRgb);
     playMuzzleFlash(this._flyRoot ?? this.node, _tmp, _hitDir, fireToken, fireRgb);
-    } catch (err) {
-      console.error('[Suck:fire] shoot threw', err);
+    } catch {
       u.inflight = Math.max(0, u.inflight - 1);
     }
   }
@@ -1579,6 +1489,7 @@ export class BattleDirector extends Component {
     const counted = block.node.active && block.hp > 0;
     const host = this._flyRoot ?? this.node;
     if (block.node.parent !== host) block.node.setParent(host, true);
+    wakeBrickMesh(block.node);
     block.node.getWorldPosition(_world);
     block.blowOff(kick);
     this._burstDebris(_world, token, 2);
@@ -1651,10 +1562,11 @@ export class BattleDirector extends Component {
 
   /** Only guns seated in a pit. */
   private _canFire(u: UnitActor): boolean {
-    return u.lockedCol >= 0 && u.state !== 'drag' && !u.trapped && !u.traveling;
+    return !u.asBlock && u.lockedCol >= 0 && u.state !== 'drag' && !u.trapped && !u.traveling;
   }
 
   private _recoverSeat(u: UnitActor): void {
+    if (u.asBlock) return;
     for (let i = 0; i < this._slots.length; i++) {
       const s = this._slots[i];
       if (s.occupant !== u) continue;
@@ -1707,10 +1619,10 @@ export class BattleDirector extends Component {
   private _sameColor(block: BlockCell, u: UnitActor): boolean {
     const brickRgb = block.voxelId >= 0 ? rgbOfVoxel(block.voxelId) : this._tintOf(block.colorId);
     const unitRgb = readPaintRgb(u.node) ?? this._tintOf(u.colorId);
-    if (rgbDist2(brickRgb, unitRgb) <= RGB_MATCH_DIST2) return true;
+    if (rgbLooksSame(brickRgb, unitRgb)) return true;
     const unitVoxel = this._unitVoxel(u);
-    if (block.voxelId >= 0 && unitVoxel >= 0) return voxelsAlias(block.voxelId, unitVoxel);
-    return false;
+    if (block.voxelId >= 0 && unitVoxel >= 0 && voxelsAlias(block.voxelId, unitVoxel)) return true;
+    return this._idsMatch(block.colorId, u.colorId);
   }
 
   private _bestBlock(u: UnitActor): BlockCell | null {
@@ -2402,6 +2314,7 @@ export class BattleDirector extends Component {
       this._rowList(b.row).push(b);
       this._at.set(cellKey(b.col, b.row, b.layer), b);
     }
+    this._hideBuried();
     this._bumpVis();
   }
 
@@ -2918,7 +2831,9 @@ export class BattleDirector extends Component {
 
   private _unitSpec(unit: UnitActor): UnitSpec {
     const token = tokenOfColorId(unit.colorId);
-    return unit.ghost ? [token, unit.power, 'ghost'] : [token, unit.power];
+    if (unit.ghost) return [token, unit.power, 'ghost'];
+    if (unit.asBlock) return [token, unit.power, 'block'];
+    return [token, unit.power];
   }
 
   /** Hide the actor and push its spec onto the reserve tail. */
@@ -2951,10 +2866,13 @@ export class BattleDirector extends Component {
     const rank = overflow ? BENCH.rows - 1 : seat.rank;
     unit.lockedCol = -1;
     unit.state = 'bench';
+    unit.asBlock = true;
+    unit.clearAim();
     unit.benchCol = seat.col;
     unit.benchRank = rank;
     unit.homePos.set(benchSeatX(seat.col), benchSeatY(), benchSeatZ(rank));
     unit.node.setParent(bench, true);
+    unit.refreshSeatLook();
     unit.flyToHome(() => {
       if (overflow) this._enqueueUnit(unit);
       else unit.refreshSeatLook();

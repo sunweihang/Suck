@@ -8,13 +8,13 @@ import { getToyBall } from './ToySlotMesh';
 const _mats = new Map<string, Material>();
 
 function usable(mat: Material | null | undefined): mat is Material {
-  return !!mat?.passes?.length;
+  return !!mat?.passes?.length && !!mat.passes[0].descriptorSet;
 }
 
 function glossy(key: string, color: Color, roughness: number, emit: number): Material {
-  let mat = _mats.get(key);
-  if (mat) return mat;
-  mat = new Material();
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const mat = new Material();
   mat.initialize({ effectName: 'builtin-standard' });
   mat.setProperty('mainColor', color);
   mat.setProperty('roughness', roughness);
@@ -36,14 +36,16 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return c;
 }
 
-/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash. */
+/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash.
+ *  No GPU instancing: pooled debris and buried-cull toggles share these materials,
+ *  and instanced batches lose their descriptor set when instances are enabled/disabled. */
 function brickMat(rgb: readonly [number, number, number]): Material {
-  const key = `brick-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+  const key = `brick-s-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
   const color = colorOf(rgb);
   const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard', defines: { USE_INSTANCING: true } });
+  mat.initialize({ effectName: 'builtin-standard' });
   mat.setProperty('mainColor', color);
   mat.setProperty('roughness', 0.34);
   mat.setProperty('metallic', 0.04);
@@ -112,7 +114,10 @@ function paintLookOn(mrs: MeshRenderer[], look: VoxelLook): void {
   for (let i = 0; i < mrs.length; i++) {
     const mr = mrs[i];
     if (skipPaint(mr.node.name)) continue;
+    const on = mr.enabled;
+    mr.enabled = false;
     mr.setSharedMaterial(mat, 0);
+    mr.enabled = on;
   }
 }
 
@@ -155,7 +160,10 @@ export function paintUnitColor(root: Node, token: ColorToken): void {
   );
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (skipPaint(mr.node.name)) continue;
+    const on = mr.enabled;
+    mr.enabled = false;
     mr.setSharedMaterial(mat, 0);
+    mr.enabled = on;
   }
 }
 

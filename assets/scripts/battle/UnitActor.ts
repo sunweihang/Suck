@@ -19,6 +19,8 @@ export class UnitActor extends Component {
   /** Official ColorLibrary id this turret shoots. -1 if unknown. */
   voxelId = -1;
   ghost = false;
+  /** Shoveled back: sit as a queue cube with no power number until deployed. */
+  asBlock = false;
   magnet = false;
   trapped = false;
   freeing = false;
@@ -100,6 +102,7 @@ export class UnitActor extends Component {
   }
 
   aimAt(world: Vec3): void {
+    if (this.asBlock) return;
     if (
       Math.abs(world.x - this._aimX) < 0.012
       && Math.abs(world.y - this._aimY) < 0.012
@@ -155,6 +158,7 @@ export class UnitActor extends Component {
 
   reuse(name: string): void {
     this.magnet = false;
+    this.asBlock = false;
     this.trapped = false;
     this.freeing = false;
     this.lockedCol = -1;
@@ -325,9 +329,10 @@ export class UnitActor extends Component {
     } else if (this._queued()) {
       if (!this._queuePosed) {
         this._q.rest();
-        lockQueueBlockPose(this.node);
+        this.clearAim();
         this._queuePosed = true;
       }
+      lockQueueBlockPose(this.node);
     } else {
       this._queuePosed = false;
       if (this._wantsAnim()) this._q.tick(dt, this.state, this.inflight);
@@ -336,10 +341,13 @@ export class UnitActor extends Component {
   }
 
   private _queued(): boolean {
-    return !this.trapped && !this._flying && this.state === 'bench' && this.benchRank > 0;
+    if (this.trapped) return false;
+    if (this.asBlock) return true;
+    return !this._flying && this.state === 'bench' && this.benchRank > 0;
   }
 
   private _wantsAnim(): boolean {
+    if (this.asBlock) return false;
     if (this.state === 'bench' && this.benchRank > 0 && !this.trapped) return false;
     if (this._vanish || this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
       return true;
@@ -349,7 +357,7 @@ export class UnitActor extends Component {
   }
 
   private _shouldShowPower(): boolean {
-    if (this.trapped) return false;
+    if (this.trapped || this.asBlock) return false;
     if (this.state === 'drag' || this.state === 'walk' || this.state === 'attack') return true;
     return this.state === 'bench' && this.benchRank === 0;
   }
@@ -375,6 +383,7 @@ export class UnitActor extends Component {
     if (Number.isFinite(pow) && pow > 0) this.power = pow;
     this.maxPower = this.power;
     this.ghost = p[4] === 'ghost';
+    this.asBlock = p[4] === 'block';
   }
 
   applySpecialLook(): void {

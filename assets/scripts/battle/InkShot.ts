@@ -675,8 +675,8 @@ export class InkShot extends Component {
       this._ensureLook();
       this._paint(this._token, this._rgb);
       this._pose(0);
-    } catch (err) {
-      console.error('[Suck:fire] InkShot look failed', err);
+    } catch {
+      /* keep shot armed even if look/paint fails */
     }
     this._armed = true;
     this._stepFrame = -1;
@@ -692,8 +692,8 @@ export class InkShot extends Component {
     const u = Math.min(1, this._t / this._dur);
     try {
       this._pose(u);
-    } catch (err) {
-      console.error('[Suck:fire] InkShot pose failed', err);
+    } catch {
+      /* land on schedule even if a pose frame fails */
     }
     if (u < 1) return;
     this._finish();
