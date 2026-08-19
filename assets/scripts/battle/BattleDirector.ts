@@ -1315,7 +1315,7 @@ export class BattleDirector extends Component {
       const u = units[i];
       if (!u.node.activeInHierarchy || u.trapped || u.power <= 0) continue;
       if (u.lockedCol < 0) this._recoverSeat(u);
-      if (u.lockedCol < 0 || u.state === 'drag') continue;
+      if (!this._canFire(u)) continue;
       if (seated === 0) this._ensureVis();
       seated += 1;
       u.suckWait -= dt;

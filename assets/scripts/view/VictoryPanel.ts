@@ -11,6 +11,7 @@ import {
   Sprite,
   SpriteFrame,
   Tween,
+  UIOpacity,
   UITransform,
   Vec3,
   Widget,
@@ -20,7 +21,7 @@ import { chestPercentOf, chestReadyOf, chestStepOf } from '../game/ChestProgress
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
-import { clearWinConfetti, playWinConfetti, preloadWinConfetti } from './WinConfetti';
+import { afterDraws, clearWinConfetti, playWinConfetti, preloadWinConfetti } from './WinConfetti';
 
 const { ccclass } = _decorator;
 
@@ -34,7 +35,6 @@ const GOLD_INK = new Color(248, 225, 128, 255);
 const GOLD_OUTLINE = new Color(74, 68, 128, 255);
 const TITLE_INK = new Color(255, 214, 64, 255);
 const TITLE_OUTLINE = new Color(88, 48, 16, 255);
-const SUB_INK = new Color(255, 255, 255, 255);
 const BTN_W = VOLCANO_BTN_W;
 const BTN_H = VOLCANO_BTN_H;
 const BTN_GAP = 24;
@@ -46,14 +46,13 @@ const GOLD_LAB_W = 160;
 const GOLD_GAP = 12;
 const GOLD_FONT = 56;
 const CHEST = 560;
-const PCT_FONT = 92;
 const SHADOW_TINT = new Color(28, 26, 36, 255);
 const FILL_TINT = new Color(64, 196, 255, 255);
-const PCT_INK = new Color(255, 255, 255, 255);
-const PCT_OUTLINE = new Color(16, 18, 28, 255);
-const HINT_INK = new Color(255, 220, 96, 255);
 const GLOW = new Color(255, 196, 72, 46);
 const SHEEN = new Color(190, 240, 255, 210);
+const PCT_INK = new Color(255, 255, 255, 255);
+const PCT_OUTLINE = new Color(16, 18, 28, 255);
+const PCT_FONT = 92;
 
 @ccclass('VictoryPanel')
 export class VictoryPanel extends Component {
@@ -66,20 +65,68 @@ export class VictoryPanel extends Component {
   private _nextLabel = '下一关';
   private _cleared = 0;
   private _fill = 0;
+  private _fillPx = -1;
+  private _pctShown = -1;
+  private _dimW = 0;
+  private _dimH = 0;
   private _pctAnim: { v: number } | null = null;
+  private _open = false;
+  private _gpuHot = false;
+
+  isOpen(): boolean {
+    return this._open;
+  }
 
   setup(opts: { onNext: () => void; onDouble?: () => void }): void {
     this._onNext = opts.onNext;
     this._onDouble = opts.onDouble ?? null;
     this._ensureTree();
     this._bindEvents();
-    void preloadWinConfetti();
+    this._fade(0);
+    this.node.active = true;
     const dim = this.node.getChildByName('Dim') ?? this.node;
     dim.off(Node.EventType.TOUCH_END);
     dim.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
     }, this);
     this.layoutChrome();
+    this._bakePctAtlas();
+    this.node.pauseSystemEvents(true);
+  }
+
+  /**
+   * Compile shaders / upload textures while the host splash still covers the canvas.
+   * Uses near-zero opacity so splash pixels are not replaced.
+   */
+  async warmup(): Promise<void> {
+    this._ensureTree();
+    this.node.active = true;
+    this._gold = 25;
+    this._canDouble = true;
+    this._cleared = 5;
+    this._nextLabel = '下一关';
+    this._syncDouble();
+    this._syncGold();
+    this._syncChest();
+    this._paintBtns();
+    this._setFill(1);
+    this._bakePctAtlas();
+    this._setPctText(40);
+    this._fade(1);
+    await preloadWinConfetti(this.node);
+    playWinConfetti(this.node);
+    await gameAudio()?.ensureWin();
+    await afterDraws(4);
+    if (!this.node.isValid) return;
+    clearWinConfetti(this.node);
+    this._fade(0);
+    this.node.pauseSystemEvents(true);
+    this._open = false;
+    this._gpuHot = true;
+    this._gold = 0;
+    this._cleared = 0;
+    this._fill = 0;
+    this._fillPx = -1;
   }
 
   show(opts?: { hasNext?: boolean; gold?: number; canDouble?: boolean; nextLabel?: string; cleared?: number }): void {
@@ -89,15 +136,21 @@ export class VictoryPanel extends Component {
     this._nextLabel = opts?.nextLabel || '下一关';
     this._cleared = Math.max(0, Math.floor(opts?.cleared ?? 0));
     this._locked = false;
+    this._open = true;
     this.node.active = true;
+    this.node.resumeSystemEvents(true);
+    this._fade(255);
     const next = this._stage()?.getChildByName('NextBtn');
     if (next) next.active = opts?.hasNext !== false;
     this._syncDouble();
     this._syncGold();
     this._syncChest();
-    this.layoutChrome();
+    this._paintBtns();
+    const vis = uiVisibleSize();
+    this._placeStage(vis.w, vis.h);
     this._popIn();
     this._playChestPct();
+    gameAudio()?.playWin();
     playWinConfetti(this.node);
   }
 
@@ -112,12 +165,19 @@ export class VictoryPanel extends Component {
   }
 
   hide(): void {
+    this._open = false;
     Tween.stopAllByTarget(this._stage());
     Tween.stopAllByTarget(this._chestWrap());
     if (this._pctAnim) Tween.stopAllByTarget(this._pctAnim);
     clearWinConfetti(this.node);
-    this.node.active = false;
+    this._fade(0);
+    this.node.pauseSystemEvents(true);
     this._locked = false;
+  }
+
+  private _fade(opacity: number): void {
+    const op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
+    op.opacity = opacity;
   }
 
   goldStartWorld(out: Vec3): Vec3 {
@@ -151,7 +211,11 @@ export class VictoryPanel extends Component {
     const dim = this.node.getChildByName('Dim');
     dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     dim?.getComponent(Widget)?.updateAlignment();
-    this._fillDim(dim, vis.w, vis.h);
+    if (this._dimW !== vis.w || this._dimH !== vis.h) {
+      this._dimW = vis.w;
+      this._dimH = vis.h;
+      this._fillDim(dim, vis.w, vis.h);
+    }
     this._placeStage(vis.w, vis.h);
     this._paintBtns();
     this._hideFrame();
@@ -243,8 +307,19 @@ export class VictoryPanel extends Component {
     widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
     widget.top = widget.bottom = widget.left = widget.right = 0;
     widget.alignMode = Widget.AlignMode.ON_WINDOW_RESIZE;
+    this._ensureDim();
     this._ensureStage();
     this._ensureBtns();
+  }
+
+  private _ensureDim(): Node {
+    let dim = this.node.getChildByName('Dim');
+    if (!dim) {
+      const vis = uiVisibleSize();
+      dim = this._mk('Dim', this.node, vis.w, vis.h);
+    }
+    dim.setSiblingIndex(0);
+    return dim;
   }
 
   private _ensureStage(): Node {
@@ -277,20 +352,13 @@ export class VictoryPanel extends Component {
     if (!stage.getChildByName('Title')) {
       this._styleTitle(this._mk('Title', stage, 860, 120), '胜利!', 92);
     }
-    if (!stage.getChildByName('Sub')) {
-      this._styleSub(this._mk('Sub', stage, 720, 52), '太棒了，关卡完成');
-    }
+    const sub = stage.getChildByName('Sub');
+    if (sub) sub.active = false;
   }
 
   private _layoutTitle(h: number): void {
-    const stage = this._stage();
-    const title = stage?.getChildByName('Title');
-    const sub = stage?.getChildByName('Sub');
-    title?.setPosition(0, 520, 0);
-    sub?.setPosition(0, 430, 0);
+    this._stage()?.getChildByName('Title')?.setPosition(0, 460, 0);
     void h;
-    if (title) this._styleTitle(title, '胜利!', 92);
-    if (sub) this._styleSub(sub, '太棒了，关卡完成');
   }
 
   private _styleTitle(node: Node, text: string, size: number): Label {
@@ -303,21 +371,6 @@ export class VictoryPanel extends Component {
     lab.enableOutline = true;
     lab.outlineWidth = 8;
     lab.outlineColor = TITLE_OUTLINE;
-    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-    lab.verticalAlign = Label.VerticalAlign.CENTER;
-    lab.useSystemFont = true;
-    lab.fontFamily = 'PingFang SC';
-    return lab;
-  }
-
-  private _styleSub(node: Node, text: string): Label {
-    const lab = node.getComponent(Label) ?? node.addComponent(Label);
-    lab.string = text;
-    lab.fontSize = 36;
-    lab.lineHeight = 44;
-    lab.isBold = true;
-    lab.color = SUB_INK;
-    lab.enableOutline = false;
     lab.horizontalAlign = Label.HorizontalAlign.CENTER;
     lab.verticalAlign = Label.VerticalAlign.CENTER;
     lab.useSystemFont = true;
@@ -384,20 +437,30 @@ export class VictoryPanel extends Component {
     const stage = this._stage();
     const double = stage?.getChildByName('DoubleBtn') ?? null;
     const next = stage?.getChildByName('NextBtn') ?? null;
-    this._bareBtn(double);
-    this._bareBtn(next);
-    ensureBtnChrome(double, BTN_W, BTN_H, DOUBLE_FILL, DOUBLE_OUTLINE, 'winDouble');
-    ensureBtnChrome(next, BTN_W, BTN_H, NEXT_FILL, NEXT_OUTLINE, 'winAction');
-    const dLab = stage?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('Label');
-    const nLab = stage?.getChildByName('NextBtn')?.getChildByName('Label');
-    if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
-    if (nLab) this._styleLabel(nLab, this._nextLabel, NEXT_OUTLINE);
-    applyArtSpriteSoon(
-      stage?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
-      'icAd',
-      AD_ICON_W,
-      AD_ICON_H,
-    );
+    if (!double?.getChildByName('Skin')) {
+      this._bareBtn(double);
+      ensureBtnChrome(double, BTN_W, BTN_H, DOUBLE_FILL, DOUBLE_OUTLINE, 'winDouble');
+    }
+    if (!next?.getChildByName('Skin')) {
+      this._bareBtn(next);
+      ensureBtnChrome(next, BTN_W, BTN_H, NEXT_FILL, NEXT_OUTLINE, 'winAction');
+    }
+    const dLab = double?.getChildByName('Content')?.getChildByName('Label');
+    const nLab = next?.getChildByName('Label');
+    const dComp = dLab?.getComponent(Label);
+    if (dComp) dComp.string = '双倍领取';
+    else if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
+    const nComp = nLab?.getComponent(Label);
+    if (nComp) nComp.string = this._nextLabel;
+    else if (nLab) this._styleLabel(nLab, this._nextLabel, NEXT_OUTLINE);
+    if (!double?.getChildByName('Content')?.getChildByName('AdIcon')?.getComponent(Sprite)?.spriteFrame) {
+      applyArtSpriteSoon(
+        double?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
+        'icAd',
+        AD_ICON_W,
+        AD_ICON_H,
+      );
+    }
     this._syncGold();
   }
 
@@ -418,9 +481,14 @@ export class VictoryPanel extends Component {
     const gold = this._stage()?.getChildByName('GoldReward');
     if (!gold) return;
     gold.active = this._gold > 0;
-    const lab = gold.getChildByName('GoldLabel');
-    if (lab) this._styleGoldLabel(lab, `+${this._gold}`);
-    applyArtSpriteSoon(gold.getChildByName('GoldIcon'), 'goldIcon', GOLD_ICON, GOLD_ICON);
+    const labN = gold.getChildByName('GoldLabel');
+    const lab = labN?.getComponent(Label);
+    if (lab) lab.string = `+${this._gold}`;
+    else if (labN) this._styleGoldLabel(labN, `+${this._gold}`);
+    const icon = gold.getChildByName('GoldIcon');
+    if (!icon?.getComponent(Sprite)?.spriteFrame) {
+      applyArtSpriteSoon(icon, 'goldIcon', GOLD_ICON, GOLD_ICON);
+    }
   }
 
   private _styleGoldLabel(node: Node, text: string): Label {
@@ -467,12 +535,8 @@ export class VictoryPanel extends Component {
       this._mk('Glow', wrap, CHEST + 80, CHEST + 80);
       this._mk('Shadow', wrap, CHEST, CHEST);
       const clip = this._mk('FillClip', wrap, CHEST, CHEST);
-      const mask = clip.addComponent(Mask);
-      mask.type = Mask.Type.GRAPHICS_STENCIL;
       this._mk('FillArt', clip, CHEST, CHEST);
-      this._mk('Sheen', clip, CHEST, 12);
-      this._stylePct(this._mk('Pct', wrap, 320, 110), '0%');
-      this._styleHint(this._mk('Hint', wrap, 420, 48), '宝箱');
+      this._stylePct(this._mk('Pct', wrap, 360, 120), '0%');
     }
     this._syncChest();
   }
@@ -486,7 +550,7 @@ export class VictoryPanel extends Component {
     const hint = wrap.getChildByName('Hint');
     if (hint) hint.active = false;
     this._paintChestArt();
-    this._setFill(this._fill || chestPercentOf(this._cleared) / 100);
+    this._setFill(chestPercentOf(this._cleared) / 100);
     this._setPctText(chestPercentOf(this._cleared));
   }
 
@@ -505,9 +569,8 @@ export class VictoryPanel extends Component {
     glow?.setPosition(0, 8, 0);
     shadow?.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
     shadow?.setPosition(0, 8, 0);
-    clip?.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
     clip?.setPosition(0, 8, 0);
-    pct?.getComponent(UITransform)?.setContentSize(320, 110);
+    pct?.getComponent(UITransform)?.setContentSize(360, 120);
     pct?.setPosition(0, 12, 0);
     if (hint) hint.active = false;
     if (glow) glow.active = false;
@@ -520,58 +583,58 @@ export class VictoryPanel extends Component {
     if (!wrap) return;
     const shadow = wrap.getChildByName('Shadow');
     const fill = wrap.getChildByName('FillClip')?.getChildByName('FillArt');
-    applyArtSpriteSoon(shadow, 'chest', CHEST, CHEST, false, () => this._tintChest(this._fill));
-    applyArtSpriteSoon(fill ?? null, 'chest', CHEST, CHEST, false, () => {
-      this._tintChest(this._fill);
+    if (shadow?.getComponent(Sprite)?.spriteFrame && fill?.getComponent(Sprite)?.spriteFrame) {
+      this._tintChest();
       this._applyFill(this._fill);
-    });
-    this._tintChest(this._fill);
+      return;
+    }
+    applyArtSpriteSoon(shadow, 'chest', CHEST, CHEST, false, () => this._tintChest());
+    applyArtSpriteSoon(fill ?? null, 'chest', CHEST, CHEST, false, () => this._applyFill(this._fill));
+    this._tintChest();
   }
 
-  private _tintChest(t: number): void {
+  private _tintChest(): void {
     const wrap = this._chestWrap();
-    const k = Math.max(0, Math.min(1, t));
     const shadowSp = wrap?.getChildByName('Shadow')?.getComponent(Sprite);
-    if (shadowSp) {
-      shadowSp.color = new Color(
-        Math.round(SHADOW_TINT.r + (255 - SHADOW_TINT.r) * k),
-        Math.round(SHADOW_TINT.g + (255 - SHADOW_TINT.g) * k),
-        Math.round(SHADOW_TINT.b + (255 - SHADOW_TINT.b) * k),
-        255,
-      );
-    }
+    if (shadowSp) shadowSp.color = SHADOW_TINT;
     const fillSp = wrap?.getChildByName('FillClip')?.getChildByName('FillArt')?.getComponent(Sprite);
     if (fillSp) fillSp.color = Color.WHITE;
   }
 
   private _setFill(t: number): void {
     this._fill = Math.max(0, Math.min(1, t));
-    this._tintChest(this._fill);
+    this._tintChest();
     this._applyFill(this._fill);
   }
 
   private _applyFill(t: number): void {
     const clip = this._chestWrap()?.getChildByName('FillClip');
-    if (!clip) return;
-    const h = Math.round(CHEST * Math.max(0, Math.min(1, t)));
-    clip.active = h > 1;
+    const art = clip?.getChildByName('FillArt');
+    if (!clip || !art) return;
+    const k = Math.max(0, Math.min(1, t));
+    const px = Math.max(0, Math.round(CHEST * k));
+    this._fillPx = px;
+    clip.active = true;
     clip.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
     clip.setPosition(0, 8, 0);
-    let mask = clip.getComponent(Mask);
-    if (!mask) mask = clip.addComponent(Mask);
-    mask.type = Mask.Type.GRAPHICS_STENCIL;
-    mask.enabled = true;
-    let g = clip.getComponent(Graphics);
-    if (!g) g = clip.addComponent(Graphics);
-    g.clear();
-    g.fillColor = Color.WHITE;
-    g.rect(-CHEST * 0.5, -CHEST * 0.5, CHEST, Math.max(1, h));
-    g.fill();
-    const art = clip.getChildByName('FillArt');
-    art?.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
-    art?.setPosition(0, 0, 0);
+    const mask = clip.getComponent(Mask);
+    if (mask) mask.enabled = false;
+    const g = clip.getComponent(Graphics);
+    if (g) {
+      g.clear();
+      g.enabled = false;
+    }
+    art.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
+    art.setPosition(0, 0, 0);
     const sheen = clip.getChildByName('Sheen');
     if (sheen) sheen.active = false;
+    const sp = art.getComponent(Sprite);
+    if (!sp?.spriteFrame) return;
+    sp.type = Sprite.Type.FILLED;
+    sp.fillType = Sprite.FillType.VERTICAL;
+    sp.fillStart = 0;
+    sp.fillRange = k;
+    sp.color = Color.WHITE;
   }
 
   private _playChestPct(): void {
@@ -589,7 +652,7 @@ export class VictoryPanel extends Component {
         easing: 'quadOut',
         onUpdate: () => {
           const n = Math.round(state.v);
-          this._setPctText(n);
+          if (n !== this._pctShown) this._setPctText(n);
           this._setFill(state.v / 100);
         },
       })
@@ -609,8 +672,19 @@ export class VictoryPanel extends Component {
   }
 
   private _setPctText(n: number): void {
-    const lab = this._chestWrap()?.getChildByName('Pct');
-    if (lab) this._stylePct(lab, `${Math.max(0, Math.min(100, n | 0))}%`);
+    const node = this._chestWrap()?.getChildByName('Pct');
+    if (!node) return;
+    for (const child of node.children) child.active = false;
+    const text = `${Math.max(0, Math.min(100, n | 0))}%`;
+    const lab = node.getComponent(Label) ?? this._stylePct(node, text);
+    lab.enabled = true;
+    lab.string = text;
+    if (n !== this._pctShown && this._pctShown >= 0) {
+      Tween.stopAllByTarget(node);
+      node.setScale(1.16, 1.16, 1);
+      tween(node).to(0.14, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+    }
+    this._pctShown = n;
   }
 
   private _stylePct(node: Node, text: string): Label {
@@ -621,32 +695,25 @@ export class VictoryPanel extends Component {
     lab.isBold = true;
     lab.color = PCT_INK;
     lab.enableOutline = true;
-    lab.outlineWidth = 8;
+    lab.outlineWidth = 10;
     lab.outlineColor = PCT_OUTLINE;
     lab.horizontalAlign = Label.HorizontalAlign.CENTER;
     lab.verticalAlign = Label.VerticalAlign.CENTER;
     lab.overflow = Label.Overflow.NONE;
     lab.enableWrapText = false;
     lab.useSystemFont = true;
-    lab.fontFamily = 'PingFang SC';
+    lab.fontFamily = 'Arial Black';
+    lab.cacheMode = Label.CacheMode.CHAR;
     return lab;
   }
 
-  private _styleHint(node: Node, text: string): Label {
-    const lab = node.getComponent(Label) ?? node.addComponent(Label);
-    lab.string = text;
-    lab.fontSize = 40;
-    lab.lineHeight = 48;
-    lab.isBold = true;
-    lab.color = HINT_INK;
-    lab.enableOutline = true;
-    lab.outlineWidth = 4;
-    lab.outlineColor = TITLE_OUTLINE;
-    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-    lab.verticalAlign = Label.VerticalAlign.CENTER;
-    lab.useSystemFont = true;
-    lab.fontFamily = 'PingFang SC';
-    return lab;
+  private _bakePctAtlas(): void {
+    const node = this._chestWrap()?.getChildByName('Pct');
+    if (!node) return;
+    const lab = node.getComponent(Label) ?? this._stylePct(node, '0%');
+    lab.string = '0123456789%';
+    lab.updateRenderData?.(true);
+    lab.string = '0%';
   }
 
   private _syncDouble(): void {

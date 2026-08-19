@@ -75,9 +75,9 @@ System.register(["./application.js"], function (_export, _context) {
           splashScreenSettings.background = {
             type: 'color',
             color: {
-              x: 254 / 255,
-              y: 255 / 255,
-              z: 241 / 255,
+              x: 0,
+              y: 0,
+              z: 0,
               w: 1
             }
           };

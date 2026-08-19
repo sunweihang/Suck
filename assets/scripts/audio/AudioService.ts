@@ -7,6 +7,7 @@ const BOOM_PATH = 'audio/sfx/boom';
 const REMOVE_PATH = 'audio/sfx/remove';
 const GOLD_PATH = 'audio/sfx/gold';
 const GET_NEW_PATH = 'audio/sfx/get-new';
+const WIN_PATH = 'audio/sfx/win';
 const STORAGE_KEY = 'suck.audio.v1';
 
 const DEFAULT_BGM = 0.4;
@@ -21,8 +22,10 @@ const BOOM_GAIN = 1.8;
 const REMOVE_GAIN = 1.2;
 /** TripleTown Gold.mp3 — coin fly landing. */
 const GOLD_GAIN = 1;
-/** TripleTown GetNew.mp3 — item / skill obtained. */
+/** Shoot a Cube Puzzle! SFX_Booster_Received — item / skill obtained. */
 const GET_NEW_GAIN = 1;
+/** Shoot a Cube Puzzle! Win_3 — victory panel stinger. */
+const WIN_GAIN = 1;
 /**
  * absorb.mp3: ~25ms lead-in, audible to ~110ms, silence after ~120ms.
  * Pulse after the audible body; only cut once the tail is already quiet.
@@ -50,6 +53,7 @@ export class AudioService {
   private _removeClip: AudioClip | null = null;
   private _goldClip: AudioClip | null = null;
   private _getNewClip: AudioClip | null = null;
+  private _winClip: AudioClip | null = null;
   private _bgmGain = DEFAULT_BGM;
   private _sfxGain = DEFAULT_SFX;
   private _bgmDesired = false;
@@ -159,7 +163,7 @@ export class AudioService {
     });
   }
 
-  /** TripleTown GetNew.mp3 — item icon pops and flies to the dock. */
+  /** Shoot a Cube Puzzle! SFX_Booster_Received — item icon pops and flies to the dock. */
   playGetNew(): void {
     if (this._disposed) return;
     if (this._getNewClip) {
@@ -170,6 +174,42 @@ export class AudioService {
       if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
       this._getNewClip = clip;
       this._oneShot(clip, GET_NEW_GAIN);
+    });
+  }
+
+  /** Shoot a Cube Puzzle! Win_3 — victory panel opens. */
+  playWin(): void {
+    if (this._disposed) return;
+    if (this._winClip) {
+      this._oneShot(this._winClip, WIN_GAIN);
+      return;
+    }
+    resources.load(WIN_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip || !this._sfx.node?.isValid) return;
+      this._winClip = clip;
+      this._oneShot(clip, WIN_GAIN);
+    });
+  }
+
+  /** Decode + mix the win stinger at zero gain so first real play is free. */
+  warmWin(): void {
+    if (this._disposed || !this._winClip || !this._sfx.node?.isValid) return;
+    this._sfx.playOneShot(this._winClip, 0);
+  }
+
+  /** Wait until Win_3 is in memory, then silently decode it. */
+  ensureWin(): Promise<void> {
+    if (this._disposed) return Promise.resolve();
+    if (this._winClip) {
+      this.warmWin();
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      resources.load(WIN_PATH, AudioClip, (err, clip) => {
+        if (!this._disposed && !err && clip) this._winClip = clip;
+        this.warmWin();
+        resolve();
+      });
     });
   }
 
@@ -278,6 +318,13 @@ export class AudioService {
         return;
       }
       this._getNewClip = clip;
+    });
+    resources.load(WIN_PATH, AudioClip, (err, clip) => {
+      if (this._disposed || err || !clip) {
+        if (err || !clip) console.warn('[Audio] win SFX load failed:', err);
+        return;
+      }
+      this._winClip = clip;
     });
   }
 

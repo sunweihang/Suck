@@ -209,11 +209,9 @@ export class GameBootstrap extends Component {
       this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
-      director.once(Director.EVENT_AFTER_DRAW, () => {
-        if (!this.isValid) return;
-        this._revealHomeAndLiftSplash();
-      });
       await preloadUiArt();
+      await this._audio?.ensureWin();
+      await this._victory?.warmup();
       await ensureHomeLevelArt();
       if (this.node.scene) await spawnToyBackdrop(this.node.scene);
       this._home?.applyArt();
@@ -225,6 +223,7 @@ export class GameBootstrap extends Component {
       this._itemShop?.applyArt();
       this._applyPortraitFrame();
       this._bindBattle();
+      this._revealHomeAndLiftSplash();
     } catch (err) {
       console.error('[Suck] boot ui failed', err);
       this._revealHomeAndLiftSplash();
@@ -652,7 +651,7 @@ export class GameBootstrap extends Component {
   }
 
   private _showGoldShop(): void {
-    if (this._victory?.node.active || this._fail?.node.active || this._chest?.node.active) return;
+    if (this._victory?.isOpen() || this._fail?.node.active || this._chest?.node.active) return;
     this._showItemShop('gold');
   }
 
@@ -673,7 +672,7 @@ export class GameBootstrap extends Component {
     this._pendingSlot = null;
     this._itemShop?.hide();
     if (this._chest?.node.active || this._settings?.node.active) return;
-    if (this._victory?.node.active || this._fail?.node.active) return;
+    if (this._victory?.isOpen() || this._fail?.node.active) return;
     if (this._playHud?.node.active) this._battle?.setPlaying(true);
   }
 

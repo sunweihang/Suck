@@ -2,8 +2,8 @@ html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* Match company splash cream — never flash pure black under #SplashOverlay. */
-  background-color: #fefff1 !important;
+  /* Match elex splash — never flash cream/white under #SplashOverlay. */
+  background-color: #000 !important;
   -ms-touch-action: none;
   touch-action: none;
 }
@@ -37,7 +37,7 @@ body {
   overflow: hidden;
   cursor: default;
   color: #888;
-  background-color: #fefff1 !important;
+  background-color: #000 !important;
   text-align: center;
   font-family: Helvetica, Verdana, Arial, sans-serif;
   display: flex;
@@ -46,7 +46,6 @@ body {
 
 /*
  * 全屏容器：宽度铺满，高度跟视口走。
- * 启动图定宽、上下可裁切（见 #SplashOverlay）。
  */
 #GameDiv,
 #Cocos3dGameContainer,
@@ -60,34 +59,33 @@ body {
   flex: 1 1 auto;
   margin: 0 !important;
   overflow: hidden;
-  background-color: #fefff1 !important;
+  background-color: #000 !important;
 }
 
 #GameCanvas {
-  background-color: #fefff1 !important;
+  background-color: #000 !important;
 }
 
 /*
- * HTML 首帧启动页：引擎插屏出现前就能看到。
- * 定宽：图片宽度 100%；高度按比例；超出上下裁切。
+ * elex 首帧：DOM <img>，避免 CSS/base64 竞态闪空白。
  */
 #SplashOverlay {
   position: fixed;
   inset: 0;
   z-index: 99999;
   overflow: hidden;
-  background: #fefff1;
+  background: #000;
   pointer-events: none;
 }
 
 #SplashOverlay img {
   position: absolute;
-  left: 0;
-  top: 50%;
+  inset: 0;
   width: 100%;
-  height: auto;
-  transform: translateY(-50%);
+  height: 100%;
+  object-fit: cover;
   display: block;
+  background: #000;
 }
 
 :root {

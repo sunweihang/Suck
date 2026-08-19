@@ -24,12 +24,13 @@
   <meta name="x5-page-mode" content="app">
 
   <link rel="stylesheet" type="text/css" href="<%= cssUrl %>"/>
+  <link rel="preload" as="image" href="./splash_screen.png"/>
 
 </head>
 <body>
-  <!-- 轻玩星球首帧：定宽、上下裁切；引擎就绪后由 index.js 隐藏 -->
+  <!-- elex 首帧；引擎就绪后由 index.js 隐藏。微信包仍用轻玩星球 splash。 -->
   <div id="SplashOverlay">
-    <img src="splash_screen.png" alt="" draggable="false"/>
+    <img src="splash_screen.png" alt="elex" draggable="false"/>
   </div>
 
   <div id="GameDiv" cc_exact_fit_screen="true">
