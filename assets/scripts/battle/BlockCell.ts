@@ -1,7 +1,7 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, PLAY, SPECIAL_SPAN, TOKEN_RGB, isColorToken, parseColorToken, tokenOfColorId } from '../game/GameConfig';
+import { ColorId, GAME, PLAY, SPECIAL_SPAN, isColorToken, parseColorToken } from '../game/GameConfig';
 import { applyBrickGray, applyBrickPlastic, wakeBrickMesh } from './ToyBlockMesh';
-import { hideBlowTrail, poseBlowTrail } from './BlowTrail';
+import { hideBlowTrail } from './BlowTrail';
 import { clearLockLook } from './LockNails';
 
 const { ccclass } = _decorator;
@@ -196,7 +196,7 @@ export class BlockCell extends Component {
     this.node.setScale(this._baseScale);
     this.node.active = true;
     this.enabled = true;
-    wakeBrickMesh(this.node);
+    hideBlowTrail(this.node);
   }
 
   /** Stay put: swell, shake, then boom. */
@@ -341,15 +341,6 @@ export class BlockCell extends Component {
     this.node.setWorldRotation(this._q);
     const keep = u < 0.72 ? 1 : Math.max(0.06, 1 - (u - 0.72) / 0.28);
     this.node.setScale(this._baseScale.x * keep, this._baseScale.y * keep, this._baseScale.z * keep);
-    _to.set(this._vel.x, this._vel.y - BLOW_G * t, this._vel.z);
-    const token = tokenOfColorId(this.colorId);
-    poseBlowTrail(
-      this.node,
-      PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y,
-      this._q,
-      _to,
-      this._baseScale.x * keep,
-    );
     if (u < 1) return;
     this._blown = false;
     hideBlowTrail(this.node);

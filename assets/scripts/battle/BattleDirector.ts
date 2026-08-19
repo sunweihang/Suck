@@ -53,14 +53,14 @@ import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
-import { DebrisBit } from './DebrisBit';
+import { DebrisBit, DEBRIS_POOL_MAX, makeDebrisBit } from './DebrisBit';
 import { createInkShot, InkShot, playHitFlash, playMuzzleFlash } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
-import { setBrickMeshEnabled, wakeBrickMesh } from './ToyBlockMesh';
+import { setBrickMeshEnabled } from './ToyBlockMesh';
 import { UnitActor } from './UnitActor';
 
 const { ccclass } = _decorator;
@@ -270,7 +270,6 @@ export class BattleDirector extends Component {
   private _sh = 1;
   private _remain = 0;
   private _unitPfs: Record<string, Prefab> = Object.create(null);
-  private _debrisPf: Prefab | null = null;
   private _reserve: UnitSpec[] = [];
   private _bench: Node | null = null;
   private _nextUnitIndex = 0;
@@ -327,11 +326,9 @@ export class BattleDirector extends Component {
   armSpawn(
     unitPfs: Record<string, Prefab>,
     reserve: ReadonlyArray<UnitSpec> = [],
-    debrisPf: Prefab | null = null,
   ): void {
     this._unitPfs = unitPfs;
     this._reserve = reserve.slice();
-    this._debrisPf = debrisPf;
   }
 
   bind(opts: {
@@ -534,6 +531,16 @@ export class BattleDirector extends Component {
       n.active = false;
       this._debris.push(c);
     });
+    if (this._debris.length < 8) {
+      let host = pool;
+      if (!host) {
+        host = new Node('DebrisPool');
+        this.node.addChild(host);
+      }
+      while (this._debris.length < 8) {
+        this._debris.push(makeDebrisBit(host, `Debris_${this._debris.length}`));
+      }
+    }
     this._platesRoot?.children.forEach((n) => {
       const p = n.getComponent(IronPlate) ?? n.addComponent(IronPlate);
       p.syncFromName();
@@ -909,7 +916,6 @@ export class BattleDirector extends Component {
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
     this._visDirty = true;
-    wakeBrickMesh(block.node);
     this._revealAround(block);
   }
 
@@ -1451,7 +1457,7 @@ export class BattleDirector extends Component {
       _hitDir.x += _faceN.x / toward * 0.65;
       _hitDir.z += _faceN.z / toward * 0.65;
     }
-    const broke = this._shatterBrick(block, token, _hitDir);
+    const broke = this._shatterBrick(block, _hitDir);
     if (u?.isValid) this._spendShot(u, broke);
   }
 
@@ -1484,29 +1490,53 @@ export class BattleDirector extends Component {
     if (u.power <= 0) this._retireUnit(u);
   }
 
-  private _shatterBrick(block: BlockCell, token: ColorToken, kick?: Vec3): boolean {
+  private _shatterBrick(block: BlockCell, kick?: Vec3): boolean {
     if (!block?.node?.isValid) return false;
     const counted = block.node.active && block.hp > 0;
     const host = this._flyRoot ?? this.node;
     if (block.node.parent !== host) block.node.setParent(host, true);
-    wakeBrickMesh(block.node);
     block.node.getWorldPosition(_world);
+    const rgb = this._brickRgb(block);
     block.blowOff(kick);
-    this._burstDebris(_world, token, 2);
+    this._burstDebris(_world, rgb);
     if (counted) this._remain = Math.max(0, this._remain - 1);
     this._lookDirty = true;
     return counted;
   }
 
-  private _burstDebris(from: Vec3, token: ColorToken, count = 6): void {
-    const busy = this._debrisBusy();
-    const n = busy > 16 ? 0 : busy > 10 ? 1 : count;
+  private _brickRgb(block: BlockCell): readonly [number, number, number] {
+    return readPaintRgb(block.node)
+      ?? (block.voxelId >= 0 ? rgbOfVoxel(block.voxelId) : this._tintOf(block.colorId));
+  }
+
+  private _burstDebris(from: Vec3, rgb: readonly [number, number, number], count = 6): void {
+    let busy = 0;
+    for (let i = 0; i < this._debris.length; i++) {
+      if (this._debris[i].busy) busy += 1;
+    }
+    const n = busy > 18 ? 1 : busy > 12 ? 3 : count;
     for (let i = 0; i < n; i++) {
       const bit = this._nextDebris();
       if (!bit) break;
-      bit.paintToken(token);
-      bit.burst(from, 0.42);
+      bit.burst(from, rgb);
     }
+  }
+
+  private _nextDebris(): DebrisBit | null {
+    for (let i = 0; i < this._debris.length; i++) {
+      if (!this._debris[i].busy) return this._debris[i];
+    }
+    if (this._debris.length >= DEBRIS_POOL_MAX) {
+      return this._debris[this._debris.length - 1];
+    }
+    let pool = this.node.getChildByName('DebrisPool');
+    if (!pool) {
+      pool = new Node('DebrisPool');
+      this.node.addChild(pool);
+    }
+    const bit = makeDebrisBit(pool, `Debris_${this._debris.length}`);
+    this._debris.push(bit);
+    return bit;
   }
 
   private _nextShot(): InkShot {
@@ -1519,33 +1549,9 @@ export class BattleDirector extends Component {
     return shot;
   }
 
-  private _nextDebris(): DebrisBit | null {
-    for (let i = 0; i < this._debris.length; i++) {
-      if (!this._debris[i].busy) return this._debris[i];
-    }
-    if (!this._debrisPf || this._debris.length >= 20) return null;
-    const pool = this.node.getChildByName('DebrisPool') ?? this.node;
-    const n = instantiate(this._debrisPf);
-    n.name = `Debris_${this._debris.length}`;
-    pool.addChild(n);
-    n.setPosition(0, -2, 0);
-    const bit = n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
-    n.active = false;
-    this._debris.push(bit);
-    return bit;
-  }
-
   private _flightBusy(): number {
     let n = 0;
     for (let i = 0; i < this._units.length; i++) n += this._units[i].inflight;
-    return n;
-  }
-
-  private _debrisBusy(): number {
-    let n = 0;
-    for (let i = 0; i < this._debris.length; i++) {
-      if (this._debris[i].busy) n += 1;
-    }
     return n;
   }
 
@@ -1908,7 +1914,7 @@ export class BattleDirector extends Component {
     } else {
       _hitDir.set(0, 0, 0);
     }
-    this._shatterBrick(block, tokenOfColorId(block.colorId), _hitDir);
+    this._shatterBrick(block, _hitDir);
   }
 
   /** Whole nailed blob stays shut until no member has a free neighbor on the left, right, or top. */
@@ -2715,7 +2721,7 @@ export class BattleDirector extends Component {
     for (let i = 0; i < group.length; i++) {
       const b = group[i];
       this._unindex(b);
-      if (this._shatterBrick(b, token)) popped += 1;
+      if (this._shatterBrick(b)) popped += 1;
     }
     for (let i = 0; i < sandKeys.length; i++) {
       this._settleSand((sandKeys[i] / 1000) | 0, sandKeys[i] % 1000);

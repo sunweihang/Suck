@@ -93,9 +93,43 @@ function clipBridge(): ClipBridge | null {
   const list = [g.wx, g.tt, g.ks, g.qq, g.my, g.swan, g.GameGlobal?.wx];
   for (let i = 0; i < list.length; i++) {
     const b = list[i];
-    if (b && typeof b.setClipboardData === 'function' && typeof b.getSystemInfoSync === 'function') return b;
+    if (!b) continue;
+    if (typeof b.getClipboardData === 'function' || typeof b.setClipboardData === 'function') return b;
   }
   return null;
+}
+
+function isTouchUi(): boolean {
+  const nav = (globalThis as { navigator?: { userAgent?: string } }).navigator;
+  const ua = String(nav?.userAgent ?? '');
+  if (/Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(ua)) return true;
+  try {
+    if ((globalThis as { matchMedia?: (q: string) => { matches?: boolean } }).matchMedia?.('(pointer: coarse)')?.matches) {
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function loadPlaceholder(): string {
+  if (isTouchUi()) return '长按此处粘贴';
+  return webCanReadClip() ? '点下方粘贴' : '点这里，再按 Ctrl+V';
+}
+
+function pasteHowHint(): string {
+  return isTouchUi() ? '长按输入框，选粘贴' : '点输入框后按 Ctrl+V 粘贴';
+}
+
+function promptPaste(): string {
+  try {
+    const fn = (globalThis as { prompt?: (msg: string, def?: string) => string | null }).prompt;
+    if (typeof fn !== 'function') return '';
+    return (fn.call(globalThis, '长按输入框，选粘贴', '') ?? '').trim();
+  } catch {
+    return '';
+  }
 }
 
 function wxLooksWindows(api: ClipBridge): boolean {
@@ -270,6 +304,19 @@ function readClipboard(): Promise<string> {
   });
 }
 
+function webCanReadClip(): boolean {
+  const wxApi = clipBridge();
+  if (wxApi?.getClipboardData) return true;
+  const clip = (globalThis as { navigator?: { clipboard?: { readText?: () => Promise<string> } } }).navigator?.clipboard;
+  return !!(clip?.readText && (globalThis as { isSecureContext?: boolean }).isSecureContext);
+}
+
+function clipTextFromEvent(ev: Event): string {
+  const data = (ev as ClipboardEvent).clipboardData;
+  if (!data) return '';
+  return (data.getData('text') || data.getData('text/plain') || '').trim();
+}
+
 @ccclass('UgcTextPanel')
 export class UgcTextPanel extends Component {
   private _built = false;
@@ -278,14 +325,20 @@ export class UgcTextPanel extends Component {
   private _box: EditBox | null = null;
   private _draft = '';
   private _pasteField: HTMLTextAreaElement | null = null;
+  private _canvasTab: number | null = null;
+  private _pageTouch: { html: string; body: string } | null = null;
 
   onDestroy(): void {
     this._listenPaste(false);
+    this._lockCanvasFocus(false);
+    this._lockPageGestures(false);
     this._hidePasteField();
   }
 
   hide(): void {
     this._listenPaste(false);
+    this._lockCanvasFocus(false);
+    this._lockPageGestures(false);
     this._hidePasteField();
     this.unschedule(this._restoreCopyLabel);
     this._restoreCopyLabel();
@@ -323,6 +376,11 @@ export class UgcTextPanel extends Component {
     this._listenPaste(this._mode === 'load');
     this._showPasteField();
     if (this._mode === 'export') this._selectExportField();
+    else {
+      this._lockPageGestures(true);
+      this._lockCanvasFocus(true);
+      if (!isTouchUi()) this._holdPasteFocus();
+    }
     this._hint('');
   }
 
@@ -481,17 +539,30 @@ export class UgcTextPanel extends Component {
   }
 
   private async _paste(): Promise<void> {
+    if (isTouchUi() && !webCanReadClip()) {
+      const typed = promptPaste();
+      if (typed) {
+        this._applyInput(typed);
+        return;
+      }
+      this._holdPasteFocus();
+      this._hint(pasteHowHint(), 'err');
+      return;
+    }
     const text = (await readClipboard()).trim();
     if (text) {
       this._applyInput(text);
       return;
     }
-    if (this._focusPasteField()) {
-      this._hint('网页读不了剪贴板，请按 Ctrl+V', 'err');
-      return;
+    if (isTouchUi()) {
+      const typed = promptPaste();
+      if (typed) {
+        this._applyInput(typed);
+        return;
+      }
     }
-    this._focusBox();
-    this._hint('没读到剪贴板，请点输入框后按 Ctrl+V', 'err');
+    this._holdPasteFocus();
+    this._hint(pasteHowHint(), 'err');
   }
 
   private _applyInput(text: string): void {
@@ -521,12 +592,13 @@ export class UgcTextPanel extends Component {
     ta.setAttribute('autocomplete', 'off');
     ta.setAttribute('autocorrect', 'off');
     ta.setAttribute('spellcheck', 'false');
+    ta.setAttribute('enterkeyhint', 'done');
     ta.value = '';
     ta.style.cssText = [
       'position:fixed',
-      'z-index:20',
+      'z-index:1000001',
       'margin:0',
-      'padding:8px 10px',
+      'padding:12px 14px',
       'border:0',
       'outline:none',
       'resize:none',
@@ -535,16 +607,21 @@ export class UgcTextPanel extends Component {
       'color:transparent',
       'caret-color:#383058',
       'font:24px/34px "PingFang SC",sans-serif',
+      'pointer-events:auto',
+      'touch-action:auto',
+      '-webkit-touch-callout:default',
+      'user-select:text',
+      '-webkit-user-select:text',
+      '-moz-user-select:text',
     ].join(';');
     ta.addEventListener('paste', (ev) => {
       if (this._mode !== 'load') return;
-      const text = ev.clipboardData?.getData('text')?.trim() ?? '';
+      const text = clipTextFromEvent(ev);
       if (!text) return;
       ev.preventDefault();
       this._applyInput(text);
       this._hint('');
       ta.value = '';
-      ta.blur();
     });
     ta.addEventListener('input', () => {
       if (this._mode !== 'load') return;
@@ -580,8 +657,12 @@ export class UgcTextPanel extends Component {
       return;
     }
     const exportOn = this._mode === 'export';
-    ta.style.color = exportOn ? '#383058' : 'transparent';
-    ta.style.overflow = exportOn ? 'auto' : 'hidden';
+    const phoneLoad = !exportOn && isTouchUi();
+    ta.style.color = exportOn || phoneLoad ? '#383058' : 'transparent';
+    ta.style.background = phoneLoad ? 'rgba(255,248,238,0.98)' : 'transparent';
+    ta.style.overflow = exportOn || phoneLoad ? 'auto' : 'hidden';
+    ta.style.touchAction = 'auto';
+    ta.placeholder = phoneLoad ? '长按此处粘贴' : '';
     if (exportOn) ta.value = this._compact(this._draft);
     else if (!this._draft) ta.value = '';
     const vis = uiVisibleSize();
@@ -596,6 +677,9 @@ export class UgcTextPanel extends Component {
     const left = Math.min(a.x, b.x) + 8;
     const top = Math.min(a.y, b.y) + 8;
     ta.style.display = 'block';
+    ta.style.zIndex = '1000001';
+    ta.style.pointerEvents = 'auto';
+    ta.style.setProperty('user-select', 'text', 'important');
     ta.style.left = `${left}px`;
     ta.style.top = `${top}px`;
     ta.style.width = `${Math.max(8, Math.abs(b.x - a.x) - 16)}px`;
@@ -607,12 +691,72 @@ export class UgcTextPanel extends Component {
     if (!ta) return false;
     this._placePasteField();
     try {
+      const canvas = game.canvas as HTMLCanvasElement | null;
+      canvas?.blur?.();
       ta.focus();
       if (this._mode === 'export') ta.select();
     } catch {
       return false;
     }
     return true;
+  }
+
+  private _holdPasteFocus(): void {
+    this._focusPasteField();
+    this.unschedule(this._refocusPaste);
+    this.scheduleOnce(this._refocusPaste, 0);
+    this.scheduleOnce(this._refocusPaste, 0.08);
+  }
+
+  private _refocusPaste = (): void => {
+    if (!this.node.active || this._mode !== 'load') return;
+    this._focusPasteField();
+  };
+
+  private _lockPageGestures(on: boolean): void {
+    const doc = (globalThis as { document?: Document }).document;
+    const html = doc?.documentElement;
+    const body = doc?.body;
+    if (!html || !body) return;
+    if (on) {
+      if (!this._pageTouch) {
+        this._pageTouch = { html: html.style.touchAction, body: body.style.touchAction };
+      }
+      html.style.touchAction = 'auto';
+      body.style.touchAction = 'auto';
+      html.style.setProperty('user-select', 'text');
+      body.style.setProperty('user-select', 'text');
+      html.style.setProperty('-webkit-user-select', 'text');
+      body.style.setProperty('-webkit-user-select', 'text');
+      return;
+    }
+    if (!this._pageTouch) return;
+    html.style.touchAction = this._pageTouch.html;
+    body.style.touchAction = this._pageTouch.body;
+    html.style.removeProperty('user-select');
+    body.style.removeProperty('user-select');
+    html.style.removeProperty('-webkit-user-select');
+    body.style.removeProperty('-webkit-user-select');
+    this._pageTouch = null;
+  }
+
+  private _lockCanvasFocus(on: boolean): void {
+    const canvas = game.canvas as HTMLCanvasElement | null;
+    if (!canvas) return;
+    if (on) {
+      if (this._canvasTab === null) this._canvasTab = canvas.tabIndex;
+      canvas.tabIndex = -1;
+      try {
+        canvas.blur();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (this._canvasTab !== null) {
+      canvas.tabIndex = this._canvasTab;
+      this._canvasTab = null;
+    }
   }
 
   private _selectExportField(): boolean {
@@ -624,17 +768,33 @@ export class UgcTextPanel extends Component {
 
   private _onDocPaste = (ev: Event): void => {
     if (!this.node.active || this._mode !== 'load') return;
-    const text = (ev as ClipboardEvent).clipboardData?.getData('text')?.trim() ?? '';
+    const text = clipTextFromEvent(ev);
     if (!text) return;
     ev.preventDefault();
     this._applyInput(text);
+    this._hint('');
+  };
+
+  private _onPasteKey = (ev: Event): void => {
+    if (!this.node.active || this._mode !== 'load') return;
+    const e = ev as KeyboardEvent;
+    const key = String(e.key ?? '').toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && key === 'v') this._focusPasteField();
   };
 
   private _listenPaste(on: boolean): void {
     const doc = (globalThis as { document?: Document }).document;
-    if (!doc) return;
-    doc.removeEventListener('paste', this._onDocPaste);
-    if (on) doc.addEventListener('paste', this._onDocPaste);
+    const win = globalThis as {
+      addEventListener?: (t: string, fn: (ev: Event) => void, cap?: boolean) => void;
+      removeEventListener?: (t: string, fn: (ev: Event) => void, cap?: boolean) => void;
+    };
+    doc?.removeEventListener('paste', this._onDocPaste, true);
+    win.removeEventListener?.('paste', this._onDocPaste, true);
+    win.removeEventListener?.('keydown', this._onPasteKey, true);
+    if (!on) return;
+    doc?.addEventListener('paste', this._onDocPaste, true);
+    win.addEventListener?.('paste', this._onDocPaste, true);
+    win.addEventListener?.('keydown', this._onPasteKey, true);
   }
 
   private _syncView(_placeholder: string): void {
@@ -690,7 +850,7 @@ export class UgcTextPanel extends Component {
     n.getComponent(UITransform)?.setContentSize(w, h);
     const empty = this._mode === 'load' && !this._draft.trim();
     const lab = n.getComponent(Label) ?? n.addComponent(Label);
-    lab.string = empty ? '点下方粘贴' : this._compact(this._draft);
+    lab.string = empty ? loadPlaceholder() : this._compact(this._draft);
     lab.useSystemFont = true;
     lab.fontFamily = 'PingFang SC';
     lab.fontSize = 24;
@@ -828,7 +988,7 @@ export class UgcTextPanel extends Component {
     text.overflow = Label.Overflow.CLAMP;
 
     const phN = this._mk('PLACEHOLDER_LABEL', BOX_W - BOX_PAD * 2, BOX_H - BOX_PAD * 2, n);
-    const ph = this._plain(phN, '点这里输入，或点下方粘贴', 24, PLACE, BOX_W - BOX_PAD * 2, BOX_H - BOX_PAD * 2);
+    const ph = this._plain(phN, loadPlaceholder(), 24, PLACE, BOX_W - BOX_PAD * 2, BOX_H - BOX_PAD * 2);
     ph.overflow = Label.Overflow.CLAMP;
 
     const box = n.getComponent(EditBox) ?? n.addComponent(EditBox);
@@ -838,7 +998,7 @@ export class UgcTextPanel extends Component {
     box.textLabel = text;
     box.placeholderLabel = ph;
     box.backgroundImage = whiteFrame();
-    box.placeholder = '点这里输入，或点下方粘贴';
+    box.placeholder = loadPlaceholder();
     n.off(EditBox.EventType.TEXT_CHANGED, this._onBoxChanged, this);
     n.on(EditBox.EventType.TEXT_CHANGED, this._onBoxChanged, this);
     return box;

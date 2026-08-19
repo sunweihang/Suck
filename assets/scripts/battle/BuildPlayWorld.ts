@@ -24,7 +24,6 @@ import {
 import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
 import { BlockCell } from './BlockCell';
-import { DebrisBit } from './DebrisBit';
 import {
   allPrefabTokens,
   blockPrefabPath,
@@ -51,7 +50,6 @@ import { loadPrefabFromPack } from '../boot/LoadBundles';
 import { UnitActor } from './UnitActor';
 
 const prefabJobs = new Map<string, Promise<Prefab | null>>();
-const DEBRIS_SEED = 8;
 const PLAY_MESH_UUIDS = [
   '7e22bb20-0311-4b02-8002-000000000001@e1d15',
   '7e22bb20-0319-4b02-8002-000000000009@0d4df',
@@ -245,10 +243,9 @@ export async function buildPlayWorld(
   await preloadPlayMeshes();
   const blockPfs: Record<string, Prefab> = Object.create(null);
   const unitPfs: Record<string, Prefab> = Object.create(null);
-  const [groundPf, slotPf, debrisPf, ironPf, chestPf, blockLoaded, unitLoaded] = await Promise.all([
+  const [groundPf, slotPf, ironPf, chestPf, blockLoaded, unitLoaded] = await Promise.all([
     loadPrefab(prefabPath('Ground'), prefabUuid('Ground'), 'Ground'),
     loadPrefab(prefabPath('Slot'), prefabUuid('Slot'), 'Slot'),
-    loadPrefab(prefabPath('Debris'), prefabUuid('Debris'), 'Debris'),
     needs.iron ? loadPrefab(prefabPath('IronPlate'), prefabUuid('IronPlate'), 'IronPlate') : Promise.resolve(null),
     needs.chest ? loadChestPrefab() : Promise.resolve(null),
     Promise.all(tokens.map((t) => loadPrefab(blockPrefabPath(t), blockPrefabUuid(t), 'block:' + t))),
@@ -424,17 +421,10 @@ export async function buildPlayWorld(
 
   const fly = new Node('FlyRoot');
   root.addChild(fly);
-
-  const pool = new Node('DebrisPool');
-  root.addChild(pool);
-  for (let i = 0; i < DEBRIS_SEED; i++) {
-    const n = spawn(debrisPf, pool, `Debris_${i}`, new Vec3(0, -2, 0));
-    n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
-    n.active = false;
-  }
+  root.addChild(new Node('DebrisPool'));
 
   const battle = root.addComponent(BattleDirector);
-  battle.armSpawn(unitPfs, reserve, debrisPf);
+  battle.armSpawn(unitPfs, reserve);
   // Build while active so Cocos schedules update; hide only after onLoad/onEnable.
   if (opts?.active === false) root.active = false;
   return { root, battle };
