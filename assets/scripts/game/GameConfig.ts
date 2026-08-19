@@ -34,7 +34,8 @@ export const GAME = {
   shotMinSec: 0.16,
   shotMaxSec: 0.44,
   shotArc: 0.02,
-  wallSpinPeriod: 22,
+  /** 0 = no idle spin; swipe still turns the field. */
+  wallSpinPeriod: 0,
   /** Swipe: degrees of field yaw/pitch per screen pixel. */
   wallSpinDragDeg: 0.38,
 

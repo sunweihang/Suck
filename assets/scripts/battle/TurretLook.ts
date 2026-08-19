@@ -138,12 +138,12 @@ export function applyTurretLook(host: Node, colorId: ColorId): void {
   };
   if (_mesh) {
     apply(_mesh);
-    applyToyCaster(host, false, true);
+    applyToyCaster(host, false, false);
     return;
   }
   preloadTurretLooks().then(() => {
     if (_mesh) apply(_mesh);
-    if (host.isValid) applyToyCaster(host, false, true);
+    if (host.isValid) applyToyCaster(host, false, false);
   });
 }
 

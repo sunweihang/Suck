@@ -1,4 +1,4 @@
-import { Color, Mesh, MeshRenderer, Material, Node, Sprite, Vec3 } from 'cc';
+import { Color, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3 } from 'cc';
 
 const GRAY_DIM = 0.76;
 const GRAY_SPRITE = new Color(168, 168, 168, 255);
@@ -100,15 +100,20 @@ export function applyBrickGray(node: Node, on: boolean): void {
 }
 
 const SKIP_BRICK_DRAW = /^(Chip_|Trail_|Hit_|Muzzle_)/;
+/** Off-camera user layer so buried bricks leave the instance buffer without tearing the batch. */
+const BURIED_LAYER = 1 << 19;
 
-/** Toggle every brick mesh (root + bomb/paint/lock parts), not just the root renderer. */
+function setDrawnLayer(node: Node, layer: number): void {
+  if (SKIP_BRICK_DRAW.test(node.name)) return;
+  node.layer = layer;
+  const kids = node.children;
+  for (let i = 0; i < kids.length; i++) setDrawnLayer(kids[i], layer);
+}
+
+/** Hide buried bricks from the play camera without disabling MeshRenderer. */
 export function setBrickMeshEnabled(node: Node, on: boolean): void {
   if (!node?.isValid) return;
-  const mrs = node.getComponentsInChildren(MeshRenderer);
-  for (let i = 0; i < mrs.length; i++) {
-    if (SKIP_BRICK_DRAW.test(mrs[i].node.name)) continue;
-    mrs[i].enabled = on;
-  }
+  setDrawnLayer(node, on ? Layers.Enum.DEFAULT : BURIED_LAYER);
 }
 
 /** Rebind mesh + material after reparent / pool reuse so a dead GPU descriptor cannot stick. */
@@ -157,7 +162,7 @@ export function applyBrickPlastic(node: Node): void {
   applyToyCaster(node, false, false);
 }
 
-export function applyToyCaster(node: Node, receive = false, cast = true): void {
+export function applyToyCaster(node: Node, receive = false, cast = false): void {
   const mrs = node.getComponentsInChildren(MeshRenderer);
   for (let i = 0; i < mrs.length; i++) {
     const mr = mrs[i];

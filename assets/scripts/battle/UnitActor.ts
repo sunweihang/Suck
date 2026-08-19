@@ -68,7 +68,7 @@ export class UnitActor extends Component {
   private _flyKeepScale = false;
 
   onLoad(): void {
-    applyToyCaster(this.node, false, true);
+    applyToyCaster(this.node, false, false);
     this.syncFromName();
   }
 

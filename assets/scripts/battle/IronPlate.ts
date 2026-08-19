@@ -13,7 +13,7 @@ export class IronPlate extends Component {
   private _t = 0;
 
   onLoad(): void {
-    applyToyCaster(this.node, true, false);
+    applyToyCaster(this.node, false, false);
     this.syncFromName();
   }
 

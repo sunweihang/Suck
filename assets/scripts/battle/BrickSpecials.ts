@@ -11,16 +11,21 @@ function usable(mat: Material | null | undefined): mat is Material {
   return !!mat?.passes?.length && !!mat.passes[0].descriptorSet;
 }
 
-function glossy(key: string, color: Color, roughness: number, emit: number): Material {
-  const hit = _mats.get(key);
-  if (usable(hit)) return hit;
+function makeLit(color: Color, roughness: number, metallic: number, emit: number): Material {
   const mat = new Material();
   mat.initialize({ effectName: 'builtin-standard' });
   mat.setProperty('mainColor', color);
   mat.setProperty('roughness', roughness);
-  mat.setProperty('metallic', 0);
+  mat.setProperty('metallic', metallic);
   mat.setProperty('emissive', color);
   mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+  return mat;
+}
+
+function glossy(key: string, color: Color, roughness: number, emit: number): Material {
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const mat = makeLit(color, roughness, 0, emit);
   _mats.set(key, mat);
   return mat;
 }
@@ -36,21 +41,12 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return c;
 }
 
-/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash.
- *  No GPU instancing: pooled debris and buried-cull toggles share these materials,
- *  and instanced batches lose their descriptor set when instances are enabled/disabled. */
+/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash. */
 function brickMat(rgb: readonly [number, number, number]): Material {
   const key = `brick-s-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
-  const color = colorOf(rgb);
-  const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', 0.34);
-  mat.setProperty('metallic', 0.04);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(0.04, 0.04, 0.04));
+  const mat = makeLit(colorOf(rgb), 0.34, 0.04, 0.04);
   _mats.set(key, mat);
   return mat;
 }

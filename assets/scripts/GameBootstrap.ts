@@ -950,12 +950,7 @@ export class GameBootstrap extends Component {
     const scene = this.node.scene;
     if (!scene) return;
     const shadows = scene.globals?.shadows;
-    if (shadows) {
-      shadows.enabled = true;
-      shadows.type = 1;
-      shadows.shadowMapSize = 512;
-      shadows.shadowColor = new Color(32, 48, 68, 200);
-    }
+    if (shadows) shadows.enabled = false;
     const ambient = scene.globals?.ambient;
     if (ambient) {
       ambient.skyIllum = 26000;
@@ -969,16 +964,7 @@ export class GameBootstrap extends Component {
       lightNode.setRotationFromEuler(-58, 46, 0);
       light.color = new Color(255, 232, 204, 255);
       light.illuminance = 215000;
-      light.shadowEnabled = true;
-      light.shadowPcf = 1;
-      light.shadowBias = 0.0006;
-      light.shadowNormalBias = 0.16;
-      light.shadowSaturation = 0.64;
-      light.shadowDistance = 20;
-      light.shadowFixedArea = true;
-      light.shadowNear = 0.5;
-      light.shadowFar = 28;
-      light.shadowOrthoSize = 7;
+      light.shadowEnabled = false;
     }
     const fillNode = scene.getChildByName('Fill Light');
     if (fillNode) fillNode.active = false;
@@ -1336,13 +1322,11 @@ export class GameBootstrap extends Component {
     this._gm?.layoutChrome();
   }
 
-  /** Home covers the 3D field; keep the world and shadow pass off until play. */
+  /** Home covers the 3D field; keep the world camera off until play. */
   private _setWorldLive(on: boolean): void {
     const world = this._ugcEditor?.node ?? this._battle?.node;
     if (world?.isValid) world.active = on;
     if (this._mainCam?.isValid) this._mainCam.enabled = on;
-    const shadows = this.node.scene?.globals?.shadows;
-    if (shadows) shadows.enabled = false;
   }
 
   private _showHome(): void {
