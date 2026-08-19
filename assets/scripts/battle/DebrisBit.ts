@@ -57,9 +57,11 @@ export class DebrisBit extends Component {
     _pos.z += this._vel.z * dt;
     this.node.setPosition(_pos);
     const u = this._life / this._lifeMax;
-    const fade = u > 0.35 ? 1 : Math.max(0.04, u / 0.35);
-    const s = this._size * fade;
-    this.node.setScale(s, s, s);
+    if (u <= 0.35) {
+      const fade = Math.max(0.04, u / 0.35);
+      const s = this._size * fade;
+      this.node.setScale(s, s, s);
+    }
     if (this._life <= 0) {
       this.node.active = false;
       this.enabled = false;

@@ -45,9 +45,10 @@ export class IronPlate extends Component {
     if (!this._shake) return;
     this._t += dt;
     const amp = 0.02 + Math.min(0.04, this._t * 0.05);
+    const n = this._t * 37.7;
     this.node.setPosition(
-      this._basePos.x + (Math.random() - 0.5) * amp,
-      this._basePos.y + (Math.random() - 0.5) * amp,
+      this._basePos.x + Math.sin(n) * amp,
+      this._basePos.y + Math.cos(n * 1.31) * amp,
       this._basePos.z,
     );
   }

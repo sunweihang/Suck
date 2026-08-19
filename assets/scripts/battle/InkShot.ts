@@ -221,9 +221,8 @@ function camPos(out: Vec3, fallback: Vec3): void {
   out.set(_camCached);
 }
 
-function faceCam(node: Node, camPosW: Vec3): void {
-  node.getWorldPosition(_pos);
-  _toCam.set(camPosW.x - _pos.x, camPosW.y - _pos.y, camPosW.z - _pos.z);
+function faceCamAt(node: Node, at: Vec3, camPosW: Vec3): void {
+  _toCam.set(camPosW.x - at.x, camPosW.y - at.y, camPosW.z - at.z);
   if (_toCam.lengthSqr() < 1e-8) _toCam.set(0, 1, 0);
   Vec3.normalize(_axisZ, _toCam);
   _axisY.set(0, 1, 0);
@@ -238,9 +237,8 @@ function faceCam(node: Node, camPosW: Vec3): void {
   node.setWorldRotation(_rot);
 }
 
-function faceTrail(node: Node, along: Vec3, camPosW: Vec3): void {
-  node.getWorldPosition(_pos);
-  _toCam.set(camPosW.x - _pos.x, camPosW.y - _pos.y, camPosW.z - _pos.z);
+function faceTrailAt(at: Vec3, along: Vec3, camPosW: Vec3): void {
+  _toCam.set(camPosW.x - at.x, camPosW.y - at.y, camPosW.z - at.z);
   if (_toCam.lengthSqr() < 1e-8) _toCam.set(0, 1, 0);
   Vec3.normalize(_axisY, along);
   Vec3.cross(_axisX, _axisY, _toCam);
@@ -250,7 +248,6 @@ function faceTrail(node: Node, along: Vec3, camPosW: Vec3): void {
   if (_axisZ.lengthSqr() < 1e-8) _axisZ.set(_toCam);
   Vec3.normalize(_axisZ, _axisZ);
   Quat.fromAxes(_rot, _axisX, _axisY, _axisZ);
-  node.setWorldRotation(_rot);
 }
 
 export function preloadInkShot(): Promise<void> {
@@ -335,7 +332,7 @@ function poseMuzzle(fx: MuzzleFx): void {
   fx.mr.enabled = true;
   fx.node.getWorldPosition(_pos);
   camPos(_camP, _pos);
-  faceCam(fx.node, _camP);
+  faceCamAt(fx.node, _pos, _camP);
   const u = Math.min(1, fx.t / (MUZZLE_FRAMES / MUZZLE_FPS));
   const pop = u < 0.2 ? 0.7 + u * 1.5 : 1.1 - u * 0.25;
   fx.node.setScale(MUZZLE * pop, MUZZLE * pop, 1);
@@ -346,7 +343,7 @@ function poseHit(fx: HitFx): void {
   const s = HIT_S0 + (HIT_S1 - HIT_S0) * u;
   fx.node.getWorldPosition(_pos);
   camPos(_camP, _pos);
-  faceCam(fx.node, _camP);
+  faceCamAt(fx.node, _pos, _camP);
   const fade = 1 - u * u;
   fx.node.setScale(s * fade, s * fade, 1);
 }
@@ -514,6 +511,8 @@ export class InkShot extends Component {
     this._armed = false;
     this.node.active = true;
     this.enabled = true;
+    this.node.setWorldRotation(Quat.IDENTITY);
+    this.node.setScale(1, 1, 1);
     try {
       this._ensureLook();
       this._pose(0);
@@ -585,8 +584,6 @@ export class InkShot extends Component {
     const dz = this._to.z - this._from.z;
     _pos.set(this._from.x + dx * u, this._from.y + dy * u, this._from.z + dz * u);
     this.node.setWorldPosition(_pos);
-    this.node.setWorldRotation(Quat.IDENTITY);
-    this.node.setScale(1, 1, 1);
 
     _dir.set(dx, dy, dz);
     camPos(_camP, _pos);
@@ -599,31 +596,29 @@ export class InkShot extends Component {
     const showTrail = trailLen > 0.03;
 
     if (this._ball?.isValid) {
-      faceCam(this._ball, _camP);
+      faceCamAt(this._ball, _pos, _camP);
       this._ball.setScale(BALL * fade, BALL * fade, 1);
     }
     if (this._glow?.isValid) {
-      if (this._ball?.isValid) {
-        this._ball.getWorldRotation(_rot);
-        this._glow.setWorldRotation(_rot);
-      } else {
-        faceCam(this._glow, _camP);
-      }
+      if (this._ball?.isValid) this._glow.setWorldRotation(_rot);
+      else faceCamAt(this._glow, _pos, _camP);
       this._glow.setScale(GLOW * fade, GLOW * fade, 1);
     }
-    if (this._haze?.isValid) {
-      this._haze.active = showTrail && !!_hazeMat;
-      if (showTrail) {
-        faceTrail(this._haze, _dir, _camP);
+    if (showTrail) {
+      faceTrailAt(_pos, _dir, _camP);
+      if (this._haze?.isValid) {
+        this._haze.active = !!_hazeMat;
+        this._haze.setWorldRotation(_rot);
         this._haze.setScale(HAZE_W * fade, hazeLen, 1);
       }
-    }
-    if (this._trail?.isValid) {
-      this._trail.active = showTrail && !!_trailMat;
-      if (showTrail) {
-        faceTrail(this._trail, _dir, _camP);
+      if (this._trail?.isValid) {
+        this._trail.active = !!_trailMat;
+        this._trail.setWorldRotation(_rot);
         this._trail.setScale(TRAIL_W * fade, trailLen, 1);
       }
+    } else {
+      if (this._haze?.isValid) this._haze.active = false;
+      if (this._trail?.isValid) this._trail.active = false;
     }
   }
 }

@@ -78,7 +78,11 @@ export function preloadTurretLooks(): Promise<void> {
   return _boot;
 }
 
+const _hid = new WeakSet<Node>();
+
 function hideFace(host: Node): void {
+  if (_hid.has(host)) return;
+  _hid.add(host);
   for (const name of FACE) {
     const n = host.getChildByName(name) ?? host.getChildByName('Rig')?.getChildByName(name);
     if (n) n.active = false;
@@ -178,12 +182,12 @@ export function applyQueueBlockLook(host: Node, _colorId: ColorId = 0): void {
   const mesh = _hidden ?? _cube;
   if (mesh) {
     apply(mesh);
-    applyToyCaster(host, false, true);
+    applyToyCaster(host, false, false);
     return;
   }
   preloadTurretLooks().then(() => {
     const ready = _hidden ?? _cube;
     if (ready) apply(ready);
-    if (host.isValid) applyToyCaster(host, false, true);
+    if (host.isValid) applyToyCaster(host, false, false);
   });
 }

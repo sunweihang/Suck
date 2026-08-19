@@ -2,7 +2,8 @@
 
 /**
  * Slim a WeChat mini-game output: drop unused ASTC/PKM/PVR copies,
- * keep PNG only, crush leftover fat PNGs, and pin project flags.
+ * crush leftover fat PNGs, pin ImageAsset fmt to the remaining native
+ * file (jpg stays jpg — do not force png), and pin project flags.
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -10,6 +11,14 @@ const path = require('path');
 
 const COMPRESS_EXT = new Set(['.pvr', '.pkm', '.astc']);
 const JUNK_NAME = new Set(['.ds_store', 'thumbs.db']);
+const FMT_BY_EXT = {
+  '.png': '0',
+  '.jpg': '1',
+  '.jpeg': '2',
+  '.bmp': '3',
+  '.webp': '4',
+};
+const NATIVE_PREFER = ['.jpg', '.jpeg', '.webp', '.png', '.bmp'];
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -79,6 +88,48 @@ function patchGameJson(dest) {
   fs.writeFileSync(file, `${JSON.stringify(json, null, 4)}\n`);
 }
 
+function nativeDirOf(importFile) {
+  const parts = path.dirname(importFile).split(path.sep);
+  const i = parts.lastIndexOf('import');
+  if (i < 0) return '';
+  parts[i] = 'native';
+  return parts.join(path.sep);
+}
+
+function nativeFmtForImport(importFile) {
+  const uuid = path.basename(importFile, '.json');
+  if (!uuid || uuid.includes('@')) return '';
+  const nativeDir = nativeDirOf(importFile);
+  if (!nativeDir || !fs.existsSync(nativeDir)) return '';
+  let names = [];
+  try {
+    names = fs.readdirSync(nativeDir);
+  } catch {
+    return '';
+  }
+  const hits = names.filter((name) => name.startsWith(`${uuid}.`));
+  for (const ext of NATIVE_PREFER) {
+    if (hits.some((name) => name.toLowerCase().endsWith(ext))) return FMT_BY_EXT[ext];
+  }
+  return '';
+}
+
+function patchImageFmt(dest) {
+  let patched = 0;
+  for (const file of walk(dest)) {
+    if (!file.endsWith('.json') || path.basename(file).includes('@')) continue;
+    const src = fs.readFileSync(file, 'utf8');
+    if (!src.includes('cc.ImageAsset') || !/"fmt":"[^"]*"/.test(src)) continue;
+    const fmt = nativeFmtForImport(file);
+    if (!fmt) continue;
+    const next = src.replace(/"fmt":"[^"]*"/g, `"fmt":"${fmt}"`);
+    if (next === src) continue;
+    fs.writeFileSync(file, next);
+    patched += 1;
+  }
+  return patched;
+}
+
 function quantPngs(dest) {
   const pngquant = which('pngquant');
   if (!pngquant) return { n: 0, saved: 0 };
@@ -118,14 +169,7 @@ function slimWechatBuild(dest) {
     fs.unlinkSync(file);
     removed += 1;
   }
-  let patched = 0;
-  for (const file of walk(dest)) {
-    if (!file.endsWith('.json')) continue;
-    const src = fs.readFileSync(file, 'utf8');
-    if (!/"fmt":"(?!0")[^"]*"/.test(src)) continue;
-    fs.writeFileSync(file, src.replace(/"fmt":"[^"]*"/g, '"fmt":"0"'));
-    patched += 1;
-  }
+  const patched = patchImageFmt(dest);
   const quant = quantPngs(dest);
   patchWxProjectConfig(dest);
   patchGameJson(dest);

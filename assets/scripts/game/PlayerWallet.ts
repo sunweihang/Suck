@@ -7,6 +7,7 @@ export const GOLD = {
   start: 200,
   win: 25,
   fail: 10,
+  ad: 50,
   slot: 600,
   item: {
     shuffle: 20,
@@ -22,6 +23,10 @@ export function itemGoldCost(id: ItemId): number {
 
 export function slotGoldCost(): number {
   return GOLD.slot;
+}
+
+export function goldAdReward(): number {
+  return GOLD.ad;
 }
 
 const EMPTY_ITEMS: Record<ItemId, number> = {

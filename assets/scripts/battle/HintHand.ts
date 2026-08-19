@@ -4,6 +4,7 @@ import {
   Color,
   Component,
   Layers,
+  Quat,
   RenderRoot2D,
   Sprite,
   SpriteFrame,
@@ -17,6 +18,8 @@ const { ccclass } = _decorator;
 const HAND_W = 180;
 const HAND_H = 220;
 const WORLD_SCALE = 0.0035;
+const UI_SCALE = 0.78;
+const UI_BOB = 10;
 
 @ccclass('HintHand')
 export class HintHand extends Component {
@@ -25,9 +28,12 @@ export class HintHand extends Component {
   private _t = 0;
   private _hidden = false;
   private _hasPath = false;
+  private _ui = false;
   private _cam: Camera | null = null;
+  private readonly _camQ = new Quat();
 
   onLoad(): void {
+    this._ui = this.node.parent?.layer === Layers.Enum.UI_2D;
     this._setupNode();
     this._loadArt();
   }
@@ -42,7 +48,17 @@ export class HintHand extends Component {
   }
 
   placeWorld(from: Vec3, to: Vec3): void {
-    if (this._hidden) return;
+    this._ui = false;
+    this._hidden = false;
+    this._from.set(from);
+    this._to.set(to);
+    this._hasPath = true;
+    this.node.active = true;
+  }
+
+  placeUi(from: Vec3, to: Vec3): void {
+    this._ui = true;
+    this._hidden = false;
     this._from.set(from);
     this._to.set(to);
     this._hasPath = true;
@@ -58,39 +74,51 @@ export class HintHand extends Component {
       Math.abs(this._from.x - this._to.x) +
         Math.abs(this._from.y - this._to.y) +
         Math.abs(this._from.z - this._to.z) <
-      0.04;
+      (this._ui ? 2 : 0.04);
     let atTo = false;
     let show = true;
     let bob = 0;
+    const bobAmp = this._ui ? UI_BOB : 0.03;
     if (same) {
-      bob = (Math.sin(this._t * 14) + 1) * 0.03;
+      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
     } else if (p < 0.38) {
-      bob = (Math.sin(this._t * 14) + 1) * 0.03;
+      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
     } else if (p < 0.48) {
       show = false;
     } else if (p < 0.86) {
       atTo = true;
-      bob = (Math.sin(this._t * 14) + 1) * 0.03;
+      bob = (Math.sin(this._t * 14) + 1) * bobAmp;
     } else {
       show = false;
       atTo = true;
     }
     const src = atTo ? this._to : this._from;
+    const scale = this._ui ? UI_SCALE : WORLD_SCALE;
     this.node.setWorldPosition(src.x, src.y + bob, src.z);
     // Flip Y so the finger points up from below instead of covering the target.
-    this.node.setScale(show ? WORLD_SCALE : 0, show ? -WORLD_SCALE : 0, show ? WORLD_SCALE : 0);
+    this.node.setScale(show ? scale : 0, show ? -scale : 0, show ? scale : 0);
+    if (this._ui) {
+      this.node.setRotationFromEuler(0, 0, 0);
+      return;
+    }
     const camN = this._cam?.node;
-    if (camN) this.node.setWorldRotation(camN.worldRotation);
+    if (camN) {
+      camN.getWorldRotation(this._camQ);
+      this.node.setWorldRotation(this._camQ);
+    }
   }
 
   private _setupNode(): void {
-    this.node.layer = Layers.Enum.UI_3D;
-    if (!this.node.getComponent(RenderRoot2D)) this.node.addComponent(RenderRoot2D);
+    if (!this._ui) {
+      this.node.layer = Layers.Enum.UI_3D;
+      if (!this.node.getComponent(RenderRoot2D)) this.node.addComponent(RenderRoot2D);
+    }
     let ut = this.node.getComponent(UITransform);
     if (!ut) ut = this.node.addComponent(UITransform);
     ut.setContentSize(HAND_W, HAND_H);
     ut.setAnchorPoint(0.5, 0.1);
-    this.node.setScale(WORLD_SCALE, -WORLD_SCALE, WORLD_SCALE);
+    const scale = this._ui ? UI_SCALE : WORLD_SCALE;
+    this.node.setScale(scale, -scale, scale);
     if (!this.node.getComponent(Sprite)) this.node.addComponent(Sprite);
   }
 

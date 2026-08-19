@@ -38,6 +38,10 @@ const _camFrom = new Vec3();
 let _playCam: Camera | null = null;
 let _camPoseFrame = -1;
 let _camLive = false;
+let _idleFrame = -1;
+const _idleQ = new Quat();
+const _idleS = new Vec3();
+const _idleP = new Vec3();
 Quat.fromEuler(_restQ, TURRET_PITCH_DEG, TURRET_YAW_DEG, 0);
 
 function playCam(): Camera | null {
@@ -282,12 +286,17 @@ export class TurretAnim {
       body.setRotation(_clipQ);
       body.setScale(_scale);
     } else {
-      evalClip(CLIP_IDLE, sharedIdle, true, _clipQ, _scale, _pos);
+      const frame = director.getTotalFrames();
+      if (_idleFrame !== frame) {
+        _idleFrame = frame;
+        evalClip(CLIP_IDLE, sharedIdle, true, _idleQ, _idleS, _idleP);
+      }
       rig.setRotation(_ident);
-      Quat.multiply(_rootQ, _restQ, _clipQ);
+      Quat.multiply(_rootQ, _restQ, _idleQ);
       body.setRotation(_rootQ);
       body.setScale(1, 1, 1);
       _scale.set(1, 1, 1);
+      _pos.set(_idleP);
     }
     rig.setPosition(
       lock ? 0 : _pos.x * CLIP_POS_SCALE,

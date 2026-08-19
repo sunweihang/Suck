@@ -206,9 +206,10 @@ export class BlockCell extends Component {
         return;
       }
       const amp = 0.03 * (this._nudgeT / 0.28);
+      const n = (0.28 - this._nudgeT) * 52;
       this.node.setPosition(
-        this._nudgeBase.x + (Math.random() - 0.5) * amp,
-        this._nudgeBase.y + (Math.random() - 0.5) * amp,
+        this._nudgeBase.x + Math.sin(n) * amp,
+        this._nudgeBase.y + Math.cos(n * 1.37) * amp,
         this._nudgeBase.z,
       );
       return;

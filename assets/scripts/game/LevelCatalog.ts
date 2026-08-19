@@ -188,21 +188,16 @@ export type ItemId = 'shuffle' | 'hook' | 'shovel' | 'bomb';
 
 export const ITEM_UNLOCK_LEVEL: Record<ItemId, number> = {
   shuffle: 3,
-  hook: 8,
-  shovel: 10,
-  bomb: 5,
+  hook: 4,
+  shovel: 5,
+  bomb: 6,
 };
+
+/** Victory settle: from this cleared level, hide 下一关 and keep only 双倍领取. */
+export const WIN_DOUBLE_ONLY_FROM = 35;
 
 export function itemUnlocked(id: ItemId, level: number): boolean {
   return (level | 0) >= ITEM_UNLOCK_LEVEL[id];
-}
-
-export function isTutorialLevel(_id: number): boolean {
-  return false;
-}
-
-export function showsPlayHint(_id: number): boolean {
-  return false;
 }
 
 export function levelTitle(id: number): string {

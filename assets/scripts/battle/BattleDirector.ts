@@ -45,7 +45,8 @@ import {
 } from '../game/GameConfig';
 import { paintNodeColor, paintUnitColor } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
-import { itemUnlocked, showsPlayHint, UnitSpec, type ItemId } from '../game/LevelCatalog';
+import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
+import { activeGuide, completeGuide, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit } from './DebrisBit';
@@ -104,6 +105,8 @@ const _hitLocal = new Vec3();
 const _hitDir = new Vec3();
 const _hitMin = new Vec3(-0.5, -0.5, -0.5);
 const _hitMax = new Vec3(0.5, 0.5, 0.5);
+const _hintA = new Vec3();
+const _hintB = new Vec3();
 const FACE = [
   [1, 0, 0, 1, 0, 0],
   [-1, 0, 0, -1, 0, 0],
@@ -228,6 +231,11 @@ export class BattleDirector extends Component {
   private _needHoldRefresh = false;
   private _visDirty = true;
   private _visSkip = 0;
+  private _unstickT = 0;
+  private readonly _raftBricks: BlockCell[] = [];
+  private readonly _aimBest = new Map<UnitActor, BlockCell>();
+  private _aimVisKey = 0x7fffffff;
+  private _uiHits: Node[] = [];
   private readonly _lockSeen = new Set<BlockCell>();
   private readonly _lockGroup: BlockCell[] = [];
   private readonly _lockStack: BlockCell[] = [];
@@ -257,6 +265,8 @@ export class BattleDirector extends Component {
   private _onWin: (() => void) | null = null;
   private _onLose: (() => void) | null = null;
   private _onItems: ((state: ItemHudState) => void) | null = null;
+  private _onGuide: ((guide: GuideView | null) => void) | null = null;
+  private _guideKey = '';
   private _onGoldDenied: (() => void) | null = null;
   private _wallet: PlayerWallet | null = null;
   private _hookPick = false;
@@ -315,6 +325,7 @@ export class BattleDirector extends Component {
     onWin?: () => void;
     onLose?: () => void;
     onItems?: (state: ItemHudState) => void;
+    onGuide?: (guide: GuideView | null) => void;
     onGoldDenied?: () => void;
     onChest?: (chest: ChestActor) => void;
     onUnlockSlot?: (slot: SlotPad) => void;
@@ -326,6 +337,8 @@ export class BattleDirector extends Component {
     this._onWin = opts.onWin ?? null;
     this._onLose = opts.onLose ?? null;
     this._onItems = opts.onItems ?? null;
+    this._onGuide = opts.onGuide ?? null;
+    this._guideKey = '*';
     this._onGoldDenied = opts.onGoldDenied ?? null;
     this._onChest = opts.onChest ?? null;
     this._onUnlockSlot = opts.onUnlockSlot ?? null;
@@ -333,6 +346,7 @@ export class BattleDirector extends Component {
     this._won = false;
     this._lost = false;
     this._collect();
+    this._bindUiHits();
     this._bindTouch();
     this.setPlaying(false);
     void preloadMergeBurst();
@@ -369,7 +383,11 @@ export class BattleDirector extends Component {
   }
 
   update(dt: number): void {
-    this._unstickCombat();
+    this._unstickT += dt;
+    if (this._unstickT >= 0.12) {
+      this._unstickT = 0;
+      this._unstickCombat();
+    }
     this._fireUnits(dt);
     this._tickField(dt);
     this._tickRaft(dt);
@@ -377,16 +395,6 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint();
-  }
-
-  private _walkGather<T extends Component>(ctor: new () => T, out: T[]): void {
-    const walk = (n: Node): void => {
-      const c = n.getComponent(ctor);
-      if (c) out.push(c);
-      const kids = n.children;
-      for (let i = 0; i < kids.length; i++) walk(kids[i]);
-    };
-    walk(this.node);
   }
 
   private _unstickCombat(): void {
@@ -406,6 +414,8 @@ export class BattleDirector extends Component {
   private _collect(): void {
     this._blocks.length = 0;
     this._units.length = 0;
+    this._aimBest.clear();
+    this._raftBricks.length = 0;
     this._slots.length = 0;
     this._debris.length = 0;
     this._shots.length = 0;
@@ -488,7 +498,8 @@ export class BattleDirector extends Component {
     });
     this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
     this._hint = this._ensureWorldHint();
-    if (this._hint && !showsPlayHint(PLAY.levelId)) this._hint.hide();
+    this._emitGuide(null);
+    this._hint?.hide();
     this._slots.sort((a, b) => a.index - b.index);
     this._units.sort((a, b) => a.index - b.index);
     this._bench = bench;
@@ -502,6 +513,7 @@ export class BattleDirector extends Component {
     this._lookDirty = true;
     this._needHoldRefresh = false;
     this._stuckT = 0;
+    this._unstickT = 0;
     this._nudgeCool = 0;
     this._refreshLocks();
     this._placeRaft(0);
@@ -656,23 +668,134 @@ export class BattleDirector extends Component {
   }
 
   private _syncHint(): void {
-    if (!this._playing || this._won || this._lost) return;
-    if (!showsPlayHint(PLAY.levelId)) return;
-    const hint = this._hint;
-    if (!hint) return;
-    hint.bindCamera(this._cam);
-    let unit: UnitActor | null = null;
-    for (const u of this._units) {
-      if (u.usable && u.state === 'bench' && u.benchRank === 0) {
-        unit = u;
-        break;
-      }
+    if (!this._playing || this._won || this._lost) {
+      this._emitGuide(null);
+      this._hint?.hide();
+      return;
     }
-    if (!unit) return;
-    unit.node.getWorldPosition(_world);
-    _world.y += 0.02;
-    _world.z += 0.06;
-    hint.placeWorld(_world, _world);
+    const guide = activeGuide(PLAY.levelId, {
+      hookPick: this._hookPick,
+      shovelPick: this._shovelPick,
+      bombPick: this._bombPick,
+      canShuffle: this._canShuffle(),
+      hasRear: this._hasRearBench(),
+      canShovel: this._canShovel(),
+      canBomb: this._canBomb(),
+    });
+    this._emitGuide(guide);
+    const hint = this._hint;
+    if (!hint || !guide || guide.phase === 'icon') {
+      hint?.hide();
+      return;
+    }
+    hint.bindCamera(this._cam);
+    if (guide.id === 'spin') {
+      this._placeSpinHint(hint);
+      return;
+    }
+    if (guide.id === 'hook' && guide.phase === 'target') {
+      const rear = this._guideRearUnit();
+      if (rear) this._placeTapHint(hint, rear.node, 0.02, 0.06);
+      else hint.hide();
+      return;
+    }
+    if (guide.id === 'shovel' && guide.phase === 'target') {
+      const unit = this._guideSlotUnit();
+      if (unit) this._placeTapHint(hint, unit.node, 0.18, 0.04);
+      else hint.hide();
+      return;
+    }
+    if (guide.id === 'bomb' && guide.phase === 'target') {
+      const brick = this._guideBrick();
+      if (brick) this._placeTapHint(hint, brick.node, 0, 0.02);
+      else hint.hide();
+      return;
+    }
+    const unit = this._guideFrontUnit();
+    if (unit) this._placeTapHint(hint, unit.node, 0.02, 0.06);
+    else hint.hide();
+  }
+
+  private _emitGuide(guide: GuideView | null): void {
+    const key = guide ? `${guide.id}:${guide.phase}:${guide.tip}` : '';
+    if (key === this._guideKey) return;
+    this._guideKey = key;
+    this._onGuide?.(guide);
+  }
+
+  private _placeTapHint(hint: HintHand, node: Node, liftY: number, liftZ: number): void {
+    node.getWorldPosition(_hintA);
+    _hintA.y += liftY;
+    _hintA.z += liftZ;
+    hint.placeWorld(_hintA, _hintA);
+  }
+
+  private _placeSpinHint(hint: HintHand): void {
+    const field = this._field;
+    if (!field) {
+      hint.hide();
+      return;
+    }
+    field.getWorldPosition(_hintA);
+    this._camSpinAxes(_camRight, _camUp);
+    const span = 1.35;
+    _hintB.set(
+      _hintA.x + _camRight.x * span,
+      _hintA.y + 0.08,
+      _hintA.z + _camRight.z * span,
+    );
+    _hintA.set(
+      _hintA.x - _camRight.x * span,
+      _hintA.y + 0.08,
+      _hintA.z - _camRight.z * span,
+    );
+    hint.placeWorld(_hintA, _hintB);
+  }
+
+  private _guideFrontUnit(): UnitActor | null {
+    let fallback: UnitActor | null = null;
+    for (const u of this._units) {
+      if (!u.usable || u.state !== 'bench' || !this._isColFront(u)) continue;
+      if (!fallback) fallback = u;
+      if (this._canEventuallyAbsorb(u)) return u;
+    }
+    return fallback;
+  }
+
+  private _guideRearUnit(): UnitActor | null {
+    for (const u of this._units) {
+      if (u.usable && u.state === 'bench' && !this._isColFront(u)) return u;
+    }
+    return null;
+  }
+
+  private _guideSlotUnit(): UnitActor | null {
+    for (const s of this._slots) {
+      if (s.occupant?.usable) return s.occupant;
+    }
+    return null;
+  }
+
+  private _guideBrick(): BlockCell | null {
+    const list = this._visList;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (b.node?.isValid && b.node.active && b.hp > 0 && !b.inFlight) return b;
+    }
+    for (let i = 0; i < this._blocks.length; i++) {
+      const b = this._blocks[i];
+      if (b.node?.isValid && b.node.active && b.hp > 0 && !b.inFlight) return b;
+    }
+    return null;
+  }
+
+  private _canShuffle(): boolean {
+    let n = 0;
+    for (const u of this._units) {
+      if (u.onBench) n += 1;
+      if (n >= 2) return true;
+    }
+    return false;
   }
 
   private _hintSlot(unit: UnitActor): SlotPad | null {
@@ -706,10 +829,12 @@ export class BattleDirector extends Component {
     this._byCol.length = 0;
     this._byRow.length = 0;
     this._at.clear();
+    this._raftBricks.length = 0;
     for (let i = 0; i < this._cols; i++) this._byCol.push([]);
     for (let i = 0; i < Math.max(1, rows); i++) this._byRow.push([]);
     this._remain = 0;
     for (const b of this._blocks) {
+      if (b.raft) this._raftBricks.push(b);
       if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
       this._rowList(b.row).push(b);
@@ -730,6 +855,7 @@ export class BattleDirector extends Component {
     this._at.delete(cellKey(block.col, block.row, block.layer));
     this._vis.delete(block);
     pullFrom(this._visList, block);
+    if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
     this._visDirty = true;
   }
@@ -807,6 +933,7 @@ export class BattleDirector extends Component {
       const ay = loc.y - this._dragStartY;
       if (ax * ax + ay * ay < SPIN_THRESH_PX * SPIN_THRESH_PX) return;
       this._spinning = true;
+      completeGuide('spin');
     }
     this._applySpinDelta(dx, dy);
     this._dragLastX = loc.x;
@@ -1042,6 +1169,7 @@ export class BattleDirector extends Component {
   }
 
   private _placeOrMerge(unit: UnitActor): void {
+    completeGuide('tap');
     const slot = this._hintSlot(unit);
     if (slot) this._placeUnit(unit, slot);
   }
@@ -1358,32 +1486,43 @@ export class BattleDirector extends Component {
 
   private _bestBlock(u: UnitActor): BlockCell | null {
     if (u.ghost || this._visDirty) this._visibleSet(u.ghost);
+    if (this._aimVisKey !== this._visKey) {
+      this._aimBest.clear();
+      this._aimVisKey = this._visKey;
+    } else {
+      const cached = this._aimBest.get(u);
+      if (
+        cached?.suckable
+        && this._sameColor(cached, u)
+        && this._vis.has(cached)
+        && !this._plateBlocks(cached.row, cached.col)
+      ) {
+        return cached;
+      }
+    }
     let best: BlockCell | null = null;
     let bestScore = -1e9;
     u.node.getWorldPosition(_tmp);
+    const wall = this._wall;
+    if (wall?.isValid) wall.inverseTransformPoint(_tmp, _tmp);
+    else {
+      Quat.invert(_invQ, this._spinRot);
+      Vec3.transformQuat(_tmp, _tmp, _invQ);
+    }
     const ux = _tmp.x;
     const uy = _tmp.y;
-    const cam = this._cam;
-    let cx = 0;
-    let cy = 0;
-    let cz = 0;
-    if (cam?.node?.isValid) {
-      cam.node.getWorldPosition(_camP);
-      cx = _camP.x;
-      cy = _camP.y;
-      cz = _camP.z;
-    }
+    const cx = _camLocal.x;
+    const cy = _camLocal.y;
+    const cz = _camLocal.z;
     const list = this._visList;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       if (!b.node?.isValid || !b.suckable || !this._sameColor(b, u)) continue;
       if (this._plateBlocks(b.row, b.col)) continue;
-      b.node.getWorldPosition(_world);
-      const dx = _world.x - ux;
-      const dy = _world.y - uy;
-      const depth = cam
-        ? Math.hypot(_world.x - cx, _world.y - cy, _world.z - cz)
-        : b.layer;
+      const p = b.node.position;
+      const dx = p.x - ux;
+      const dy = p.y - uy;
+      const depth = Math.hypot(p.x - cx, p.y - cy, p.z - cz);
       const score =
         -depth * 48 -
         dx * dx -
@@ -1394,6 +1533,8 @@ export class BattleDirector extends Component {
         best = b;
       }
     }
+    if (best) this._aimBest.set(u, best);
+    else this._aimBest.delete(u);
     return best;
   }
 
@@ -1465,7 +1606,7 @@ export class BattleDirector extends Component {
     if (key === this._visKey && !this._visDirty) return this._vis;
     if (!this._visDirty && !this._spinning && this._visList.length > 0) {
       this._visSkip += 1;
-      if (this._visSkip < 2) return this._vis;
+      if (this._visSkip < 4) return this._vis;
       this._visSkip = 0;
     } else {
       this._visSkip = 0;
@@ -1540,7 +1681,11 @@ export class BattleDirector extends Component {
     let c = block.col + dc;
     let r = block.row + dr;
     let l = block.layer + dl;
+    const maxC = this._cols;
+    const maxR = this._byRow.length;
+    const maxL = PLAY.wallDepth + 2;
     for (let s = 0; s < 32; s++) {
+      if (c < 0 || r < 0 || l < 0 || c >= maxC || r >= maxR || l >= maxL) return false;
       if (this._aliveAt(c, r, l)) return true;
       c += dc;
       r += dr;
@@ -1729,23 +1874,32 @@ export class BattleDirector extends Component {
     playBaozhaBurst(this.node, _world);
   }
 
-  private _overUi(e: PointerEvt): boolean {
-    const loc = e.getLocation();
+  private _bindUiHits(): void {
+    const hits: Node[] = [];
     const hud = this._canvas?.getChildByName('PlayHud');
-    const back = hud?.getChildByName('BackBtn');
-    const next = hud?.getChildByName('NextBtn');
-    const settings = hud?.getChildByName('SettingsBtn');
-    const score = hud?.getChildByName('ScoreBoard');
-    if (back?.activeInHierarchy && back.getComponent(UITransform)?.hitTest(loc)) return true;
-    if (next?.activeInHierarchy && next.getComponent(UITransform)?.hitTest(loc)) return true;
-    if (settings?.activeInHierarchy && settings.getComponent(UITransform)?.hitTest(loc)) return true;
-    if (this._hitsUi(score, loc)) return true;
-    if (this._hitsUi(hud?.getChildByName('Powers'), loc)) return true;
-    if (this._hitsUi(this._canvas?.getChildByName('GoldHud'), loc)) return true;
+    const push = (n: Node | null | undefined): void => {
+      if (n) hits.push(n);
+    };
+    push(hud?.getChildByName('BackBtn'));
+    push(hud?.getChildByName('NextBtn'));
+    push(hud?.getChildByName('SettingsBtn'));
+    push(hud?.getChildByName('ScoreBoard'));
+    push(hud?.getChildByName('Powers'));
+    push(this._canvas?.getChildByName('GoldHud'));
     const gm = this._canvas?.getChildByName('GmPanel');
-    if (this._hitsUi(gm?.getChildByName('Toggle'), loc)) return true;
-    if (this._hitsUi(gm?.getChildByName('Dim'), loc)) return true;
-    if (this._hitsUi(gm?.getChildByName('Card'), loc)) return true;
+    push(gm?.getChildByName('Toggle'));
+    push(gm?.getChildByName('Dim'));
+    push(gm?.getChildByName('Card'));
+    this._uiHits = hits;
+  }
+
+  private _overUi(e: PointerEvt): boolean {
+    if (this._uiHits.length === 0) this._bindUiHits();
+    const loc = e.getLocation();
+    const hits = this._uiHits;
+    for (let i = 0; i < hits.length; i++) {
+      if (this._hitsUi(hits[i], loc)) return true;
+    }
     for (let i = 0; i < UI_MODALS.length; i++) {
       const n = this._canvas?.getChildByName(UI_MODALS[i]);
       if (n?.activeInHierarchy) return true;
@@ -2163,8 +2317,8 @@ export class BattleDirector extends Component {
     const startX = wallStartX(this._cols);
     const lift = PLAY.blockStep * 0.05;
     let moved = false;
-    for (let i = 0; i < this._blocks.length; i++) {
-      const b = this._blocks[i];
+    for (let i = 0; i < this._raftBricks.length; i++) {
+      const b = this._raftBricks[i];
       if (!b.raft || !b.alive || b.inFlight) continue;
       const x = startX + b.raftHomeCol * PLAY.blockStep + offset;
       const y = PLAY.wallBaseY + b.row * PLAY.blockStep + lift + bob;
@@ -2205,6 +2359,7 @@ export class BattleDirector extends Component {
       this._emitItems();
       return;
     }
+    completeGuide(id);
     this._clearPicks();
     this._emitItems();
     this._maybeAutoPlace();

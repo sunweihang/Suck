@@ -23,6 +23,7 @@ import { applyArtSprite, applyArtSpriteSoon, layoutHomeLevel } from './UiArt';
 import { gameAudio } from '../audio/AudioService';
 import type { ItemHudState, ItemId } from '../battle/BattleDirector';
 import { itemUnlocked } from '../game/LevelCatalog';
+import type { GuideView } from '../game/TutorialGuide';
 
 const { ccclass } = _decorator;
 
@@ -47,6 +48,9 @@ const ITEM_ICON_KEY = {
   bomb: 'icBomb',
 } as const;
 const BADGE_INK = new Color(255, 255, 255, 255);
+const TIP_INK = new Color(255, 252, 236, 255);
+const TIP_OUTLINE = new Color(72, 36, 16, 255);
+const _guidePos = new Vec3();
 
 @ccclass('PlayHud')
 export class PlayHud extends Component {
@@ -69,6 +73,7 @@ export class PlayHud extends Component {
     shovelPick: false,
     bombPick: false,
   };
+  private _guide: GuideView | null = null;
 
   setup(opts: {
     onHome: () => void;
@@ -113,6 +118,8 @@ export class PlayHud extends Component {
   }
 
   hide(): void {
+    this._guide = null;
+    this.hintHand?.hide();
     this.node.active = false;
   }
 
@@ -139,7 +146,23 @@ export class PlayHud extends Component {
     if (tip) tip.active = false;
     const powers = this.node.getChildByName('Powers');
     if (powers) powers.active = false;
+    this._guide = null;
     this.hintHand?.hide();
+  }
+
+  setGuide(guide: GuideView | null): void {
+    const next = guide?.id === this._guide?.id
+      && guide?.phase === this._guide?.phase
+      && guide?.tip === this._guide?.tip
+      ? this._guide
+      : guide;
+    const changed = next !== this._guide;
+    this._guide = next;
+    this._syncTip();
+    this._placeGuideHand();
+    if (changed && this._guide?.phase === 'icon' && this._guide.item) {
+      this.pulseItem(this._guide.item);
+    }
   }
 
   get hintHand(): HintHand | null {
@@ -163,7 +186,7 @@ export class PlayHud extends Component {
     const back = this.node.getChildByName('BackBtn');
     if (back) back.active = false;
     this.node.getChildByName('ScoreBoard')?.setPosition(0, chromeY, 0);
-    this.node.getChildByName('TipLab')?.setPosition(0, chromeY - PLAY_DIGIT_H - 16, 0);
+    this.node.getChildByName('TipLab')?.setPosition(0, chromeY - PLAY_BADGE * 0.5 - 40, 0);
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
     const settings = this.node.getChildByName('SettingsBtn');
@@ -176,14 +199,31 @@ export class PlayHud extends Component {
       );
     }
     this._layoutItems(vis.h, safe.bottom);
+    this._placeGuideHand();
   }
 
   private _syncTip(): void {
     const tip = this.node.getChildByName('TipLab');
-    if (tip) tip.active = false;
-    const hint = this.node.getChildByName('HintHand');
-    if (hint) hint.active = false;
-    this.hintHand?.hide();
+    if (!tip) return;
+    const text = this._guide?.tip ?? '';
+    tip.active = !!text;
+    const lab = tip.getComponent(Label);
+    if (lab) lab.string = text;
+  }
+
+  private _placeGuideHand(): void {
+    const hand = this.hintHand;
+    const item = this._guide?.phase === 'icon' ? this._guide.item : null;
+    if (!hand || !item) {
+      hand?.hide();
+      return;
+    }
+    if (!this.itemIconWorldPos(item, _guidePos)) {
+      hand.hide();
+      return;
+    }
+    _guidePos.y -= 12;
+    hand.placeUi(_guidePos, _guidePos);
   }
 
   private _ensureTree(): void {
@@ -203,7 +243,14 @@ export class PlayHud extends Component {
     this._scoreBoard();
     this._settingsBtn();
 
-    const tip = this._mk('TipLab', 880, 56);
+    const tip = this._mk('TipLab', 920, 72);
+    this._lab(tip, '', 42, TIP_INK, 920, 72, false);
+    const tipLab = tip.getComponent(Label);
+    if (tipLab) {
+      tipLab.overflow = Label.Overflow.SHRINK;
+      tipLab.outlineColor = TIP_OUTLINE;
+      tipLab.outlineWidth = 6;
+    }
     tip.active = false;
 
     const win = this._mk('WinLabel', 860, 96);

@@ -25,8 +25,15 @@ function glossy(key: string, color: Color, roughness: number, emit: number): Mat
   return mat;
 }
 
+const _rgbColors = new Map<string, Color>();
+
 function colorOf(rgb: readonly [number, number, number]): Color {
-  return new Color(rgb[0], rgb[1], rgb[2], 255);
+  const key = `${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+  let c = _rgbColors.get(key);
+  if (c) return c;
+  c = new Color(rgb[0], rgb[1], rgb[2], 255);
+  _rgbColors.set(key, c);
+  return c;
 }
 
 /** Yesterday prefab mats: roughness 0.34, metal 0.04, emit 0.12. */
@@ -142,7 +149,7 @@ export function paintUnitColor(root: Node, token: ColorToken): void {
   const rgb = PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y;
   const mat = glossy(
     `unit-${rgb[0]}-${rgb[1]}-${rgb[2]}`,
-    new Color(rgb[0], rgb[1], rgb[2], 255),
+    colorOf(rgb),
     0.26,
     0.18,
   );

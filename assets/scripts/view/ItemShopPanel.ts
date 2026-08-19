@@ -14,7 +14,7 @@ import {
   tween,
 } from 'cc';
 import type { ItemId } from '../game/LevelCatalog';
-import { itemGoldCost, slotGoldCost } from '../game/PlayerWallet';
+import { goldAdReward, itemGoldCost, slotGoldCost } from '../game/PlayerWallet';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { applyArtSpriteSoon } from './UiArt';
@@ -44,7 +44,11 @@ const ITEM_DESC: Record<ItemId, string> = {
   bomb: '点击同色连通区域，炸掉整片方块',
 };
 
-export type ShopKind = ItemId | 'slot';
+export type ShopKind = ItemId | 'slot' | 'gold';
+
+export function isItemShopKind(kind: ShopKind): kind is ItemId {
+  return kind !== 'slot' && kind !== 'gold';
+}
 
 const BTN_W = 374;
 const BTN_H = 145;
@@ -134,8 +138,10 @@ export class ItemShopPanel extends Component {
     return this._card()?.getChildByName('CloseBtn') ?? null;
   }
 
-  private _iconKey(): 'icShuffle' | 'icHook' | 'icShovel' | 'icBomb' | 'lockSeal' {
-    return this._kind === 'slot' ? 'lockSeal' : ITEM_ICON_KEY[this._kind];
+  private _iconKey(): 'icShuffle' | 'icHook' | 'icShovel' | 'icBomb' | 'lockSeal' | 'goldIcon' {
+    if (this._kind === 'slot') return 'lockSeal';
+    if (this._kind === 'gold') return 'goldIcon';
+    return ITEM_ICON_KEY[this._kind];
   }
 
   private _goldCost(): number {
@@ -143,14 +149,25 @@ export class ItemShopPanel extends Component {
   }
 
   private _hasStock(): boolean {
-    return this._kind !== 'slot' && this._stock > 0;
+    return isItemShopKind(this._kind) && this._stock > 0;
+  }
+
+  iconWorldPos(out: Vec3): Vec3 {
+    const icon = this._icon();
+    if (icon?.isValid) {
+      icon.getWorldPosition(out);
+      return out;
+    }
+    this.node.getWorldPosition(out);
+    return out;
   }
 
   private _syncCopy(): void {
     const card = this._card();
     const slot = this._kind === 'slot';
+    const gold = this._kind === 'gold';
     const title = card?.getChildByName('Title')?.getComponent(Label);
-    if (title) title.string = slot ? '坑位解锁' : ITEM_TITLE[this._kind];
+    if (title) title.string = slot ? '坑位解锁' : gold ? '金币' : ITEM_TITLE[this._kind];
     const sub = card?.getChildByName('Sub');
     if (sub) sub.active = false;
     const nameLab = card?.getChildByName('Name')?.getComponent(Label);
@@ -158,19 +175,34 @@ export class ItemShopPanel extends Component {
       nameLab.node.active = true;
       nameLab.overflow = Label.Overflow.CLAMP;
       nameLab.enableWrapText = true;
-      nameLab.string = slot ? '解锁一个新的放置坑位' : ITEM_DESC[this._kind];
+      nameLab.string = slot
+        ? '解锁一个新的放置坑位'
+        : gold
+          ? '观看广告即可获得金币'
+          : ITEM_DESC[this._kind];
     }
     this._syncActions();
   }
 
   private _syncActions(): void {
+    const gold = this._kind === 'gold';
     const owned = this._hasStock();
     const buy = this._card()?.getChildByName('BuyBtn');
     const ad = this._card()?.getChildByName('AdBtn');
-    if (buy) buy.setPosition(owned ? 0 : BUY_X, buy.position.y, 0);
-    if (ad) ad.active = !owned;
-    this._layoutActionBtn('BuyBtn', 'GoldIcon', GOLD_ICON, GOLD_ICON, owned ? '使用' : `${this._goldCost()}`, owned);
-    if (!owned) this._layoutActionBtn('AdBtn', 'AdIcon', AD_ICON_W, 52, '免费', false);
+    if (buy) {
+      buy.active = !gold;
+      if (!gold) buy.setPosition(owned ? 0 : BUY_X, buy.position.y, 0);
+    }
+    if (ad) {
+      ad.active = gold || !owned;
+      if (ad.active) ad.setPosition(gold || owned ? 0 : AD_X, ad.position.y, 0);
+    }
+    if (!gold) {
+      this._layoutActionBtn('BuyBtn', 'GoldIcon', GOLD_ICON, GOLD_ICON, owned ? '使用' : `${this._goldCost()}`, owned);
+    }
+    if (gold || !owned) {
+      this._layoutActionBtn('AdBtn', 'AdIcon', AD_ICON_W, 52, gold ? `+${goldAdReward()}` : '免费', false);
+    }
   }
 
   private _layoutActionBtn(

@@ -71,7 +71,7 @@ export class VictoryPanel extends Component {
     this._locked = false;
     this.node.active = true;
     const next = this._card()?.getChildByName('NextBtn');
-    if (next) next.active = true;
+    if (next) next.active = opts?.hasNext !== false;
     this._syncDouble();
     this._syncGold();
     this.layoutChrome();
@@ -150,7 +150,7 @@ export class VictoryPanel extends Component {
       double.setPosition(x, y, 0);
       x += BTN_W + BTN_GAP;
     }
-    if (next) {
+    if (next?.active) {
       this._sizeBtn(next);
       next.setPosition(x, y, 0);
     }

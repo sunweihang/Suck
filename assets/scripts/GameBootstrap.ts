@@ -35,7 +35,8 @@ import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { GAME, playCamLookAtY } from './game/GameConfig';
 import { playViewBand } from './game/ViewFit';
-import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, type ItemId } from './game/LevelCatalog';
+import { ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
+import { completeGuide, grantGuideItem, guideIdForLevel, shouldSkipItemShop } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -44,11 +45,11 @@ import {
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
 import { rollChestReward, type ChestReward } from './game/ChestLoot';
-import { GOLD, itemGoldCost, PlayerWallet, slotGoldCost } from './game/PlayerWallet';
+import { GOLD, goldAdReward, itemGoldCost, PlayerWallet, slotGoldCost } from './game/PlayerWallet';
 import { ChestActor } from './battle/ChestActor';
 import { SlotPad } from './battle/SlotPad';
 import { ChestPanel } from './view/ChestPanel';
-import { ItemShopPanel, type ShopKind } from './view/ItemShopPanel';
+import { ItemShopPanel, isItemShopKind, type ShopKind } from './view/ItemShopPanel';
 import { FailPanel } from './view/FailPanel';
 import { GmPanel } from './view/GmPanel';
 import { GoldHud } from './view/GoldHud';
@@ -290,6 +291,7 @@ export class GameBootstrap extends Component {
       onWin: () => this._onLevelCleared(),
       onLose: () => this._onLevelFailed(),
       onItems: (state) => this._playHud?.setItems(state),
+      onGuide: (guide) => this._playHud?.setGuide(guide),
       onGoldDenied: () => this._gold?.deny(),
       onChest: (chest) => this._onChestReady(chest),
       onUnlockSlot: (slot) => this._showSlotShop(slot),
@@ -312,6 +314,7 @@ export class GameBootstrap extends Component {
     if (this._level < LEVEL_COUNT) this._level += 1;
     saveLevelIndex(this._level);
     this._clearGold = GOLD.win;
+    completeGuide(guideIdForLevel(cleared));
     this._playHud?.showCleared(cleared, this._level > cleared);
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.hide();
@@ -323,7 +326,7 @@ export class GameBootstrap extends Component {
     this._battle?.setPlaying(false);
     this._setGoldVisible(true);
     this._victory?.show({
-      hasNext: this._level > cleared,
+      hasNext: this._level > cleared && cleared < WIN_DOUBLE_ONLY_FROM,
       gold: GOLD.win,
       canDouble: true,
     });
@@ -471,7 +474,12 @@ export class GameBootstrap extends Component {
   }
 
   private _onPlayItem(id: ItemId): void {
-    if (!itemUnlocked(id, this._builtLevel || this._level)) return;
+    const level = this._builtLevel || this._level;
+    if (!itemUnlocked(id, level)) return;
+    if (shouldSkipItemShop(id, level) && this._wallet.itemCount(id) > 0) {
+      this._battle?.useItem(id);
+      return;
+    }
     this._showItemShop(id);
   }
 
@@ -481,10 +489,15 @@ export class GameBootstrap extends Component {
     this._showItemShop('slot');
   }
 
+  private _showGoldShop(): void {
+    if (this._victory?.node.active || this._fail?.node.active || this._chest?.node.active) return;
+    this._showItemShop('gold');
+  }
+
   private _showItemShop(kind: ShopKind): void {
     this._unlockAudio();
     this._itemShopBusy = false;
-    this._itemShop?.show(kind, kind === 'slot' ? 0 : this._wallet.itemCount(kind));
+    this._itemShop?.show(kind, isItemShopKind(kind) ? this._wallet.itemCount(kind) : 0);
     if (this._canvas) {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
@@ -498,21 +511,24 @@ export class GameBootstrap extends Component {
     this._pendingSlot = null;
     this._itemShop?.hide();
     if (this._chest?.node.active || this._settings?.node.active) return;
+    if (this._victory?.node.active || this._fail?.node.active) return;
     if (this._playHud?.node.active) this._battle?.setPlaying(true);
   }
 
   private _buyShop(kind: ShopKind): void {
+    if (kind === 'gold') return;
     if (kind === 'slot') this._buySlot();
     else this._buyItem(kind);
   }
 
   private _useShop(kind: ShopKind): void {
-    if (kind === 'slot') return;
+    if (!isItemShopKind(kind)) return;
     this._closeItemShop();
     this._battle?.useItem(kind);
   }
 
   private _watchShop(kind: ShopKind): Promise<void> {
+    if (kind === 'gold') return this._watchGold();
     return kind === 'slot' ? this._watchSlot() : this._watchItem(kind);
   }
 
@@ -566,6 +582,45 @@ export class GameBootstrap extends Component {
     this._pendingSlot = null;
     this._closeItemShop();
     if (slot) this._battle?.unlockSlot(slot);
+  }
+
+  private async _watchGold(): Promise<void> {
+    if (this._itemShopBusy) return;
+    this._itemShopBusy = true;
+    this._itemShop?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._itemShopBusy = false;
+    this._itemShop?.setBusy(false);
+    if (result !== 'rewarded') return;
+    const start = new Vec3();
+    this._itemShop?.iconWorldPos(start);
+    this._closeItemShop();
+    this._flyShopGold(start, goldAdReward());
+  }
+
+  private _flyShopGold(startWorld: Vec3, amount: number): void {
+    const canvas = this._canvas;
+    if (!canvas?.isValid || amount <= 0) {
+      if (amount > 0) this._wallet.add(amount);
+      return;
+    }
+    const fx = ensureCoinFxRoot(canvas);
+    this._gold?.node.setSiblingIndex(canvas.children.length - 1);
+    fx.setSiblingIndex(canvas.children.length - 1);
+    const start = startWorld.clone();
+    const end = new Vec3();
+    if (this._gold) this._gold.iconWorldPos(end);
+    else end.set(start.x + 360, start.y + 720, 0);
+    worldToFxLocal(fx, start, start);
+    worldToFxLocal(fx, end, end);
+    playCoinFlyBurst({
+      fxRoot: fx,
+      start,
+      end,
+      amount,
+      frame: artFrame('goldIcon'),
+      onCredit: (n) => this._wallet.add(n),
+    });
   }
 
   private _playItemState() {
@@ -866,7 +921,9 @@ export class GameBootstrap extends Component {
     const goldN = new Node('GoldHud');
     canvasN.addChild(goldN);
     this._gold = goldN.addComponent(GoldHud);
-    this._gold.setup();
+    this._gold.setup({
+      onPlus: () => this._showGoldShop(),
+    });
     this._gold.setCoins(this._wallet.coins);
     this._setGoldVisible(false);
     this._wallet.watch((coins, animate) => {
@@ -1060,6 +1117,9 @@ export class GameBootstrap extends Component {
       this._gm?.setLevel(this._builtLevel);
       this._playHud?.show();
       this._setGoldVisible(true);
+      const gifted = grantGuideItem(this._wallet, this._builtLevel);
+      this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
+      if (gifted) this._flyGrantedItems([gifted]);
       this._battle?.setPlaying(true);
     });
   }

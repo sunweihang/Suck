@@ -2,6 +2,7 @@ import {
   _decorator,
   Color,
   Component,
+  EventTouch,
   Label,
   Layers,
   Node,
@@ -10,29 +11,34 @@ import {
   Vec2,
   Vec3,
 } from 'cc';
+import { gameAudio } from '../audio/AudioService';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
 import { applyArtSpriteSoon } from './UiArt';
 
 const { ccclass } = _decorator;
 
 export const GOLD_HUD = {
-  rootW: 280,
+  rootW: 300,
   rootH: 88,
   pad: 36,
   gapBelow: 16,
   bgW: 236,
   bgH: 66,
-  bgX: 16,
+  bgX: 8,
   icon: 86,
-  iconX: -98,
-  amountW: 168,
+  iconX: -108,
+  amountW: 132,
   amountH: 66,
-  amountX: 32,
+  amountX: 8,
+  plus: 52,
+  plusX: 122,
   fontSize: 36,
 };
 
 const AMOUNT_COLOR = new Color(248, 225, 128, 255);
 const AMOUNT_SHADOW = new Color(20, 36, 48, 160);
+const PLUS_INK = new Color(255, 255, 255, 255);
+const PLUS_OUTLINE = new Color(160, 40, 72, 255);
 
 export function goldHudTopRight(visW: number, visH: number, safeTop: number, safeRight = 0): { x: number; y: number } {
   return {
@@ -47,8 +53,10 @@ export class GoldHud extends Component {
   private _coins = 0;
   private _amount: Label | null = null;
   private _icon: Node | null = null;
+  private _onPlus: (() => void) | null = null;
 
-  setup(): void {
+  setup(opts?: { onPlus?: () => void }): void {
+    this._onPlus = opts?.onPlus ?? null;
     this._ensureTree();
     this.layoutChrome();
     this.applyArt();
@@ -58,6 +66,8 @@ export class GoldHud extends Component {
     this._ensureTree();
     applyArtSpriteSoon(this.node.getChildByName('Bg'), 'goldBg', GOLD_HUD.bgW, GOLD_HUD.bgH, true);
     applyArtSpriteSoon(this.node.getChildByName('Icon'), 'goldIcon', GOLD_HUD.icon, GOLD_HUD.icon);
+    const plus = this.node.getChildByName('Plus');
+    applyArtSpriteSoon(plus?.getChildByName('Face') ?? plus, 'itemBadge', GOLD_HUD.plus, GOLD_HUD.plus);
   }
 
   setCoins(coins: number, animate = false): void {
@@ -107,6 +117,7 @@ export class GoldHud extends Component {
 
     this._mk('Bg', GOLD_HUD.bgW, GOLD_HUD.bgH);
     this._icon = this._mk('Icon', GOLD_HUD.icon, GOLD_HUD.icon);
+    this._plusBtn();
     const amountN = this._mk('Amount', GOLD_HUD.amountW, GOLD_HUD.amountH);
     this._amount = amountN.addComponent(Label);
     this._amount.string = '0';
@@ -133,11 +144,42 @@ export class GoldHud extends Component {
     this.node.getChildByName('Bg')?.setPosition(GOLD_HUD.bgX, 0, 0);
     this._icon?.setPosition(GOLD_HUD.iconX, 0, 0);
     this.node.getChildByName('Amount')?.setPosition(GOLD_HUD.amountX, -2, 0);
+    const plus = this.node.getChildByName('Plus');
+    plus?.setPosition(GOLD_HUD.plusX, 0, 0);
+    plus?.setSiblingIndex(this.node.children.length - 1);
   }
 
-  private _mk(name: string, w: number, h: number): Node {
+  private _plusBtn(): Node {
+    const n = this._mk('Plus', GOLD_HUD.plus, GOLD_HUD.plus);
+    this._mk('Face', GOLD_HUD.plus, GOLD_HUD.plus, n);
+    const labN = this._mk('Lab', GOLD_HUD.plus, GOLD_HUD.plus, n);
+    const lab = labN.addComponent(Label);
+    lab.string = '+';
+    lab.fontSize = 32;
+    lab.lineHeight = 36;
+    lab.isBold = true;
+    lab.color = PLUS_INK;
+    lab.enableOutline = true;
+    lab.outlineWidth = 3;
+    lab.outlineColor = PLUS_OUTLINE;
+    lab.enableWrapText = false;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.overflow = Label.Overflow.SHRINK;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
+    labN.setPosition(0, 1, 0);
+    n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      gameAudio()?.playUiClick();
+      this._onPlus?.();
+    }, this);
+    return n;
+  }
+
+  private _mk(name: string, w: number, h: number, parent: Node = this.node): Node {
     const n = new Node(name);
-    this.node.addChild(n);
+    parent.addChild(n);
     n.layer = Layers.Enum.UI_2D;
     n.addComponent(UITransform).setContentSize(w, h);
     return n;
