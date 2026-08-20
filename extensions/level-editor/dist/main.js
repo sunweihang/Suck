@@ -192,13 +192,8 @@ exports.methods = {
     async locateLevel(arg) {
         const id = typeof arg === 'number' ? arg : arg === null || arg === void 0 ? void 0 : arg.levelId;
         const override = id ? (0, paths_1.overrideFsPath)(id) : '';
+        // The authoring catalog lives outside assets/, so there is no db:// URL to reveal.
         const target = override && fs.existsSync(override) ? override : (0, paths_1.catalogFsPath)();
-        try {
-            await Editor.Message.request('asset-db', 'open-asset', 'db://assets/resources/levels/catalog.json');
-        }
-        catch {
-            /* ignore */
-        }
         await dialogInfo(`关卡文件：\n${target}`);
         return { ok: true, path: target };
     },

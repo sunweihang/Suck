@@ -12,12 +12,12 @@ const path = require('path');
 const zlib = require('zlib');
 const { VOXEL_RGB, TOKENS, assignTokens } = require('./voxel-colors');
 const { convert } = require('./import-voxel-levels');
+const levelIo = require('./level-io');
 
 const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'tools', 'models');
 const PREVIEW = path.join(OUT_DIR, 'nurse-doctor-preview.png');
 const MODEL = path.join(OUT_DIR, 'nurse-doctor.json');
-const CATALOG = path.join(ROOT, 'assets', 'resources', 'levels', 'catalog.json');
 
 const COLS = 19;
 const ROWS = 26;
@@ -389,16 +389,15 @@ function renderPreview(voxels) {
 }
 
 function patchCatalog(level) {
-  const pack = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
+  const pack = levelIo.loadCatalogPack();
   const levels = pack.levels || [];
   const idx = levels.findIndex((lv) => lv.id === level.id);
   if (idx >= 0) levels[idx] = level;
   else levels.push(level);
   levels.sort((a, b) => a.id - b.id);
   pack.levels = levels;
-  pack.count = levels.length;
-  fs.writeFileSync(CATALOG, `${JSON.stringify(pack)}\n`);
-  return pack.count;
+  levelIo.writeCatalogPack(pack);
+  return levels.length;
 }
 
 function main() {

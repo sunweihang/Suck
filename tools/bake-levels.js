@@ -5,13 +5,11 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'assets/resources/levels/catalog.json');
-const META = `${OUT}.meta`;
-const UUID = '7e22bb20-0360-4b02-8002-000000000060';
-const LEVEL_COUNT = 100;
-const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
 const { occupyShape, shapeForLevel } = require('./level-shapes');
 const levelIo = require('./level-io');
+const OUT = levelIo.CATALOG;
+const LEVEL_COUNT = 100;
+const ALL_COLOR_TOKENS = ['o', 'y', 'c', 'g', 'p', 'v', 'r', 's', 'k', 'm', 'a', 'd'];
 const CLUSTER_MIN = 10;
 const UNIT_POWER_MIN = 50;
 const UNIT_POWER_MAX = 90;
@@ -1838,18 +1836,6 @@ function encodeLevel(level) {
   };
 }
 
-function jsonMeta(uuid) {
-  return {
-    ver: '2.0.1',
-    importer: 'json',
-    imported: true,
-    uuid,
-    files: ['.json'],
-    subMetas: {},
-    userData: {},
-  };
-}
-
 function bakeAll() {
   const t0 = Date.now();
   const levels = [];
@@ -1947,9 +1933,7 @@ function bakeAll() {
       `L${String(id).padStart(3)} ${shape.name} ${level.cols}x${level.rows}x${depth} pal=${pal.length}:${pal.join('')} front=${front.map((u) => u[0]).join('')} ${tags.join(' ') || 'absorb'} bricks=${bricks} units=${level.units.length} power=${pmin}-${pmax} avg=${pavg.toFixed(1)}${peel}`,
     );
   }
-  fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, `${JSON.stringify({ generatedBy: 'tools/bake-levels.js', count: levels.length, levels })}\n`);
-  fs.writeFileSync(META, `${JSON.stringify(jsonMeta(UUID), null, 2)}\n`);
+  levelIo.writeCatalogPack({ generatedBy: 'tools/bake-levels.js', levels });
   const kb = Math.round(fs.statSync(OUT).size / 1024);
   console.log(`wrote ${path.relative(ROOT, OUT)} (${kb} KB, ${Date.now() - t0} ms)`);
 }

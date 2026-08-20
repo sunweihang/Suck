@@ -51,7 +51,7 @@ function getProjectRoot() {
     return path.resolve(__dirname, '../../..');
 }
 function catalogFsPath() {
-    return path.join(getProjectRoot(), 'assets', 'resources', 'levels', 'catalog.json');
+    return path.join(getProjectRoot(), 'levels', 'catalog.json');
 }
 function overrideDir() {
     return path.join(getProjectRoot(), 'levels');

@@ -1629,7 +1629,7 @@ function decodeCatalogLevel(raw) {
 }
 
 function loadCatalog() {
-  const file = path.join(__dirname, '..', 'assets/resources/levels/catalog.json');
+  const file = require('./level-io').CATALOG;
   const pack = JSON.parse(fs.readFileSync(file, 'utf8'));
   return (pack.levels || []).map(decodeCatalogLevel);
 }

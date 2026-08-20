@@ -5,10 +5,13 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const CATALOG = path.join(ROOT, 'assets/resources/levels/catalog.json');
-const CATALOG_META = `${CATALOG}.meta`;
+/** Authoring copy. Kept out of assets/ so the 10MB pack never ships. */
+const CATALOG = path.join(ROOT, 'levels/catalog.json');
 const OVERRIDE_DIR = path.join(ROOT, 'levels');
-const CATALOG_UUID = '7e22bb20-0360-4b02-8002-000000000060';
+/** Shipped shards. The runtime pulls only the shard holding the level it plays. */
+const SHIP_DIR = path.join(ROOT, 'assets/resources/levels');
+const SHARD_SIZE = 10;
+const INDEX_UUID = '7e22bb20-0360-4b02-8002-000000000060';
 
 function catalogCount() {
   try {
@@ -227,6 +230,46 @@ function jsonMeta(uuid) {
   };
 }
 
+function shardStem(i) {
+  return `p${String(i).padStart(3, '0')}`;
+}
+
+function shardUuid(i) {
+  return `7e22bb20-0360-4b02-8002-${String(100000 + i).padStart(12, '0')}`;
+}
+
+function writeJsonAsset(file, data, uuid) {
+  fs.writeFileSync(file, `${JSON.stringify(data)}\n`);
+  const meta = `${file}.meta`;
+  if (!fs.existsSync(meta)) {
+    fs.writeFileSync(meta, `${JSON.stringify(jsonMeta(uuid), null, 2)}\n`);
+  }
+}
+
+/** Re-emit the shipped shards. Called on every catalog write so they cannot drift. */
+function writeShipShards(levels) {
+  fs.mkdirSync(SHIP_DIR, { recursive: true });
+  const shards = Math.ceil(levels.length / SHARD_SIZE);
+  for (const name of fs.readdirSync(SHIP_DIR)) {
+    const hit = /^p(\d+)\.json(\.meta)?$/.exec(name);
+    if (hit && (hit[1] | 0) >= shards) fs.unlinkSync(path.join(SHIP_DIR, name));
+  }
+  for (let i = 0; i < shards; i++) {
+    const from = i * SHARD_SIZE;
+    writeJsonAsset(
+      path.join(SHIP_DIR, `${shardStem(i)}.json`),
+      { from: from + 1, levels: levels.slice(from, from + SHARD_SIZE) },
+      shardUuid(i),
+    );
+  }
+  writeJsonAsset(
+    path.join(SHIP_DIR, 'index.json'),
+    { count: levels.length, size: SHARD_SIZE, shards },
+    INDEX_UUID,
+  );
+  return shards;
+}
+
 function writeCatalogPack(pack) {
   fs.mkdirSync(path.dirname(CATALOG), { recursive: true });
   const levels = pack.levels || [];
@@ -236,9 +279,7 @@ function writeCatalogPack(pack) {
     levels,
   };
   fs.writeFileSync(CATALOG, `${JSON.stringify(out)}\n`);
-  if (!fs.existsSync(CATALOG_META)) {
-    fs.writeFileSync(CATALOG_META, `${JSON.stringify(jsonMeta(CATALOG_UUID), null, 2)}\n`);
-  }
+  writeShipShards(levels);
   return CATALOG;
 }
 
@@ -331,6 +372,8 @@ function summarizeRaw(raw) {
 module.exports = {
   ROOT,
   CATALOG,
+  SHIP_DIR,
+  SHARD_SIZE,
   OVERRIDE_DIR,
   LEVEL_COUNT,
   levelCount,
@@ -347,6 +390,7 @@ module.exports = {
   loadCatalogPack,
   loadCatalogLevel,
   writeCatalogPack,
+  writeShipShards,
   patchCatalogLevel,
   levelTitle,
   summarizeRaw,

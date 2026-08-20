@@ -36,7 +36,7 @@ import { BattleDirector } from './battle/BattleDirector';
 import { resetPlayFx } from './battle/InkShot';
 import { GAME, playCamLookAtY } from './game/GameConfig';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
-import { applyLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
+import { applyLevel, ensureLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
 import { completeGuide, grantGuideItem, guideIdForLevel, resetGuideProgress, shouldSkipItemShop } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
@@ -383,6 +383,7 @@ export class GameBootstrap extends Component {
       if (this._worldKey === key && this._battle?.isValid) return;
       this._disposeNamed('PlayWorld');
       this._disposeUgcEditor();
+      if (!(this._ugcPlay && this._ugcLevel)) await ensureLevel(this._level);
       const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
       const world = await buildPlayWorld(this.node.scene, level, {
         onProgress: (p) => this._load?.set(0.22 + p * 0.7),

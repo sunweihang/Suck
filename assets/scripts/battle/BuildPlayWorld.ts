@@ -21,7 +21,7 @@ import {
   isColorToken,
   TOKEN_VOXEL_ID,
 } from '../game/GameConfig';
-import { applyLevel, ensureLevels, getLevel, LevelDef } from '../game/LevelCatalog';
+import { applyLevel, ensureLevel, getLevel, LevelDef } from '../game/LevelCatalog';
 import { BattleDirector } from './BattleDirector';
 import { BlockCell } from './BlockCell';
 import {
@@ -239,7 +239,7 @@ export async function buildPlayWorld(
     opts?.onProgress?.(Math.max(0, Math.min(1, p)));
   };
   note(0.08);
-  await ensureLevels();
+  if (!level) await ensureLevel(1);
   level = level ?? getLevel(1);
   applyLevel(level);
   const tokens = allPrefabTokens();

@@ -3,10 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 const { TOKENS, assignTokens } = require('./voxel-colors');
+const levelIo = require('./level-io');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'tmp-cube-pack', 'levels-json');
-const OUT = path.join(ROOT, 'assets', 'resources', 'levels', 'catalog.json');
+const OUT = levelIo.CATALOG;
 const UNIT_CHUNK = 72;
 /** Default orbit so the face-on bird matches the original 3/4 screenshot. */
 const FIELD_YAW = 0;
@@ -110,10 +111,7 @@ function main() {
   levels.forEach((level, i) => {
     level.id = i + 1;
   });
-  fs.writeFileSync(
-    OUT,
-    `${JSON.stringify({ generatedBy: 'tools/import-voxel-levels.js', count: levels.length, levels })}\n`,
-  );
+  levelIo.writeCatalogPack({ generatedBy: 'tools/import-voxel-levels.js', levels });
   const l6 = levels[5];
   console.log(
     `wrote ${path.relative(ROOT, OUT)} levels=${levels.length} L6 ${l6.cols}x${l6.rows}x${l6.depth} vox=${l6.voxels.length / 4} pal=${l6.palette}`,

@@ -82,14 +82,18 @@ type RawLevel = {
 };
 
 const SAVE_KEY = 'suck.level';
-const CATALOG_PATH = 'levels/catalog';
+const INDEX_PATH = 'levels/index';
 
 /**
- * Raw levels stay packed; a level is only decoded when it is played.
- * Decoding all of them up front turns ~1M voxel entries into JS objects
- * and stalls boot for seconds on phones.
+ * The full catalog is ~10MB of voxel arrays. It ships as fixed-size shards so
+ * boot pulls a tiny index plus the one shard holding the level being played,
+ * and a level only becomes objects when it is actually built.
  */
-let RAW_LEVELS: RawLevel[] = [];
+let SHARD_SIZE = 10;
+let indexed = false;
+const SHARDS = new Map<number, RawLevel[]>();
+const SHARD_JOBS = new Map<number, Promise<void>>();
+const SHARD_KEEP = 6;
 const DECODED = new Map<number, LevelDef>();
 const DECODE_KEEP = 4;
 let loadJob: Promise<void> | null = null;
@@ -169,32 +173,92 @@ function occupiedVoxelRows(def: LevelDef): { min: number; max: number } {
   return { min, max };
 }
 
-export function ensureLevels(): Promise<void> {
-  if (RAW_LEVELS.length) return Promise.resolve();
-  if (loadJob) return loadJob;
-  loadJob = new Promise((resolve, reject) => {
+function loadJson<T>(path: string, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('levels/catalog load timeout'));
+      reject(new Error(`${what} load timeout`));
     }, 8000);
-    resources.load(CATALOG_PATH, JsonAsset, (err, asset) => {
+    resources.load(path, JsonAsset, (err, asset) => {
       clearTimeout(timer);
-      const pack = asset?.json as { levels?: RawLevel[] } | undefined;
-      if (err || !pack?.levels?.length) {
-        reject(err ?? new Error('levels/catalog missing'));
+      const json = asset?.json as T | undefined;
+      if (err || !json) {
+        reject(err ?? new Error(`${what} missing`));
         return;
       }
-      RAW_LEVELS = pack.levels;
-      DECODED.clear();
-      LEVEL_COUNT = RAW_LEVELS.length;
-      resolve();
+      resolve(json);
     });
+  });
+}
+
+function clampId(id: number): number {
+  return Math.max(1, Math.min(LEVEL_COUNT, id | 0));
+}
+
+function shardOf(id: number): number {
+  return Math.floor((clampId(id) - 1) / SHARD_SIZE);
+}
+
+function shardPath(shard: number): string {
+  return `levels/p${String(shard).padStart(3, '0')}`;
+}
+
+function touchShard(shard: number, levels: RawLevel[]): void {
+  SHARDS.delete(shard);
+  SHARDS.set(shard, levels);
+  while (SHARDS.size > SHARD_KEEP) {
+    const oldest = SHARDS.keys().next();
+    if (oldest.done) break;
+    SHARDS.delete(oldest.value);
+    try {
+      resources.release(shardPath(oldest.value), JsonAsset);
+    } catch (e) {
+      console.warn('[LevelCatalog] shard release failed', e);
+    }
+  }
+}
+
+export function ensureLevels(): Promise<void> {
+  if (indexed) return Promise.resolve();
+  if (loadJob) return loadJob;
+  loadJob = loadJson<{ count?: number; size?: number }>(INDEX_PATH, 'levels/index').then((idx) => {
+    LEVEL_COUNT = Math.max(1, idx.count | 0);
+    SHARD_SIZE = Math.max(1, idx.size | 0);
+    indexed = true;
   });
   return loadJob;
 }
 
+/** Pull the shard holding `id`. Must be awaited before getLevel(id). */
+export async function ensureLevel(id: number): Promise<void> {
+  await ensureLevels();
+  const shard = shardOf(id);
+  const hit = SHARDS.get(shard);
+  if (hit) {
+    touchShard(shard, hit);
+    return;
+  }
+  let job = SHARD_JOBS.get(shard);
+  if (!job) {
+    const path = shardPath(shard);
+    job = loadJson<{ levels?: RawLevel[] }>(path, path).then(
+      (pack) => {
+        SHARD_JOBS.delete(shard);
+        if (!pack.levels?.length) throw new Error(`${path} empty`);
+        touchShard(shard, pack.levels);
+      },
+      (err) => {
+        SHARD_JOBS.delete(shard);
+        throw err;
+      },
+    );
+    SHARD_JOBS.set(shard, job);
+  }
+  await job;
+}
+
 export function getLevel(id: number): LevelDef {
-  if (!RAW_LEVELS.length) throw new Error('level catalog not loaded');
-  const n = Math.max(1, Math.min(RAW_LEVELS.length, id | 0));
+  if (!indexed) throw new Error('level catalog not loaded');
+  const n = clampId(id);
   const hit = DECODED.get(n);
   if (hit) {
     // Refresh recency so the levels around the player stay warm.
@@ -202,7 +266,13 @@ export function getLevel(id: number): LevelDef {
     DECODED.set(n, hit);
     return hit;
   }
-  const def = decodeLevel(RAW_LEVELS[n - 1]);
+  const shard = shardOf(n);
+  const levels = SHARDS.get(shard);
+  if (!levels) throw new Error(`level ${n} shard not loaded`);
+  touchShard(shard, levels);
+  const raw = levels[n - 1 - shard * SHARD_SIZE];
+  if (!raw) throw new Error(`level ${n} missing from shard`);
+  const def = decodeLevel(raw);
   DECODED.set(n, def);
   while (DECODED.size > DECODE_KEEP) {
     const oldest = DECODED.keys().next();

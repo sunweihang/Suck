@@ -11,7 +11,7 @@ export function getProjectRoot(): string {
 }
 
 export function catalogFsPath(): string {
-  return path.join(getProjectRoot(), 'assets', 'resources', 'levels', 'catalog.json');
+  return path.join(getProjectRoot(), 'levels', 'catalog.json');
 }
 
 export function overrideDir(): string {

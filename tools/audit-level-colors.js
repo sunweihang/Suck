@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { decodeCatalogLevel, powerGaps } = require('./voxel-colors');
 
-const CATALOG = path.join(__dirname, '..', 'assets/resources/levels/catalog.json');
+const CATALOG = require('./level-io').CATALOG;
 
 function main() {
   const pack = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
