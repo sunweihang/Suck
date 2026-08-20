@@ -111,6 +111,7 @@ function streakMat(rgb: readonly [number, number, number]): Material {
   mat.initialize({
     effectName: 'builtin-unlit',
     technique: 0,
+    defines: [{ USE_INSTANCING: true }],
     states: {
       rasterizerState: { cullMode: gfx.CullMode.NONE },
       depthStencilState: { depthTest: true, depthWrite: false },

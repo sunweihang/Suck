@@ -328,7 +328,11 @@ export class BattleDirector extends Component {
   private _onChest: ((chest: ChestActor) => void) | null = null;
   private _onUnlockSlot: ((slot: SlotPad) => void) | null = null;
   private _raft: Node | null = null;
+  private _raftCarry: Node | null = null;
+  private _raftShift = 0;
   private _raftT = 0;
+  private _frontDirty = true;
+  private readonly _frontByCol: (UnitActor | null)[] = [];
   private _wall: Node | null = null;
   private _platesRoot: Node | null = null;
   private _field: Node | null = null;
@@ -540,6 +544,10 @@ export class BattleDirector extends Component {
     this._units.length = 0;
     this._aimBest.clear();
     this._raftBricks.length = 0;
+    this._raftCarry = null;
+    this._raftShift = 0;
+    this._frontDirty = true;
+    this._frontByCol.length = 0;
     this._slots.length = 0;
     this._debris.length = 0;
     this._shots.length = 0;
@@ -572,7 +580,7 @@ export class BattleDirector extends Component {
     const slots = this.node.getChildByName('Slots');
     const pool = this.node.getChildByName('DebrisPool');
     wall?.children.forEach((n) => {
-      if (n.name === 'BrickSkins') return;
+      if (n.name === 'BrickSkins' || n.name === 'RaftCarry') return;
       if (n.name.startsWith('Chest_')) {
         const c = n.getComponent(ChestActor) ?? n.addComponent(ChestActor);
         c.syncFromName();
@@ -659,6 +667,7 @@ export class BattleDirector extends Component {
       if (u.index >= this._nextUnitIndex) this._nextUnitIndex = u.index + 1;
     }
     this._indexBlocks();
+    this._mountRaftCarry();
     this._poseFieldSpin();
     this._lookDirty = true;
     this._needHoldRefresh = false;
@@ -2325,21 +2334,36 @@ export class BattleDirector extends Component {
     return best;
   }
 
+  private _markFrontDirty(): void {
+    this._frontDirty = true;
+  }
+
+  private _ensureFront(): void {
+    if (!this._frontDirty) return;
+    this._frontDirty = false;
+    const n = BENCH.cols;
+    const front = this._frontByCol;
+    while (front.length < n) front.push(null);
+    for (let i = 0; i < n; i++) front[i] = null;
+    const units = this._units;
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (!u.onBench) continue;
+      const col = u.benchCol;
+      if (col < 0 || col >= n) continue;
+      const cur = front[col];
+      if (!cur || u.benchRank < cur.benchRank) front[col] = u;
+    }
+  }
+
   private _isColFront(u: UnitActor): boolean {
     if (!u.onBench) return false;
-    let best: UnitActor | null = null;
-    let bestRank = 1e9;
-    for (const o of this._units) {
-      if (!o.onBench || o.benchCol !== u.benchCol) continue;
-      if (o.benchRank < bestRank) {
-        bestRank = o.benchRank;
-        best = o;
-      }
-    }
-    return best === u;
+    this._ensureFront();
+    return this._frontByCol[u.benchCol] === u;
   }
 
   private _advanceBenchCol(col: number): void {
+    this._markFrontDirty();
     const seated: UnitActor[] = [];
     for (const u of this._units) {
       if (u.onBench && u.benchCol === col) seated.push(u);
@@ -2416,6 +2440,7 @@ export class BattleDirector extends Component {
     unit.applySpecialLook();
     unit.benchCol = col;
     unit.benchRank = rank;
+    this._markFrontDirty();
     unit.homePos.set(x, benchSeatY(), homeZ);
     unit.refreshSeatLook();
     unit.slideToHome();
@@ -2448,7 +2473,7 @@ export class BattleDirector extends Component {
     const list: BlockCell[] = [];
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
-      if (b.alive && b.col === col && b.layer === layer) list.push(b);
+      if (b.alive && !b.raft && b.col === col && b.layer === layer) list.push(b);
     }
     list.sort((a, b) => a.row - b.row);
     for (let i = 0; i < list.length; i++) {
@@ -2519,6 +2544,7 @@ export class BattleDirector extends Component {
     if (!bench) return;
     u.freeing = true;
     const seat = this._pickBenchSeat();
+    this._markFrontDirty();
     u.benchCol = seat.col;
     u.benchRank = seat.rank;
     u.homePos.set(benchSeatX(seat.col), benchSeatY(), benchSeatZ(seat.rank));
@@ -2706,6 +2732,32 @@ export class BattleDirector extends Component {
     }
   }
 
+  private _mountRaftCarry(): void {
+    const wall = this._wall;
+    if (!wall || this._raftBricks.length === 0) {
+      this._raftCarry = null;
+      return;
+    }
+    let carry = wall.getChildByName('RaftCarry');
+    if (!carry) {
+      carry = new Node('RaftCarry');
+      wall.addChild(carry);
+    }
+    this._raftCarry = carry;
+    const startX = wallStartX(this._cols);
+    const lift = PLAY.blockStep * 0.05;
+    for (let i = 0; i < this._raftBricks.length; i++) {
+      const b = this._raftBricks[i];
+      if (!b.node?.isValid) continue;
+      if (b.node.parent !== carry) b.node.setParent(carry, false);
+      b.node.setPosition(
+        startX + b.raftHomeCol * PLAY.blockStep,
+        PLAY.wallBaseY + b.row * PLAY.blockStep + lift,
+        b.node.position.z,
+      );
+    }
+  }
+
   private _placeRaft(offset: number): void {
     const holder = this._raft;
     if (!holder || (PLAY.raftW | 0) <= 0) return;
@@ -2717,24 +2769,23 @@ export class BattleDirector extends Component {
       PLAY.wallBaseY + PLAY.raftY * PLAY.blockStep - PLAY.blockStep * 0.52 + bob - this._fieldCy,
       GAME.wallFrontZ - 0.08 - this._fieldCz,
     );
-    this._syncRaftBricks(offset, bob);
+    if (this._raftCarry?.isValid) this._raftCarry.setPosition(offset, bob, 0);
+    this._syncRaftCols(offset);
   }
 
-  private _syncRaftBricks(offset: number, bob: number): void {
-    const startX = wallStartX(this._cols);
-    const lift = PLAY.blockStep * 0.05;
+  private _syncRaftCols(offset: number): void {
+    const shift = Math.round(offset / PLAY.blockStep);
+    if (shift === this._raftShift) return;
+    this._raftShift = shift;
     let moved = false;
+    const last = this._cols - 1;
     for (let i = 0; i < this._raftBricks.length; i++) {
       const b = this._raftBricks[i];
       if (!b.raft || !b.alive || b.inFlight) continue;
-      const x = startX + b.raftHomeCol * PLAY.blockStep + offset;
-      const y = PLAY.wallBaseY + b.row * PLAY.blockStep + lift + bob;
-      b.node.setPosition(x, y, b.node.position.z);
-      const col = Math.max(0, Math.min(this._cols - 1, Math.round((x - startX) / PLAY.blockStep)));
-      if (col !== b.col) {
-        b.col = col;
-        moved = true;
-      }
+      const col = Math.max(0, Math.min(last, b.raftHomeCol + shift));
+      if (col === b.col) continue;
+      b.col = col;
+      moved = true;
     }
     if (moved) this._reindexCols();
   }
@@ -2782,6 +2833,7 @@ export class BattleDirector extends Component {
       if (u.onBench) seated.push(u);
     }
     if (seated.length < 2) return false;
+    this._markFrontDirty();
     const seats = seated.map((u) => ({ col: u.benchCol, rank: u.benchRank }));
     for (let i = seated.length - 1; i > 0; i--) {
       const j = (Math.random() * (i + 1)) | 0;
@@ -3046,6 +3098,7 @@ export class BattleDirector extends Component {
   private _enqueueUnit(unit: UnitActor): void {
     if (!unit.node?.isValid || !unit.node.active) return;
     this._reserve.push(this._unitSpec(unit));
+    this._markFrontDirty();
     unit.lockedCol = -1;
     unit.inflight = 0;
     unit.state = 'bench';
@@ -3074,6 +3127,7 @@ export class BattleDirector extends Component {
     unit.state = 'bench';
     unit.asBlock = rank > 0;
     unit.clearAim();
+    this._markFrontDirty();
     unit.benchCol = seat.col;
     unit.benchRank = rank;
     unit.homePos.set(benchSeatX(seat.col), benchSeatY(), benchSeatZ(rank));
@@ -3100,6 +3154,7 @@ export class BattleDirector extends Component {
       }
     }
     if (!front || front === unit) return false;
+    this._markFrontDirty();
     const r0 = front.benchRank;
     const r1 = unit.benchRank;
     front.benchRank = r1;

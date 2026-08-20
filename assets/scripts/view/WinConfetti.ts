@@ -310,7 +310,8 @@ function playBurst(ps: ParticleSystem2D | null, burst: number, loopRate = 0): vo
 }
 
 function makeShots(root: Node): Shot[] {
-  const shots: Shot[] = [
+  const shots: Shot[] = [];
+  shots.push(
     { ps: ensurePs(root, {
       name: 'Flash',
       art: 'glow-soft',
@@ -328,9 +329,10 @@ function makeShots(root: Node): Shot[] {
       endA: 0,
       add: true,
     }), burst: 2, loop: 0 },
-  ];
-  for (let i = 0; i < PIECES.length; i++) {
-    const art = PIECES[i];
+  );
+  const CHUNK_ART = ['confetti-0', 'confetti-4', 'confetti-8', 'ribbon-2', 'ribbon-6'];
+  for (let i = 0; i < CHUNK_ART.length; i++) {
+    const art = CHUNK_ART[i];
     if (!_frames.has(art)) continue;
     shots.push({
       ps: ensurePs(root, {

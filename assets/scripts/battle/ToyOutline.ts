@@ -62,7 +62,7 @@ function strokeMat(ink: Color): Material | null {
   const mat = new Material();
   if (_outlineFx) {
     try {
-      mat.initialize({ effectAsset: _outlineFx, techniqueIndex: 0 });
+      mat.initialize({ effectAsset: _outlineFx, techniqueIndex: 0, defines: [{ USE_INSTANCING: true }] });
     } catch {
       /* fall back to inverted unlit hull */
     }
@@ -76,6 +76,7 @@ function strokeMat(ink: Color): Material | null {
   mat.initialize({
     effectName: 'builtin-unlit',
     technique: 0,
+    defines: [{ USE_INSTANCING: true }],
     states: {
       rasterizerState: { cullMode: gfx.CullMode.FRONT },
       depthStencilState: {
