@@ -17,9 +17,12 @@ import { inflateFieldCull, makeBrickBatchMat, wakeBrickMesh } from './ToyBlockMe
 const SKIN_ROOT = 'BrickSkins';
 const SKIP_BODY = /^(HoldRim|Outline|Crease|BlobShadow|Pad|Power|Bank|Text|Lock|Chip_|Trail_|Hit_|Muzzle_|Paint|Magnet)/;
 const GRAY_DIM = 0.76;
-const INST_FLOATS = 12;
+const INST_FLOATS = 16;
 const INST_STRIDE = INST_FLOATS * 4;
 const MIN_CAP = 32;
+const REST_KEY = 'rest';
+const FLY_KEY = 'fly';
+const WHITE = new Color(255, 255, 255, 255);
 
 type Batch = {
   key: string;
@@ -35,9 +38,8 @@ type Batch = {
 const _batches = new Map<string, Batch>();
 const _fly = new Map<string, Batch>();
 const _of = new Map<BlockCell, Batch>();
-const _batchMats = new Map<string, Material>();
-const _flyMats = new Map<string, Material>();
-const _colors = new Map<string, Color>();
+let _restMat: Material | null = null;
+let _flyMat: Material | null = null;
 
 let _host: Node | null = null;
 let _cube: Mesh | null = null;
@@ -83,23 +85,13 @@ function displayRgb(block: BlockCell): readonly [number, number, number] {
   return [y, y, y];
 }
 
-function colorOf(rgb: readonly [number, number, number]): Color {
-  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
-  let c = _colors.get(key);
-  if (c) return c;
-  c = new Color(rgb[0], rgb[1], rgb[2], 255);
-  _colors.set(key, c);
-  return c;
-}
-
-function batchMat(rgb: readonly [number, number, number], fly = false): Material | null {
-  const store = fly ? _flyMats : _batchMats;
-  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
-  const hit = store.get(key);
+function sharedMat(fly = false): Material | null {
+  const hit = fly ? _flyMat : _restMat;
   if (hit?.passes?.length) return hit;
-  const mat = makeBrickBatchMat(colorOf(rgb), !fly);
+  const mat = makeBrickBatchMat(WHITE, !fly);
   if (!mat) return null;
-  store.set(key, mat);
+  if (fly) _flyMat = mat;
+  else _restMat = mat;
   return mat;
 }
 
@@ -109,7 +101,12 @@ function nextCap(n: number): number {
   return cap;
 }
 
-function writePacked(data: Float32Array, i: number, m: { m00: number; m01: number; m02: number; m04: number; m05: number; m06: number; m08: number; m09: number; m10: number; m12: number; m13: number; m14: number }): void {
+function writePacked(
+  data: Float32Array,
+  i: number,
+  m: { m00: number; m01: number; m02: number; m04: number; m05: number; m06: number; m08: number; m09: number; m10: number; m12: number; m13: number; m14: number },
+  rgb: readonly [number, number, number],
+): void {
   const o = i * INST_FLOATS;
   data[o] = m.m00;
   data[o + 1] = m.m01;
@@ -123,6 +120,10 @@ function writePacked(data: Float32Array, i: number, m: { m00: number; m01: numbe
   data[o + 9] = m.m09;
   data[o + 10] = m.m10;
   data[o + 11] = m.m14;
+  data[o + 12] = rgb[0] * (1 / 255);
+  data[o + 13] = rgb[1] * (1 / 255);
+  data[o + 14] = rgb[2] * (1 / 255);
+  data[o + 15] = 1;
 }
 
 function makeInstVb(dev: gfx.Device, cap: number): gfx.Buffer {
@@ -150,6 +151,7 @@ function bindInstanceStream(mr: MeshRenderer, cube: Mesh, vb: gfx.Buffer): boole
   attributes.push(new gfx.Attribute('a_matWorld0', gfx.Format.RGBA32F, false, stream, true));
   attributes.push(new gfx.Attribute('a_matWorld1', gfx.Format.RGBA32F, false, stream, true));
   attributes.push(new gfx.Attribute('a_matWorld2', gfx.Format.RGBA32F, false, stream, true));
+  attributes.push(new gfx.Attribute('a_instColor', gfx.Format.RGBA32F, false, stream, true));
   const sub = new RenderingSubMesh(
     [...src.vertexBuffers, vb],
     attributes,
@@ -206,8 +208,7 @@ function probeBatch(): boolean {
   if (_useBatch) return true;
   _cube = brickCubeMesh();
   if (!_cube?.renderingSubMeshes?.[0] || !instancingOk() || !RenderingSubMesh) return false;
-  const mat = batchMat([214, 123, 19]);
-  _useBatch = !!mat;
+  _useBatch = !!sharedMat(false);
   return _useBatch;
 }
 
@@ -221,7 +222,6 @@ export function requestBrickSkinFlush(): void {
 
 function takeBatch(
   key: string,
-  rgb: readonly [number, number, number],
   host: Node,
   fly = false,
 ): Batch | null {
@@ -230,7 +230,7 @@ function takeBatch(
   if (hit) return hit;
   const dev = gfxDevice();
   const cube = _cube;
-  const mat = batchMat(rgb, fly);
+  const mat = sharedMat(fly);
   if (!dev || !cube || !mat || !host.isValid) return null;
   const node = new Node(fly ? `Fly_${key}` : `Skin_${key}`);
   node.layer = Layers.Enum.DEFAULT;
@@ -307,7 +307,7 @@ function uploadBatch(batch: Batch, fly: boolean): void {
       continue;
     }
     cells[w] = cell;
-    writePacked(data, w, cell.node.worldMatrix);
+    writePacked(data, w, cell.node.worldMatrix, displayRgb(cell));
     w += 1;
   }
   cells.length = w;
@@ -347,8 +347,7 @@ function canSkin(block: BlockCell): boolean {
 
 function addToStore(block: BlockCell, host: Node, fly: boolean): boolean {
   if (fly ? !keepFly(block) : !keepRest(block)) return false;
-  const rgb = displayRgb(block);
-  const key = fly ? `f:${rgb[0]},${rgb[1]},${rgb[2]}` : `${rgb[0]},${rgb[1]},${rgb[2]}`;
+  const key = fly ? FLY_KEY : REST_KEY;
   const cur = _of.get(block);
   if (cur && cur.key === key) {
     cur.dirty = true;
@@ -359,7 +358,7 @@ function addToStore(block: BlockCell, host: Node, fly: boolean): boolean {
     pullCell(cur, block);
     _of.delete(block);
   }
-  const batch = takeBatch(key, rgb, host, fly);
+  const batch = takeBatch(key, host, fly);
   if (!batch) return false;
   batch.cells.push(block);
   batch.dirty = true;
@@ -433,7 +432,7 @@ export function flyBrickSkin(block: BlockCell | null | undefined): void {
   if (!addToStore(block, _host, true)) showBody(block);
 }
 
-/** Resting shell cubes share one draw per color. Flying cubes keep their own renderer. */
+/** Resting shell cubes share one draw. Flying cubes share a second draw. */
 export function flushBrickSkin(blocks: BlockCell[], buried: (b: BlockCell) => boolean): void {
   const host = _host;
   if (!probeBatch() || !host?.isValid) {

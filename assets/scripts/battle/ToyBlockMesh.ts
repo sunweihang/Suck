@@ -193,7 +193,8 @@ export function makeFieldUnlit(color: Color): Material {
 }
 
 /**
- * One MeshRenderer draws N cubes. USE_INSTANCING would send this host through
+ * One MeshRenderer draws N cubes. Color lives in the instance stream so a
+ * pixel-art wall stays one draw. USE_INSTANCING would send this host through
  * the engine instanced buffer (1 instance). USE_BRICK_INSTANCING reads matrices
  * from our vertex stream instead, so the pass stays a regular draw.
  */

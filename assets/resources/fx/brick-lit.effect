@@ -29,6 +29,9 @@ CCProgram brick-vs %{
 
   out vec3 v_worldN;
   out vec3 v_worldP;
+#if USE_BRICK_INSTANCING
+  out vec4 v_instColor;
+#endif
 #if USE_ALBEDO_MAP
   out vec2 v_uv;
   uniform AlbedoUV {
@@ -40,6 +43,7 @@ CCProgram brick-vs %{
   in vec4 a_matWorld0;
   in vec4 a_matWorld1;
   in vec4 a_matWorld2;
+  in vec4 a_instColor;
 #endif
 
   uniform FieldSpin {
@@ -52,7 +56,7 @@ CCProgram brick-vs %{
     return v + q.w * t + cross(q.xyz, t);
   }
 
-#if USE_BRICK_INSTANCING
+#if USE_BRICK_INSTANCING && !USE_INSTANCING
   void brickWorld (out mat4 matWorld, out mat4 matWorldIT) {
     matWorld = mat4(
       vec4(a_matWorld0.xyz, 0.0),
@@ -76,7 +80,7 @@ CCProgram brick-vs %{
     CCVertInput(In);
 
     mat4 matWorld, matWorldIT;
-#if USE_BRICK_INSTANCING
+#if USE_BRICK_INSTANCING && !USE_INSTANCING
     brickWorld(matWorld, matWorldIT);
 #else
     CCGetWorldMatrixFull(matWorld, matWorldIT);
@@ -90,6 +94,11 @@ CCProgram brick-vs %{
     wp.xyz = p + spinPivot.xyz;
     v_worldN = quatRotate(spinQuat, v_worldN);
     v_worldP = wp.xyz;
+#if USE_BRICK_INSTANCING && !USE_INSTANCING
+    v_instColor = a_instColor;
+#elif USE_BRICK_INSTANCING
+    v_instColor = vec4(1.0);
+#endif
 #if USE_ALBEDO_MAP
     v_uv = a_texCoord * tilingOffset.xy + tilingOffset.zw;
 #if USE_HIDDEN_SCROLL
@@ -108,6 +117,9 @@ CCProgram brick-fs %{
 
   in vec3 v_worldN;
   in vec3 v_worldP;
+#if USE_BRICK_INSTANCING
+  in vec4 v_instColor;
+#endif
 #if USE_ALBEDO_MAP
   in vec2 v_uv;
   uniform sampler2D mainTexture;
@@ -143,7 +155,11 @@ CCProgram brick-fs %{
     float metallic = clamp(pbrParams.y, 0.0, 1.0);
     float emit = max(pbrParams.z, 0.0);
 
+#if USE_BRICK_INSTANCING
+    vec3 albedo = mainColor.rgb * (v_instColor.rgb * v_instColor.rgb);
+#else
     vec3 albedo = mainColor.rgb;
+#endif
 #if USE_ALBEDO_MAP
     albedo *= SRGBToLinear(texture(mainTexture, v_uv).rgb);
 #endif

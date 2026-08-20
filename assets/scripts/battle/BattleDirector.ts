@@ -340,6 +340,8 @@ export class BattleDirector extends Component {
   private _onUnlockSlot: ((slot: SlotPad) => void) | null = null;
   private _onItemUseFx: ((req: ItemUseFx) => void) | null = null;
   private _itemFxBusy = false;
+  private _fxHoldUnit: UnitActor | null = null;
+  private _fxHoldSlot: SlotPad | null = null;
   private _raft: Node | null = null;
   private _raftCarry: Node | null = null;
   private _raftShift = 0;
@@ -400,6 +402,7 @@ export class BattleDirector extends Component {
     this._lastGuide = null;
     this._itemsReady = true;
     this._itemFxBusy = false;
+    this._clearFxHold();
     this._onGoldDenied = opts.onGoldDenied ?? null;
     this._onChest = opts.onChest ?? null;
     this._onUnlockSlot = opts.onUnlockSlot ?? null;
@@ -802,11 +805,13 @@ export class BattleDirector extends Component {
     return false;
   }
 
+  private _canHookUnit(u: UnitActor): boolean {
+    return u.onBench && !u.traveling && u !== this._fxHoldUnit && !this._isColFront(u);
+  }
+
   private _hasRearBench(): boolean {
     for (const u of this._units) {
-      if (!u.node.active || u.trapped) continue;
-      if (u.onBench && !this._isColFront(u)) return true;
-      if ((u.state === 'bench' || u.state === 'drag') && u.benchRank > 0) return true;
+      if (this._canHookUnit(u)) return true;
     }
     return false;
   }
@@ -1108,7 +1113,7 @@ export class BattleDirector extends Component {
 
   private _guideRearUnit(): UnitActor | null {
     for (const u of this._units) {
-      if (u.usable && u.state === 'bench' && !this._isColFront(u)) return u;
+      if (this._canHookUnit(u)) return u;
     }
     return null;
   }
@@ -1157,7 +1162,7 @@ export class BattleDirector extends Component {
     let bestScore = 1e9;
     unit.node.getWorldPosition(_world);
     for (const s of this._slots) {
-      if (!s.open || !s.empty) continue;
+      if (!this._slotOpenFor(s, unit)) continue;
       s.node.getWorldPosition(_tmp);
       const dx = _tmp.x - _world.x;
       const dz = _tmp.z - _world.z;
@@ -1460,12 +1465,12 @@ export class BattleDirector extends Component {
     if (this._guideBlocksWorld()) return;
     if (this._hookPick) {
       const rear = this._pickAnyBench(e);
-      if (rear && !this._isColFront(rear)) {
+      if (rear && this._canHookUnit(rear)) {
         rear.node.getWorldPosition(_world);
         _world.y += 0.22;
         this._commitItemFx('hook', _world, () => {
           this._deployHooked(rear);
-        }, true);
+        }, rear, this._hintSlot(rear));
       } else if (!this._guideKeepPick()) {
         this._hookPick = false;
         this._emitItems();
@@ -1479,7 +1484,7 @@ export class BattleDirector extends Component {
         _world.y += 0.22;
         this._commitItemFx('shovel', _world, () => {
           this._shovelToBench(unit);
-        }, true);
+        }, unit, this._slotOf(unit));
       } else if (!this._guideKeepPick()) {
         this._shovelPick = false;
         this._emitItems();
@@ -1506,10 +1511,16 @@ export class BattleDirector extends Component {
     this._tryUnlockSlot(e);
   }
 
+  private _slotOpenFor(s: SlotPad, unit?: UnitActor | null): boolean {
+    if (!s.open) return false;
+    if (s === this._fxHoldSlot && unit !== this._fxHoldUnit) return false;
+    return s.empty || (!!unit && s.occupant === unit);
+  }
+
   private _countOpenEmptySlots(): number {
     let n = 0;
     for (const s of this._slots) {
-      if (s.open && s.empty) n += 1;
+      if (this._slotOpenFor(s)) n += 1;
     }
     return n;
   }
@@ -1573,7 +1584,7 @@ export class BattleDirector extends Component {
   }
 
   private _placeUnit(unit: UnitActor, slot: SlotPad, delay = 0, keepScale = false): void {
-    if (!slot.open || (!slot.empty && slot.occupant !== unit)) {
+    if (!this._slotOpenFor(slot, unit)) {
       const next = this._hintSlot(unit);
       if (!next) return;
       slot = next;
@@ -1808,7 +1819,7 @@ export class BattleDirector extends Component {
 
   private _spendShot(u: UnitActor, destroyed: boolean): void {
     u.inflight = Math.max(0, u.inflight - 1);
-    if (!destroyed) return;
+    if (!destroyed || u === this._fxHoldUnit) return;
     u.power = Math.max(0, u.power - 1);
     u.syncPowerLabel();
     if (u.power <= 0) {
@@ -1867,7 +1878,7 @@ export class BattleDirector extends Component {
 
   /** Only guns that have finished flying into a pit. */
   private _canFire(u: UnitActor): boolean {
-    if (this._teachingShovel()) return false;
+    if (this._teachingShovel() || u === this._fxHoldUnit) return false;
     return !u.asBlock && u.lockedCol >= 0 && (u.state === 'walk' || u.state === 'attack') && !u.trapped && !u.traveling;
   }
 
@@ -1884,7 +1895,7 @@ export class BattleDirector extends Component {
     let bestD = 0.28 * 0.28;
     for (let i = 0; i < this._slots.length; i++) {
       const s = this._slots[i];
-      if (!s.open || (!s.empty && s.occupant !== u)) continue;
+      if (!this._slotOpenFor(s, u)) continue;
       s.node.getWorldPosition(_world);
       _world.y += SLOT_PAD_TOP + SLOT_UNIT_LIFT;
       _world.z += SLOT_UNIT_FWD;
@@ -2613,8 +2624,12 @@ export class BattleDirector extends Component {
     let best: UnitActor | null = null;
     let bestD = frontOnly ? PICK_R2 : 0.5 * 0.5;
     for (const u of this._units) {
-      if (!u.usable || u.state !== 'bench') continue;
-      if (frontOnly && !this._isColFront(u)) continue;
+      if (!u.usable || u.state !== 'bench' || u === this._fxHoldUnit) continue;
+      if (frontOnly) {
+        if (!this._isColFront(u)) continue;
+      } else if (!this._canHookUnit(u)) {
+        continue;
+      }
       u.node.getWorldPosition(_world);
       _world.y += 0.12;
       const d = rayPointDistSq(_ray, _world);
@@ -3093,6 +3108,7 @@ export class BattleDirector extends Component {
 
   private _resetItems(): void {
     this._itemFxBusy = false;
+    this._clearFxHold();
     this._clearPicks();
     this._emitItems();
   }
@@ -3121,17 +3137,37 @@ export class BattleDirector extends Component {
     if (autoPlace) this._maybeAutoPlace();
   }
 
-  private _commitItemFx(id: ItemId, world: Vec3 | null, apply: () => void, immediate = false): void {
+  private _clearFxHold(): void {
+    this._fxHoldUnit = null;
+    this._fxHoldSlot = null;
+  }
+
+  private _slotOf(unit: UnitActor): SlotPad | null {
+    for (let i = 0; i < this._slots.length; i++) {
+      if (this._slots[i].occupant === unit) return this._slots[i];
+    }
+    return null;
+  }
+
+  private _commitItemFx(
+    id: ItemId,
+    world: Vec3 | null,
+    apply: () => void,
+    holdUnit: UnitActor | null = null,
+    holdSlot: SlotPad | null = null,
+  ): void {
     if (this._itemFxBusy || !this._afford(id)) return;
     this._itemFxBusy = true;
+    this._fxHoldUnit = holdUnit;
+    this._fxHoldSlot = holdSlot;
     this._spend(id, false);
-    if (immediate) apply();
     const land = world ? new Vec3(world.x, world.y, world.z) : null;
     const finish = (): void => {
       if (!this.isValid || !this._itemFxBusy) return;
       this.unschedule(finish);
+      apply();
+      this._clearFxHold();
       this._itemFxBusy = false;
-      if (!immediate) apply();
       this._maybeAutoPlace();
     };
     this.scheduleOnce(finish, 1.8);
@@ -3376,7 +3412,7 @@ export class BattleDirector extends Component {
 
   private _deployHooked(unit: UnitActor): boolean {
     if (!unit?.node?.isValid || !unit.node.active) return false;
-    if (unit.lockedCol >= 0 && (unit.state === 'walk' || unit.state === 'attack')) return true;
+    if (unit.traveling || !unit.onBench || this._isColFront(unit)) return false;
     const slot = this._hintSlot(unit);
     if (slot) {
       this._placeUnit(unit, slot, 0, true);
@@ -3387,8 +3423,7 @@ export class BattleDirector extends Component {
       this._mergeUnit(unit, merge);
       return true;
     }
-    if (this._promoteToFront(unit)) return true;
-    return unit.onBench && this._isColFront(unit);
+    return this._promoteToFront(unit);
   }
 
   private _pickSlotUnit(e: PointerEvt): UnitActor | null {
@@ -3444,7 +3479,7 @@ export class BattleDirector extends Component {
     playMergeBurst(this.node, _world);
     gameAudio()?.playRemove();
     const overflow = seat.rank >= BENCH.rows;
-    const rank = overflow ? BENCH.rows - 1 : seat.rank;
+    const rank = overflow ? BENCH.rows : seat.rank;
     unit.lockedCol = -1;
     unit.state = 'bench';
     unit.asBlock = rank > 0;
