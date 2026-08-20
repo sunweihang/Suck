@@ -1,4 +1,5 @@
 import { Color, EffectAsset, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3, assetManager, resources } from 'cc';
+import { isFieldMat, registerFieldMat, releaseFieldNode } from './FieldSpin';
 
 const GRAY_DIM = 0.76;
 const GRAY_SPRITE = new Color(168, 168, 168, 255);
@@ -111,6 +112,58 @@ export function makeInstancedUnlit(color: Color): Material {
   return makeInstancedLit(color, 0.34, 0.04, 0.04);
 }
 
+/** Same look as makeInstancedLit, but the GPU applies field spin. */
+export function makeFieldLit(
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): Material {
+  return registerFieldMat(makeInstancedLit(color, roughness, metallic, emit));
+}
+
+export function makeFieldUnlit(color: Color): Material {
+  return makeFieldLit(color, 0.34, 0.04, 0.04);
+}
+
+const _freeOf = new WeakMap<Material, Material>();
+
+function freeTwin(fieldMat: Material): Material {
+  let free = _freeOf.get(fieldMat);
+  if (free?.passes?.length) return free;
+  const main = readColor(fieldMat.getProperty('mainColor'), _readC);
+  const color = main ?? new Color(255, 255, 255, 255);
+  const rough = fieldMat.getProperty('roughness');
+  const metal = fieldMat.getProperty('metallic');
+  const emit = fieldMat.getProperty('emit');
+  free = makeInstancedLit(
+    color,
+    typeof rough === 'number' ? rough : 0.34,
+    typeof metal === 'number' ? metal : 0.04,
+    typeof emit === 'number' ? emit : 0.04,
+  );
+  _freeOf.set(fieldMat, free);
+  return free;
+}
+
+function releaseFieldMaterials(node: Node): void {
+  const mrs = node.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) {
+    const mr = mrs[i];
+    const mat = mr.getSharedMaterial(0);
+    if (!isFieldMat(mat)) continue;
+    const on = mr.enabled;
+    mr.enabled = false;
+    mr.setSharedMaterial(freeTwin(mat), 0);
+    mr.enabled = on;
+  }
+}
+
+/** Bake visual spin into the node and drop the GPU spin so the brick can fly. */
+export function releaseFieldBrick(node: Node): void {
+  releaseFieldNode(node, releaseFieldMaterials);
+}
+
 /** Tint a live instance. Ghost still pokes roughness and emit. */
 export function tintLitInstance(
   mat: Material,
@@ -172,7 +225,7 @@ function grayMat(src: Material): Material {
     ? Math.round(((main.r * 299 + main.g * 587 + main.b * 114) / 1000) * GRAY_DIM)
     : 168;
   const a = main?.a ?? 255;
-  g = makeInstancedUnlit(new Color(y, y, y, a));
+  g = isFieldMat(src) ? makeFieldUnlit(new Color(y, y, y, a)) : makeInstancedUnlit(new Color(y, y, y, a));
   _grayMats.set(src, g);
   return g;
 }
@@ -212,6 +265,16 @@ function setDrawnLayer(node: Node, layer: number): void {
   for (let i = 0; i < kids.length; i++) setDrawnLayer(kids[i], layer);
 }
 
+const FIELD_CULL = 18;
+
+export function inflateFieldCull(mesh: Mesh | null | undefined): void {
+  const min = mesh?.struct?.minPosition;
+  const max = mesh?.struct?.maxPosition;
+  if (!min || !max || min.x <= -FIELD_CULL) return;
+  min.set(-FIELD_CULL, -FIELD_CULL, -FIELD_CULL);
+  max.set(FIELD_CULL, FIELD_CULL, FIELD_CULL);
+}
+
 /** Hide buried bricks from the play camera without disabling MeshRenderer. */
 export function setBrickMeshEnabled(node: Node, on: boolean): void {
   if (!node?.isValid) return;
@@ -246,6 +309,10 @@ export function applyMesh(
   mr.enabled = false;
   mr.setSharedMaterial(mat, 0);
   mr.mesh = mesh;
+  if (isFieldMat(mat)) {
+    inflateFieldCull(mesh);
+    mr.mesh = mesh;
+  }
   mr.enabled = true;
   return true;
 }

@@ -1,0 +1,106 @@
+import { Material, Node, Quat, Vec3 } from 'cc';
+
+const _q = new Quat();
+const _inv = new Quat();
+const _p = new Vec3();
+const _v = new Vec3();
+const _rq = new Quat();
+
+const _fieldMats = new Set<Material>();
+const _released = new WeakSet<Node>();
+
+let _actors: Node | null = null;
+
+export function fieldActors(): Node | null {
+  return _actors?.isValid ? _actors : null;
+}
+
+export function bindFieldActors(node: Node | null): void {
+  _actors = node;
+}
+
+function bindSpinProps(mat: Material): void {
+  try {
+    mat.setProperty('spinQuat', _q);
+    mat.setProperty('spinPivot', _p);
+  } catch {
+    /* builtin-standard fallback has no spin */
+  }
+}
+
+export function setFieldSpin(q: Quat, pivot: Vec3): void {
+  _q.set(q);
+  _p.set(pivot);
+  Quat.invert(_inv, _q);
+  _fieldMats.forEach((mat) => {
+    if (!mat.passes?.length) {
+      _fieldMats.delete(mat);
+      return;
+    }
+    bindSpinProps(mat);
+  });
+}
+
+export function registerFieldMat(mat: Material): Material {
+  _fieldMats.add(mat);
+  bindSpinProps(mat);
+  return mat;
+}
+
+export function isFieldMat(mat: Material | null | undefined): boolean {
+  return !!mat && _fieldMats.has(mat);
+}
+
+export function restToWorld(rest: Vec3, out: Vec3): Vec3 {
+  Vec3.subtract(out, rest, _p);
+  Vec3.transformQuat(out, out, _q);
+  return out.add(_p);
+}
+
+export function worldToRest(world: Vec3, out: Vec3): Vec3 {
+  Vec3.subtract(out, world, _p);
+  Vec3.transformQuat(out, out, _inv);
+  return out.add(_p);
+}
+
+export function fieldWorldOf(node: Node, out: Vec3): Vec3 {
+  node.getWorldPosition(out);
+  return restToWorld(out, out);
+}
+
+export function adoptNodeToActors(node: Node): void {
+  const actors = fieldActors();
+  if (!actors?.isValid || node.parent === actors) return;
+  node.getWorldPosition(_v);
+  node.setParent(actors, false);
+  actors.inverseTransformPoint(_v, _v);
+  node.setPosition(_v);
+}
+
+export function mountOnFieldActors(node: Node, restWorld: Vec3): void {
+  const actors = fieldActors();
+  if (!actors?.isValid) return;
+  if (node.parent !== actors) node.setParent(actors, false);
+  actors.inverseTransformPoint(_v, restWorld);
+  node.setPosition(_v);
+}
+
+export function bindFieldNode(node: Node): void {
+  _released.delete(node);
+}
+
+function bakeOffField(node: Node): void {
+  node.getWorldPosition(_v);
+  restToWorld(_v, _v);
+  node.getWorldRotation(_rq);
+  Quat.multiply(_rq, _q, _rq);
+  node.setWorldPosition(_v);
+  node.setWorldRotation(_rq);
+}
+
+export function releaseFieldNode(node: Node, swapMats: (n: Node) => void): void {
+  if (_released.has(node)) return;
+  _released.add(node);
+  bakeOffField(node);
+  swapMats(node);
+}

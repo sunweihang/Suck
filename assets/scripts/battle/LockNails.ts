@@ -17,6 +17,10 @@ import {
   utils,
 } from 'cc';
 import { PLAY, SPECIAL_SPAN, specialCenterX, specialCenterY, wallStartX } from '../game/GameConfig';
+import { fieldActors, mountOnFieldActors } from './FieldSpin';
+
+const _lockHost = new WeakMap<Node, Node>();
+const _restWorld = new Vec3();
 
 const NAIL_PX = 256;
 const NAIL_SCALE = 0.00305;
@@ -272,7 +276,9 @@ export function preloadLockNails(): Promise<void> {
 }
 
 export function clearLockLook(root: Node): void {
-  fadeOff(root.getChildByName('LockNails'));
+  const n = _lockHost.get(root) ?? root.getChildByName('LockNails');
+  fadeOff(n);
+  _lockHost.delete(root);
 }
 
 export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
@@ -295,6 +301,7 @@ export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
   }
   if (kind === 'octopus' || kind === 'chest') {
     mountFlatChain(n, kind);
+    _lockHost.set(root, n);
     return;
   }
   if (!_nailSf) return;
@@ -308,6 +315,11 @@ export function applyLockNails(root: Node, kind: LockLookKind = 'block'): void {
     n.addChild(nail);
   }
   bindSprite(nail, _nailSf, NAIL_PX, NAIL_SCALE, 0, 0.02, 0.56);
+  _lockHost.set(root, n);
+  if (fieldActors()) {
+    root.getWorldPosition(_restWorld);
+    mountOnFieldActors(n, _restWorld);
+  }
 }
 
 export function clearHoldGlow(root: Node): void {

@@ -1,6 +1,6 @@
 import { Color, Material, Mesh, MeshRenderer, Node, Vec3, utils } from 'cc';
 import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
-import { makeInstancedLit } from './ToyBlockMesh';
+import { makeFieldLit } from './ToyBlockMesh';
 
 type Pack = { p: number[]; n: number[]; u: number[]; i: number[] };
 
@@ -215,12 +215,12 @@ function clayColor(token: ColorToken, shade: number): Color {
 }
 
 function paintMesh(mr: MeshRenderer, token: ColorToken, shade: number, emit: number): void {
-  mr.setSharedMaterial(makeInstancedLit(clayColor(token, shade), 0.2, 0.04, emit), 0);
+  mr.setSharedMaterial(makeFieldLit(clayColor(token, shade), 0.2, 0.04, emit), 0);
 }
 
 function goldMat(): Material {
   if (_gold) return _gold;
-  _gold = makeInstancedLit(new Color(255, 220, 88, 255), 0.16, 0.42, 0.28);
+  _gold = makeFieldLit(new Color(255, 220, 88, 255), 0.16, 0.42, 0.28);
   return _gold;
 }
 

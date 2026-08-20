@@ -2,7 +2,7 @@ import { Color, Material, MeshRenderer, Node } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, makeInstancedLit, makeInstancedUnlit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
+import { applyToyCaster, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -15,6 +15,14 @@ function glossy(key: string, color: Color, roughness: number, emit: number): Mat
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
   const mat = makeInstancedLit(color, roughness, 0, emit);
+  _mats.set(key, mat);
+  return mat;
+}
+
+function fieldGlossy(key: string, color: Color, roughness: number, emit: number): Material {
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const mat = makeFieldLit(color, roughness, 0, emit);
   _mats.set(key, mat);
   return mat;
 }
@@ -35,7 +43,7 @@ function brickMat(rgb: readonly [number, number, number]): Material {
   const key = `brick-u-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
-  const mat = makeInstancedUnlit(colorOf(rgb));
+  const mat = makeFieldUnlit(colorOf(rgb));
   _mats.set(key, mat);
   return mat;
 }
@@ -102,6 +110,9 @@ function paintLookOn(mrs: MeshRenderer[], look: VoxelLook): void {
     const on = mr.enabled;
     mr.enabled = false;
     mr.setSharedMaterial(mat, 0);
+    const mesh = mr.mesh;
+    inflateFieldCull(mesh);
+    if (mesh) mr.mesh = mesh;
     mr.enabled = on;
   }
 }
@@ -187,9 +198,9 @@ export function applyPaintLook(root: Node, token: ColorToken = 'p'): void {
 }
 
 export function applyMagnetLook(root: Node): void {
-  const steel = glossy('magnet-steel', new Color(72, 84, 104, 255), 0.22, 0.1);
-  const red = glossy('magnet-red', new Color(220, 40, 48, 255), 0.2, 0.2);
-  const blue = glossy('magnet-blue', new Color(48, 96, 220, 255), 0.2, 0.2);
+  const steel = fieldGlossy('magnet-steel', new Color(72, 84, 104, 255), 0.22, 0.1);
+  const red = fieldGlossy('magnet-red', new Color(220, 40, 48, 255), 0.2, 0.2);
+  const blue = fieldGlossy('magnet-blue', new Color(48, 96, 220, 255), 0.2, 0.2);
   blob(root, 'MagnetArch', 0, 0.16, 0.52, 0.72, 0.55, 0.22, steel);
   blob(root, 'MagnetL', -0.22, -0.12, 0.54, 0.22, 0.38, 0.2, red);
   blob(root, 'MagnetR', 0.22, -0.12, 0.54, 0.22, 0.38, 0.2, blue);
@@ -214,6 +225,7 @@ export function applySandLook(root: Node): void {
     const on = mr.enabled;
     mr.enabled = false;
     mr.setSharedMaterial(brickMat(sandRgb(rgb)), 0);
+    inflateFieldCull(mr.mesh);
     mr.enabled = on;
   }
 }

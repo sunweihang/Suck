@@ -10,6 +10,8 @@ CCEffect %{
         roughness: { value: 0.34, target: pbrParams.x }
         metallic:  { value: 0.04, target: pbrParams.y }
         emit:      { value: 0.04, target: pbrParams.z }
+        spinQuat:  { value: [0.0, 0.0, 0.0, 1.0] }
+        spinPivot: { value: [0.0, 0.0, 0.0, 0.0] }
       depthStencilState:
         depthTest: true
         depthWrite: true
@@ -26,6 +28,16 @@ CCProgram brick-vs %{
   out vec3 v_worldN;
   out vec3 v_worldP;
 
+  uniform FieldSpin {
+    vec4 spinQuat;
+    vec4 spinPivot;
+  };
+
+  vec3 quatRotate (vec4 q, vec3 v) {
+    vec3 t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+  }
+
   vec4 vert () {
     StandardVertInput In;
     CCVertInput(In);
@@ -34,8 +46,13 @@ CCProgram brick-vs %{
     CCGetWorldMatrixFull(matWorld, matWorldIT);
 
     vec4 wp = matWorld * In.position;
-    v_worldP = wp.xyz;
     v_worldN = normalize((matWorldIT * vec4(In.normal.xyz, 0.0)).xyz);
+
+    vec3 p = wp.xyz - spinPivot.xyz;
+    p = quatRotate(spinQuat, p);
+    wp.xyz = p + spinPivot.xyz;
+    v_worldN = quatRotate(spinQuat, v_worldN);
+    v_worldP = wp.xyz;
     return cc_matProj * cc_matView * wp;
   }
 }%

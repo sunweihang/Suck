@@ -60,6 +60,7 @@ import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
+import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, setFieldSpin, worldToRest } from './FieldSpin';
 import { setBrickMeshEnabled } from './ToyBlockMesh';
 import { UnitActor } from './UnitActor';
 
@@ -102,7 +103,6 @@ const TURRET_PAD_PX = 28;
 const _boxMin = new Vec3();
 const _boxMax = new Vec3();
 const _spinDq = new Quat();
-const _invQ = new Quat();
 const _camQ = new Quat();
 const _camRight = new Vec3();
 const _camUp = new Vec3();
@@ -305,6 +305,7 @@ export class BattleDirector extends Component {
   private _wall: Node | null = null;
   private _platesRoot: Node | null = null;
   private _field: Node | null = null;
+  private _fieldActors: Node | null = null;
   private _fieldCy = 0;
   private _fieldCz = 0;
   private readonly _spinRot = new Quat();
@@ -393,6 +394,7 @@ export class BattleDirector extends Component {
   onDestroy(): void {
     this._resetDock();
     this._unbindTouch();
+    bindFieldActors(null);
   }
 
   /** Tray stays at the origin; the field owns spin. */
@@ -527,6 +529,15 @@ export class BattleDirector extends Component {
       c.syncFromName();
       this._blocks.push(c);
     });
+    for (let i = 0; i < this._chests.length; i++) adoptNodeToActors(this._chests[i].node);
+    for (let i = 0; i < this._rescues.length; i++) adoptNodeToActors(this._rescues[i].node);
+    for (let i = 0; i < this._blocks.length; i++) {
+      const brick = this._blocks[i].node;
+      const nails = brick.getChildByName('LockNails');
+      if (!nails) continue;
+      brick.getWorldPosition(_tmp);
+      mountOnFieldActors(nails, _tmp);
+    }
     bench?.children.forEach((n) => {
       const c = n.getComponent(UnitActor) ?? n.addComponent(UnitActor);
       c.syncFromName();
@@ -578,6 +589,7 @@ export class BattleDirector extends Component {
       if (u.index >= this._nextUnitIndex) this._nextUnitIndex = u.index + 1;
     }
     this._indexBlocks();
+    this._poseFieldSpin();
     this._lookDirty = true;
     this._needHoldRefresh = false;
     this._stuckT = 0;
@@ -1067,8 +1079,10 @@ export class BattleDirector extends Component {
     const field = this._field;
     if (!field || !this._aimRay(e)) return false;
     this._fieldLocalBox(_boxMin, _boxMax);
-    field.inverseTransformPoint(_tmp, _ray.o);
+    worldToRest(_ray.o, _tmp);
+    field.inverseTransformPoint(_tmp, _tmp);
     Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 80);
+    worldToRest(_world, _world);
     field.inverseTransformPoint(_world, _world);
     _world.subtract(_tmp);
     return rayHitsAabb(_tmp, _world, _boxMin, _boxMax);
@@ -1090,6 +1104,7 @@ export class BattleDirector extends Component {
         i & 4 ? _boxMax.z : _boxMin.z,
       );
       Vec3.transformMat4(_world, _tmp, field.worldMatrix);
+      restToWorld(_world, _world);
       cam.worldToScreen(_world, _screen);
       if (_screen.x < minX) minX = _screen.x;
       if (_screen.y < minY) minY = _screen.y;
@@ -1451,7 +1466,7 @@ export class BattleDirector extends Component {
       });
       return;
     }
-    block.node.getWorldPosition(_world);
+    fieldWorldOf(block.node, _world);
     playHitFlash(
       this._flyRoot ?? this.node,
       _world,
@@ -1476,14 +1491,16 @@ export class BattleDirector extends Component {
   private _brickFace(block: BlockCell, out: Vec3): Vec3 {
     const n = block.node;
     const cam = this._cam;
-    if (!cam?.node?.isValid) return n.getWorldPosition(out);
+    if (!cam?.node?.isValid) return fieldWorldOf(n, out);
     cam.node.getWorldPosition(_camP);
+    worldToRest(_camP, _camP);
     n.inverseTransformPoint(_faceN, _camP);
     _hitDir.set(-_faceN.x, -_faceN.y, -_faceN.z);
     if (rayHitAabbAt(_faceN, _hitDir, _hitMin, _hitMax, _hitLocal)) {
       Vec3.transformMat4(out, _hitLocal, n.worldMatrix);
+      restToWorld(out, out);
     } else {
-      n.getWorldPosition(out);
+      fieldWorldOf(n, out);
     }
     _faceN.set(_camP.x - out.x, _camP.y - out.y, _camP.z - out.z);
     const len = Math.sqrt(_faceN.lengthSqr()) || 1;
@@ -1505,8 +1522,8 @@ export class BattleDirector extends Component {
     if (!block?.node?.isValid) return false;
     const counted = block.node.active && block.hp > 0;
     const host = this._flyRoot ?? this.node;
+    fieldWorldOf(block.node, _world);
     if (block.node.parent !== host) block.node.setParent(host, true);
-    block.node.getWorldPosition(_world);
     const rgb = this._brickRgb(block);
     block.blowOff(kick);
     this._burstDebris(_world, rgb);
@@ -1668,12 +1685,9 @@ export class BattleDirector extends Component {
     let best: BlockCell | null = null;
     let bestScore = -1e9;
     u.node.getWorldPosition(_tmp);
+    worldToRest(_tmp, _tmp);
     const wall = this._wall;
     if (wall?.isValid) wall.inverseTransformPoint(_tmp, _tmp);
-    else {
-      Quat.invert(_invQ, this._spinRot);
-      Vec3.transformQuat(_tmp, _tmp, _invQ);
-    }
     const ux = _tmp.x;
     const uy = _tmp.y;
     const cx = _camLocal.x;
@@ -1800,12 +1814,10 @@ export class BattleDirector extends Component {
     const cam = this._cam;
     if (cam?.node?.isValid) cam.node.getWorldPosition(_camP);
     else _camP.set(0, 8, 20);
+    worldToRest(_camP, _camP);
     const wall = this._wall;
     if (wall?.isValid) wall.inverseTransformPoint(_camLocal, _camP);
-    else {
-      Quat.invert(_invQ, this._spinRot);
-      Vec3.transformQuat(_camLocal, _camP, _invQ);
-    }
+    else _camLocal.set(_camP);
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.suckable || this._plateBlocks(b.row, b.col)) continue;
@@ -1864,7 +1876,7 @@ export class BattleDirector extends Component {
   }
 
   private _inView(block: BlockCell): boolean {
-    block.node.getWorldPosition(_tmp);
+    block.worldPos(_tmp);
     const half = PLAY.blockSize * 0.5;
     if (_tmp.y + half <= VIEW_Y_MIN || _tmp.y - half >= VIEW_Y_MAX) return false;
     return true;
@@ -1884,7 +1896,7 @@ export class BattleDirector extends Component {
 
   /** 3x3 blast; extra bricks fly in free and can chain into other bombs. */
   private _detonate(u: UnitActor, bomb: BlockCell): void {
-    bomb.node.getWorldPosition(_world);
+    fieldWorldOf(bomb.node, _world);
     playBaozhaBurst(this.node, _world, 0, 1.95);
     gameAudio()?.playBoom();
     const ox = _world.x;
@@ -1918,7 +1930,7 @@ export class BattleDirector extends Component {
       return;
     }
     if (ox != null && oy != null && oz != null) {
-      block.node.getWorldPosition(_tmp);
+      fieldWorldOf(block.node, _tmp);
       _hitDir.set(_tmp.x - ox, _tmp.y - oy, _tmp.z - oz);
       const len = Math.sqrt(_hitDir.lengthSqr()) || 1;
       _hitDir.multiplyScalar(1 / len);
@@ -2490,19 +2502,43 @@ export class BattleDirector extends Component {
     this._fieldCz = GAME.worldCamLookAtZ;
     field.setPosition(0, this._fieldCy, this._fieldCz);
     field.setRotationFromEuler(0, 0, 0);
+    let actors = field.getChildByName('FieldActors');
+    if (!actors) {
+      actors = new Node('FieldActors');
+      field.addChild(actors);
+    }
+    actors.setPosition(0, 0, 0);
+    actors.setRotationFromEuler(0, 0, 0);
+    this._fieldActors = actors;
+    bindFieldActors(actors);
     // Inactive standby worlds have stale world matrices; keepWorldTransform
     // would park Wall at Field's origin and hide every brick from the turret.
     _tmp.set(0, -this._fieldCy, -this._fieldCz);
-    for (const name of ['Wall', 'Plates', 'Raft'] as const) {
-      const n = this.node.getChildByName(name) ?? field.getChildByName(name);
+    const wall = this.node.getChildByName('Wall') ?? field.getChildByName('Wall');
+    if (wall) {
+      if (wall.parent !== field) wall.setParent(field, false);
+      wall.setPosition(_tmp);
+      wall.setRotationFromEuler(0, 0, 0);
+    }
+    for (const name of ['Plates', 'Raft'] as const) {
+      const n = this.node.getChildByName(name) ?? field.getChildByName(name) ?? actors.getChildByName(name);
       if (!n) continue;
-      if (n.parent !== field) n.setParent(field, false);
+      if (n.parent !== actors) n.setParent(actors, false);
       n.setPosition(_tmp);
       n.setRotationFromEuler(0, 0, 0);
     }
     this._wall = field.getChildByName('Wall');
-    this._platesRoot = field.getChildByName('Plates');
-    this._raft = field.getChildByName('Raft');
+    this._platesRoot = actors.getChildByName('Plates');
+    this._raft = actors.getChildByName('Raft');
+  }
+
+  private _poseFieldSpin(): void {
+    const field = this._field;
+    if (!field?.isValid) return;
+    this._posedRot.set(this._spinRot);
+    this._fieldActors?.setRotation(this._spinRot);
+    field.getWorldPosition(_tmp);
+    setFieldSpin(this._spinRot, _tmp);
   }
 
   private _fieldYaw(): number {
@@ -2525,8 +2561,7 @@ export class BattleDirector extends Component {
       }
     }
     if (Quat.equals(this._spinRot, this._posedRot)) return;
-    this._posedRot.set(this._spinRot);
-    this._field?.setRotation(this._spinRot);
+    this._poseFieldSpin();
   }
 
   private _resetDock(): void {
@@ -2664,12 +2699,15 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.node?.isValid || !b.node.active || b.hp <= 0 || b.inFlight) continue;
-      b.node.inverseTransformPoint(_tmp, _ray.o);
+      worldToRest(_ray.o, _tmp);
+      b.node.inverseTransformPoint(_tmp, _tmp);
       Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 80);
+      worldToRest(_world, _world);
       b.node.inverseTransformPoint(_world, _world);
       _world.subtract(_tmp);
       if (!rayHitAabbAt(_tmp, _world, _hitMin, _hitMax, _hitLocal)) continue;
       Vec3.transformMat4(_faceN, _hitLocal, b.node.worldMatrix);
+      restToWorld(_faceN, _faceN);
       const dx = _faceN.x - _ray.o.x;
       const dy = _faceN.y - _ray.o.y;
       const dz = _faceN.z - _ray.o.z;
@@ -2724,7 +2762,7 @@ export class BattleDirector extends Component {
         if (sandKeys.indexOf(key) < 0) sandKeys.push(key);
       }
       if (b.locked) b.unlock();
-      b.node.getWorldPosition(_world);
+      fieldWorldOf(b.node, _world);
       cx += _world.x;
       cy += _world.y;
       cz += _world.z;
@@ -2735,9 +2773,9 @@ export class BattleDirector extends Component {
       playBaozhaBurst(this.node, _world, 0, 1.7);
       gameAudio()?.playBoom();
       if (n >= 4) {
-        group[0].node.getWorldPosition(_world);
+        fieldWorldOf(group[0].node, _world);
         playBaozhaBurst(this.node, _world, 40, 1.1);
-        group[n - 1].node.getWorldPosition(_world);
+        fieldWorldOf(group[n - 1].node, _world);
         playBaozhaBurst(this.node, _world, 70, 1.1);
       }
     }

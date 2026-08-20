@@ -1,6 +1,6 @@
 import { Color, JsonAsset, Material, Mesh, MeshRenderer, Node, Vec3, resources, utils } from 'cc';
 import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
-import { applyToyCaster, makeInstancedLit } from './ToyBlockMesh';
+import { applyToyCaster, makeFieldLit } from './ToyBlockMesh';
 
 type MeshPack = {
   p: number[];
@@ -33,12 +33,12 @@ function meshFrom(pack: MeshPack): Mesh | null {
 
 function paintBody(mr: MeshRenderer, token: ColorToken): void {
   const rgb = CANDY[token] ?? CANDY.y;
-  mr.setSharedMaterial(makeInstancedLit(new Color(rgb[0], rgb[1], rgb[2], 255), 0.22, 0.04, 0.14), 0);
+  mr.setSharedMaterial(makeFieldLit(new Color(rgb[0], rgb[1], rgb[2], 255), 0.22, 0.04, 0.14), 0);
 }
 
 function goldMat(): Material {
   if (_gold) return _gold;
-  _gold = makeInstancedLit(new Color(255, 224, 96, 255), 0.16, 0.48, 0.26);
+  _gold = makeFieldLit(new Color(255, 224, 96, 255), 0.16, 0.48, 0.26);
   return _gold;
 }
 

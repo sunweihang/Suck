@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, SPECIAL_SPAN, isColorToken, parseColorToken } from '../game/GameConfig';
-import { applyBrickGray, applyBrickPlastic, wakeBrickMesh } from './ToyBlockMesh';
+import { bindFieldNode, fieldWorldOf } from './FieldSpin';
+import { applyBrickGray, applyBrickPlastic, releaseFieldBrick, wakeBrickMesh } from './ToyBlockMesh';
 import { hideBlowTrail } from './BlowTrail';
 import { clearLockLook } from './LockNails';
 
@@ -58,6 +59,7 @@ export class BlockCell extends Component {
   private readonly _moveTo = new Vec3();
   private _moveT = 0;
   private _moveDur = 0;
+  private _fieldSpun = true;
 
   onLoad(): void {
     applyBrickPlastic(this.node);
@@ -80,6 +82,8 @@ export class BlockCell extends Component {
     this._nudgeT = 0;
     this._moveDur = 0;
     hideBlowTrail(this.node);
+    this._fieldSpun = true;
+    bindFieldNode(this.node);
     this.enabled = false;
   }
 
@@ -142,7 +146,13 @@ export class BlockCell extends Component {
   }
 
   worldPos(out: Vec3): Vec3 {
-    return this.node.getWorldPosition(out);
+    return this._fieldSpun ? fieldWorldOf(this.node, out) : this.node.getWorldPosition(out);
+  }
+
+  private _leaveField(): void {
+    if (!this._fieldSpun) return;
+    this._fieldSpun = false;
+    releaseFieldBrick(this.node);
   }
 
   /** Claimed by a shot: stay put, no longer a target. */
@@ -176,6 +186,7 @@ export class BlockCell extends Component {
     this._onLand = null;
     this._moveDur = 0;
     this._nudgeT = 0;
+    this._leaveField();
     this.node.getWorldPosition(this._from);
     this.node.getWorldRotation(this._q);
     const kx = kick?.x ?? 0;
@@ -209,6 +220,7 @@ export class BlockCell extends Component {
     this._suckT = 0;
     this._suckDur = Math.max(0.2, duration);
     this._onLand = onBoom ?? null;
+    this._leaveField();
     this.node.getWorldPosition(this._from);
     this.node.getWorldRotation(this._q);
     this.enabled = true;
@@ -223,6 +235,7 @@ export class BlockCell extends Component {
     this._suckDur = Math.max(0.28, duration * (0.88 + Math.random() * 0.28));
     this._grain = 0.94 + Math.random() * 0.06;
     this._onLand = onLand ?? null;
+    this._leaveField();
     this.node.getWorldPosition(this._from);
     this.node.getWorldRotation(this._q);
     const h = Math.max(0.25, this._from.y);
