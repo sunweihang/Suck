@@ -70,12 +70,19 @@
     return `rgb(${c[0]},${c[1]},${c[2]})`;
   }
 
+  function toLin(c) {
+    const x = c / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  }
+
+  function toSrgb(x) {
+    const y = x <= 0.0031308 ? 12.92 * x : 1.055 * (Math.max(0, x) ** (1 / 2.4)) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(y * 255)));
+  }
+
   function shade(token, mul) {
     const c = TOKEN_RGB[token] || [180, 180, 180];
-    const r = Math.max(0, Math.min(255, Math.round(c[0] * mul)));
-    const g = Math.max(0, Math.min(255, Math.round(c[1] * mul)));
-    const b = Math.max(0, Math.min(255, Math.round(c[2] * mul)));
-    return `rgb(${r},${g},${b})`;
+    return `rgb(${toSrgb(toLin(c[0]) * mul)},${toSrgb(toLin(c[1]) * mul)},${toSrgb(toLin(c[2]) * mul)})`;
   }
 
   function decodeCell(raw) {
@@ -602,12 +609,119 @@
     { n: [1, 0, 0], mul: 0.68, nb: [1, 0, 0], pts: [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]] },
     { n: [-1, 0, 0], mul: 0.62, nb: [-1, 0, 0], pts: [[0, 0, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1]] },
   ];
-  const LIGHT = [0.32, 0.78, 0.54];
-  const LIGHT_LEN = Math.hypot(LIGHT[0], LIGHT[1], LIGHT[2]);
+  const ROUGH = 0.34;
+  const METAL = 0.04;
+  const EMIT = 0.04;
+  const INV_PI = 1 / Math.PI;
+  const LIT_RGB = [toLin(255), toLin(232), toLin(204)];
+  const SKY_RGB = [toLin(254), toLin(250), toLin(220)];
+  const GND_RGB = [toLin(176), toLin(226), toLin(236)];
+  const LIT_W = 3.45;
+  const AMB_W = 0.18;
+  const CUBE_PAD = 0.08;
+  const FACE_INSET = 0.16;
+  const LIGHT = (function gameLightDir() {
+    const hr = Math.PI / 360;
+    const x = -58 * hr;
+    const y = 46 * hr;
+    const sx = Math.sin(x);
+    const cx = Math.cos(x);
+    const sy = Math.sin(y);
+    const cy = Math.cos(y);
+    const q = {
+      x: sx * cy,
+      y: cx * sy,
+      z: -sx * sy,
+      w: cx * cy,
+    };
+    const vx = 0;
+    const vy = 0;
+    const vz = -1;
+    const tx = 2 * (q.y * vz - q.z * vy);
+    const ty = 2 * (q.z * vx - q.x * vz);
+    const tz = 2 * (q.x * vy - q.y * vx);
+    const dir = [
+      vx + q.w * tx + (q.y * tz - q.z * ty),
+      vy + q.w * ty + (q.z * tx - q.x * tz),
+      vz + q.w * tz + (q.x * ty - q.y * tx),
+    ];
+    const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    return [-dir[0] / len, -dir[1] / len, -dir[2] / len];
+  }());
 
-  function faceLit(n) {
-    const d = (n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / LIGHT_LEN;
-    return 0.4 + 0.6 * Math.max(0, d);
+  function viewDir() {
+    const cy = Math.cos(view.yaw);
+    const sy = Math.sin(view.yaw);
+    const cp = Math.cos(view.pitch);
+    const sp = Math.sin(view.pitch);
+    return [sy * cp, sp, cy * cp];
+  }
+
+  function ggxMobile(rough, noh, h, n) {
+    const nxh0 = n[1] * h[2] - n[2] * h[1];
+    const nxh1 = n[2] * h[0] - n[0] * h[2];
+    const nxh2 = n[0] * h[1] - n[1] * h[0];
+    const oneMinus = nxh0 * nxh0 + nxh1 * nxh1 + nxh2 * nxh2;
+    const a = rough * rough;
+    const p = a / Math.max(1e-5, oneMinus + (noh * a) ** 2);
+    return p * p;
+  }
+
+  function brdfApprox(spec, rough, nov) {
+    const rx = rough * -1 + 1;
+    const ry = rough * -0.0275 + 0.0425;
+    const rz = rough * -0.572 + 1.04;
+    const rw = rough * 0.022 - 0.04;
+    const a004 = Math.min(rx * rx, 2 ** (-9.28 * nov)) * rx + ry;
+    let abx = -1.04 * a004 + rz;
+    let aby = 1.04 * a004 + rw;
+    aby *= Math.max(0, Math.min(1, 50 * spec[1]));
+    return [
+      Math.max(0, spec[0] * abx + aby),
+      Math.max(0, spec[1] * abx + aby),
+      Math.max(0, spec[2] * abx + aby),
+    ];
+  }
+
+  function litFace(token, n, highlight) {
+    const raw = TOKEN_RGB[token] || [180, 180, 180];
+    const src = [
+      raw[0] * 0.92 + 210 * 0.08,
+      raw[1] * 0.88 + 150 * 0.08,
+      raw[2] * 0.82 + 70 * 0.08,
+    ];
+    const albedo = [toLin(src[0]), toLin(src[1]), toLin(src[2])];
+    const V = viewDir();
+    const L = LIGHT;
+    const nl = Math.max(0, n[0] * L[0] + n[1] * L[1] + n[2] * L[2]);
+    const ndv = n[0] * V[0] + n[1] * V[1] + n[2] * V[2];
+    const nv = Math.max(1e-4, Math.abs(ndv));
+    const diffuse = [albedo[0] * (1 - METAL), albedo[1] * (1 - METAL), albedo[2] * (1 - METAL)];
+    const spec0 = [
+      0.04 * (1 - METAL) + albedo[0] * METAL,
+      0.04 * (1 - METAL) + albedo[1] * METAL,
+      0.04 * (1 - METAL) + albedo[2] * METAL,
+    ];
+    const specular = brdfApprox(spec0, ROUGH, nv);
+    const hx = L[0] + V[0];
+    const hy = L[1] + V[1];
+    const hz = L[2] + V[2];
+    const hl = Math.hypot(hx, hy, hz) || 1;
+    const H = [hx / hl, hy / hl, hz / hl];
+    const nh = Math.max(0, n[0] * H[0] + n[1] * H[1] + n[2] * H[2]);
+    const specTerm = (ROUGH * 0.25 + 0.25) * ggxMobile(ROUGH, nh, H, n);
+    const fAmb = Math.max(1e-4, 0.5 - n[1] * 0.5);
+    const ry = 2 * ndv * n[1] - V[1];
+    const fEnv = Math.max(1e-4, 0.5 - ry * 0.5);
+    const out = [0, 0, 0];
+    for (let i = 0; i < 3; i++) {
+      const light = nl * LIT_RGB[i] * LIT_W;
+      const amb = (SKY_RGB[i] * (1 - fAmb) + GND_RGB[i] * fAmb) * AMB_W;
+      const env = (SKY_RGB[i] * (1 - fEnv) + GND_RGB[i] * fEnv) * AMB_W;
+      out[i] = light * (diffuse[i] * INV_PI + specular[i] * specTerm) + amb * diffuse[i] + env * specular[i] + albedo[i] * EMIT;
+      if (highlight) out[i] *= 1.04;
+    }
+    return `rgb(${toSrgb(out[0])},${toSrgb(out[1])},${toSrgb(out[2])})`;
   }
 
   function fillPoly(ctx, pts) {
@@ -618,13 +732,87 @@
     ctx.fill();
   }
 
+  function pad(v) {
+    return CUBE_PAD + v * (1 - CUBE_PAD * 2);
+  }
+
+  function cubePt(x, y, z, dx, dy, dz) {
+    return corner(x, y, z, pad(dx), pad(dy), pad(dz));
+  }
+
+  function norm3(a, b, c) {
+    const l = Math.hypot(a, b, c) || 1;
+    return [a / l, b / l, c / l];
+  }
+
+  function faceGradient(ctx, token, n, x, y, z, corners, highlight) {
+    let minD = 1e9;
+    let maxD = -1e9;
+    let a = corners[0];
+    let b = corners[0];
+    const cx = (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) * 0.25;
+    const cy = (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) * 0.25;
+    const cz = (corners[0][2] + corners[1][2] + corners[2][2] + corners[3][2]) * 0.25;
+    for (const p of corners) {
+      const d = (p[0] - cx) * LIGHT[0] + (p[1] - cy) * LIGHT[1] + (p[2] - cz) * LIGHT[2];
+      if (d < minD) {
+        minD = d;
+        a = p;
+      }
+      if (d > maxD) {
+        maxD = d;
+        b = p;
+      }
+    }
+    const pa = cubePt(x, y, z, a[0], a[1], a[2]);
+    const pb = cubePt(x, y, z, b[0], b[1], b[2]);
+    const g = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+    g.addColorStop(0, litFace(token, norm3(n[0] - LIGHT[0] * 0.32, n[1] - LIGHT[1] * 0.32, n[2] - LIGHT[2] * 0.32), highlight));
+    g.addColorStop(1, litFace(token, norm3(n[0] + LIGHT[0] * 0.4, n[1] + LIGHT[1] * 0.4, n[2] + LIGHT[2] * 0.4), highlight));
+    return g;
+  }
+
   function drawCube(ctx, x, y, z, token, _alpha, highlight) {
+    const visible = [];
     for (const face of FACES) {
       if (occupied(x + face.nb[0], y + face.nb[1], z + face.nb[2])) continue;
       if (camZ(face.n[0], face.n[1], face.n[2]) <= 0.02) continue;
-      const pts = face.pts.map(([dx, dy, dz]) => corner(x, y, z, dx, dy, dz));
-      ctx.fillStyle = shade(token, faceLit(face.n) * (highlight ? 1.06 : 1));
-      fillPoly(ctx, pts);
+      visible.push(face);
+    }
+    if (!visible.length) return;
+    ctx.fillStyle = litFace(token, [0.12, -0.62, 0.22], highlight);
+    for (const face of visible) {
+      fillPoly(ctx, face.pts.map((p) => cubePt(x, y, z, p[0], p[1], p[2])));
+    }
+    for (const face of visible) {
+      const mid = [
+        (face.pts[0][0] + face.pts[2][0]) * 0.5,
+        (face.pts[0][1] + face.pts[2][1]) * 0.5,
+        (face.pts[0][2] + face.pts[2][2]) * 0.5,
+      ];
+      const inner = face.pts.map((p) => [
+        p[0] + (mid[0] - p[0]) * FACE_INSET,
+        p[1] + (mid[1] - p[1]) * FACE_INSET,
+        p[2] + (mid[2] - p[2]) * FACE_INSET,
+      ]);
+      const outerPts = face.pts.map((p) => cubePt(x, y, z, p[0], p[1], p[2]));
+      const innerPts = inner.map((p) => cubePt(x, y, z, p[0], p[1], p[2]));
+      for (let i = 0; i < 4; i++) {
+        const j = (i + 1) & 3;
+        const a = face.pts[i];
+        const b = face.pts[j];
+        const edge = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const bevelN = norm3(
+          face.n[0] * 0.72 + edge[1] * face.n[2] - edge[2] * face.n[1],
+          face.n[1] * 0.72 + edge[2] * face.n[0] - edge[0] * face.n[2],
+          face.n[2] * 0.72 + edge[0] * face.n[1] - edge[1] * face.n[0],
+        );
+        const tilt = norm3(face.n[0] + LIGHT[0] * 0.15, face.n[1] + LIGHT[1] * 0.15, face.n[2] + LIGHT[2] * 0.15);
+        ctx.fillStyle = litFace(token, norm3(bevelN[0] + tilt[0], bevelN[1] + tilt[1], bevelN[2] + tilt[2]), highlight);
+        fillPoly(ctx, [outerPts[i], outerPts[j], innerPts[j], innerPts[i]]);
+      }
+      ctx.fillStyle = faceGradient(ctx, token, face.n, x, y, z, inner, highlight);
+      fillPoly(ctx, innerPts);
     }
   }
 
@@ -658,7 +846,7 @@
     if (!raw) return;
     layoutView();
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = view.iso ? '#1a1524' : '#111318';
+    ctx.fillStyle = view.iso ? (preview.on ? '#fefcde' : '#1a1524') : '#111318';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const irons = new Set(parseNums($('iron').value));
     const gaps = new Set(parseNums($('gaps').value));
