@@ -12,6 +12,8 @@ import {
   Texture2D,
   UITransform,
   Widget,
+  director,
+  profiler,
 } from 'cc';
 import { LEVEL_COUNT } from '../game/LevelCatalog';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
@@ -29,7 +31,7 @@ const KEY_W = 140;
 const KEY_H = 76;
 const TOGGLE_W = 96;
 const TOGGLE_H = 64;
-const FPS_W = 96;
+const FPS_W = 152;
 const FPS_H = 44;
 const FPS_GAP = 12;
 const SHOW_GM_ENTRY = false;
@@ -52,6 +54,12 @@ const FPS_OK = new Color(248, 208, 72, 255);
 const FPS_BAD = new Color(236, 88, 72, 255);
 const BTN_TEXT = new Color(255, 255, 255, 255);
 const PLACE = new Color(160, 120, 88, 255);
+
+/** Previous frame's count — the pipeline resets it before the next draw. */
+function drawCalls(): number {
+  const n = director.root?.device?.numDrawCalls;
+  return typeof n === 'number' ? n : 0;
+}
 
 let _white: SpriteFrame | null = null;
 
@@ -87,6 +95,8 @@ export class GmPanel extends Component {
   private _fpsLab: Label | null = null;
   private _fpsAcc = 0;
   private _fpsFrames = 0;
+  private _dcPeak = 0;
+  private _statsOn = false;
   private _entryShown = SHOW_GM_ENTRY;
 
   setup(opts: {
@@ -153,7 +163,8 @@ export class GmPanel extends Component {
     }
     if (fps) {
       fps.active = this._entryShown;
-      fps.setPosition(toggleX, toggleY - TOGGLE_H * 0.5 - FPS_GAP - FPS_H * 0.5, 0);
+      const fpsX = toggleX + (FPS_W - TOGGLE_W) * 0.5;
+      fps.setPosition(fpsX, toggleY - TOGGLE_H * 0.5 - FPS_GAP - FPS_H * 0.5, 0);
     }
   }
 
@@ -161,12 +172,14 @@ export class GmPanel extends Component {
     if (!this._fpsLab) return;
     this._fpsAcc += dt;
     this._fpsFrames++;
+    this._dcPeak = Math.max(this._dcPeak, drawCalls());
     if (this._fpsAcc < 0.4) return;
     const fps = Math.round(this._fpsFrames / this._fpsAcc);
-    this._fpsLab.string = `${fps}`;
+    this._fpsLab.string = `${fps} · ${this._dcPeak}`;
     this._fpsLab.color = fps >= 50 ? FPS_GOOD : fps >= 30 ? FPS_OK : FPS_BAD;
     this._fpsAcc = 0;
     this._fpsFrames = 0;
+    this._dcPeak = 0;
   }
 
   private _setOpen(on: boolean): void {
@@ -227,6 +240,12 @@ export class GmPanel extends Component {
     fps.active = this._entryShown;
     this._paint(fps, FPS_BG, FPS_W, FPS_H);
     this._fpsLab = this._label(fps, 'Label', '--', 26, FPS_GOOD, 0, 0, FPS_W, FPS_H);
+    fps.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this._statsOn = !this._statsOn;
+      if (this._statsOn) profiler?.showStats();
+      else profiler?.hideStats();
+    }, this);
     toggle.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
