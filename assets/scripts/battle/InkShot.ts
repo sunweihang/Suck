@@ -284,7 +284,7 @@ function camPos(out: Vec3, fallback: Vec3): void {
   out.set(_camCached);
 }
 
-function faceCamAt(node: Node, at: Vec3, camPosW: Vec3): void {
+function billboardCam(at: Vec3, camPosW: Vec3): void {
   _toCam.set(camPosW.x - at.x, camPosW.y - at.y, camPosW.z - at.z);
   if (_toCam.lengthSqr() < 1e-8) _toCam.set(0, 1, 0);
   Vec3.normalize(_axisZ, _toCam);
@@ -297,6 +297,10 @@ function faceCamAt(node: Node, at: Vec3, camPosW: Vec3): void {
   Vec3.normalize(_axisX, _axisX);
   Vec3.cross(_axisY, _axisZ, _axisX);
   Quat.fromAxes(_rot, _axisX, _axisY, _axisZ);
+}
+
+function faceCamAt(node: Node, at: Vec3, camPosW: Vec3): void {
+  billboardCam(at, camPosW);
   node.setWorldRotation(_rot);
 }
 
@@ -311,6 +315,128 @@ function faceTrailAt(at: Vec3, along: Vec3, camPosW: Vec3): void {
   if (_axisZ.lengthSqr() < 1e-8) _axisZ.set(_toCam);
   Vec3.normalize(_axisZ, _axisZ);
   Quat.fromAxes(_rot, _axisX, _axisY, _axisZ);
+}
+
+/** Camera-facing square. Trail ribbon is a comet hanging off the head. */
+const GLOW_CORNERS = [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5];
+const TRAIL_CORNERS = [-0.5, 0, 0.5, 0, 0.5, -1, -0.5, -1];
+const GLOW_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
+const TRAIL_UVS = [0, 1, 0, 0, 1, 0, 1, 1];
+const SOFT_QUADS = 1 + SPARKS;
+const _minP = { x: -2, y: -2, z: -2 };
+const _maxP = { x: 2, y: 2, z: 2 };
+const _billQ = new Quat();
+
+type DynBatch = {
+  mesh: Mesh;
+  pos: Float32Array;
+  uvs: Float32Array;
+  idx: Uint16Array;
+  prim: number;
+};
+
+function writeQuad(
+  dest: Float32Array,
+  qi: number,
+  ox: number,
+  oy: number,
+  oz: number,
+  q: Quat,
+  sx: number,
+  sy: number,
+  corners: readonly number[],
+): void {
+  const o = qi * 12;
+  const qx = q.x;
+  const qy = q.y;
+  const qz = q.z;
+  const qw = q.w;
+  for (let i = 0; i < 4; i++) {
+    const vx = corners[i * 2] * sx;
+    const vy = corners[i * 2 + 1] * sy;
+    const tx = 2 * (-qz * vy);
+    const ty = 2 * (qz * vx);
+    const tz = 2 * (qx * vy - qy * vx);
+    dest[o + i * 3] = ox + vx + qw * tx + (qy * tz - qz * ty);
+    dest[o + i * 3 + 1] = oy + vy + qw * ty + (qz * tx - qx * tz);
+    dest[o + i * 3 + 2] = oz + qw * tz + (qx * ty - qy * tx);
+  }
+}
+
+function hideQuad(dest: Float32Array, qi: number): void {
+  dest.fill(0, qi * 12, qi * 12 + 12);
+}
+
+function fillGlowUvs(uvs: Float32Array, quads: number): void {
+  for (let q = 0; q < quads; q++) {
+    uvs.set(GLOW_UVS, q * 8);
+  }
+}
+
+function fillQuadsIdx(idx: Uint16Array, quads: number): void {
+  for (let q = 0; q < quads; q++) {
+    const b = q * 4;
+    const o = q * 6;
+    idx[o] = b;
+    idx[o + 1] = b + 1;
+    idx[o + 2] = b + 2;
+    idx[o + 3] = b;
+    idx[o + 4] = b + 2;
+    idx[o + 5] = b + 3;
+  }
+}
+
+function pushDyn(batch: DynBatch): void {
+  batch.mesh.updateSubMesh(batch.prim, {
+    positions: batch.pos,
+    uvs: batch.uvs,
+    indices16: batch.idx,
+    minPos: _minP,
+    maxPos: _maxP,
+  });
+}
+
+function makeDyn(
+  quads: number,
+  uvs: Float32Array,
+  prim: number,
+  mesh?: Mesh,
+  maxSub = 1,
+): DynBatch {
+  const pos = new Float32Array(quads * 12);
+  const idx = new Uint16Array(quads * 6);
+  fillQuadsIdx(idx, quads);
+  const geom = {
+    positions: pos,
+    uvs,
+    indices16: idx,
+    minPos: _minP,
+    maxPos: _maxP,
+  };
+  const made = utils.MeshUtils.createDynamicMesh(prim, geom, mesh, {
+    maxSubMeshes: maxSub,
+    maxSubMeshVertices: quads * 4,
+    maxSubMeshIndices: quads * 6,
+  });
+  return { mesh: made, pos, uvs, idx, prim };
+}
+
+function hushOldParts(host: Node): void {
+  const names = ['Ball', 'Glow', 'Trail', 'Streak', 'Haze'];
+  for (let i = 0; i < names.length; i++) {
+    const n = host.getChildByName(names[i]);
+    if (!n) continue;
+    n.active = false;
+    const mr = n.getComponent(MeshRenderer);
+    if (mr) mr.enabled = false;
+  }
+  for (let i = 0; ; i++) {
+    const n = host.getChildByName(`Spark_${i}`);
+    if (!n) break;
+    n.active = false;
+    const mr = n.getComponent(MeshRenderer);
+    if (mr) mr.enabled = false;
+  }
 }
 
 export function preloadInkShot(): Promise<void> {
@@ -610,10 +736,12 @@ export function playHitFlash(
 
 @ccclass('InkShot')
 export class InkShot extends Component {
-  private _ball: Node | null = null;
-  private _glow: Node | null = null;
-  private _trail: Node | null = null;
-  private readonly _sparks: Node[] = [];
+  private _soft: Node | null = null;
+  private _bolt: Node | null = null;
+  private _ribbon: Node | null = null;
+  private _softBatch: DynBatch | null = null;
+  private _ballBatch: DynBatch | null = null;
+  private _trailBatch: DynBatch | null = null;
   private _token = '';
   private _rgb: readonly [number, number, number] | null = null;
   private _paintKey = '';
@@ -710,10 +838,9 @@ export class InkShot extends Component {
 
   private _finish(): void {
     this._armed = false;
-    this._hideSparks();
-    if (this._glow?.isValid) this._glow.active = false;
-    if (this._ball?.isValid) this._ball.active = false;
-    if (this._trail?.isValid) this._trail.active = false;
+    if (this._soft?.isValid) this._soft.active = false;
+    if (this._bolt?.isValid) this._bolt.active = false;
+    if (this._ribbon?.isValid) this._ribbon.active = false;
     this.node.active = false;
     this.enabled = false;
     const done = this._onHit;
@@ -722,65 +849,78 @@ export class InkShot extends Component {
   }
 
   private _ensureLook(): void {
-    if (this._lookReady && this._ball?.isValid) return;
+    if (this._lookReady && this._soft?.isValid && this._bolt?.isValid) return;
     if (!_ballMat) _ballMat = addMat(null, new Color(255, 255, 255, 255), true);
     this.node.layer = Layers.Enum.UI_3D;
     this.node.setScale(1, 1, 1);
     const rootMr = this.node.getComponent(MeshRenderer);
     if (rootMr) rootMr.enabled = false;
+    hushOldParts(this.node);
 
-    const glow = child(this.node, 'Glow');
-    glow.setPosition(0, 0, 0);
-    glow.active = !!(_glowMat || _glowTex);
-    if (_glowMat) applyMesh(glow, glowQuad(), _glowMat);
-    this._glow = glow;
-
-    const leftover = this.node.getChildByName('Streak');
-    if (leftover) leftover.active = false;
-    const haze = this.node.getChildByName('Haze');
-    if (haze) haze.active = false;
-
-    const trail = child(this.node, 'Trail');
-    trail.setPosition(0, 0, 0);
-    trail.active = !!(_trailMat || _trailTex);
-    if (_trailMat) applyMesh(trail, trailQuad(), _trailMat);
-    this._trail = trail;
-
-    this._sparks.length = 0;
-    for (let i = 0; i < SPARKS; i++) {
-      const spark = child(this.node, `Spark_${i}`);
-      spark.setPosition(0, 0, 0);
-      spark.active = false;
-      if (_glowMat) applyMesh(spark, glowQuad(), _glowMat);
-      this._sparks.push(spark);
+    const soft = child(this.node, 'Soft');
+    soft.setPosition(0, 0, 0);
+    soft.setRotationFromEuler(0, 0, 0);
+    if (!this._softBatch?.mesh?.isValid) {
+      const uvs = new Float32Array(SOFT_QUADS * 8);
+      fillGlowUvs(uvs, SOFT_QUADS);
+      this._softBatch = makeDyn(SOFT_QUADS, uvs, 0);
     }
+    applyMesh(soft, this._softBatch.mesh, _glowMat ?? _ballMat);
+    this._soft = soft;
 
-    const ball = child(this.node, 'Ball');
-    ball.setPosition(0, 0, 0);
-    ball.setRotationFromEuler(0, 0, 0);
-    ball.active = !!_ballMat;
-    if (_ballMat) applyMesh(ball, glowQuad(), _ballMat);
-    this._ball = ball;
+    const bolt = child(this.node, 'Bolt');
+    bolt.setPosition(0, 0, 0);
+    bolt.setRotationFromEuler(0, 0, 0);
+    if (!this._ballBatch?.mesh?.isValid || !this._trailBatch) {
+      const ball = makeDyn(1, new Float32Array(GLOW_UVS), 0, undefined, 2);
+      if ((ball.mesh.renderingSubMeshes?.length ?? 0) >= 2) {
+        const trail: DynBatch = {
+          mesh: ball.mesh,
+          pos: new Float32Array(12),
+          uvs: new Float32Array(TRAIL_UVS),
+          idx: new Uint16Array(6),
+          prim: 1,
+        };
+        fillQuadsIdx(trail.idx, 1);
+        pushDyn(trail);
+        this._trailBatch = trail;
+      } else {
+        this._trailBatch = makeDyn(1, new Float32Array(TRAIL_UVS), 0);
+      }
+      this._ballBatch = ball;
+    }
+    applyMesh(bolt, this._ballBatch.mesh, _ballMat);
+    this._bolt = bolt;
+    if (this._trailBatch.mesh === this._ballBatch.mesh) {
+      const boltMr = bolt.getComponent(MeshRenderer);
+      if (boltMr) boltMr.setSharedMaterial(_trailMat ?? matFor('trail', this._token, this._rgb ?? undefined), 1);
+      if (this._ribbon?.isValid) this._ribbon.active = false;
+    } else {
+      const ribbon = child(this.node, 'Ribbon');
+      ribbon.setPosition(0, 0, 0);
+      ribbon.setRotationFromEuler(0, 0, 0);
+      applyMesh(ribbon, this._trailBatch.mesh, _trailMat ?? _ballMat);
+      this._ribbon = ribbon;
+    }
     this._lookReady = true;
   }
 
   private _paint(token: string, rgb?: readonly [number, number, number] | null): void {
     const key = rgb ? `${token}:${rgb[0]},${rgb[1]},${rgb[2]}` : token;
-    if (key === this._paintKey && this._ball?.isValid) return;
+    if (key === this._paintKey && this._soft?.isValid && this._bolt?.isValid) return;
     this._paintKey = key;
-    if (this._ball?.isValid) applyMesh(this._ball, glowQuad(), matFor('ball', token, rgb ?? undefined));
-    if (this._glow?.isValid) applyMesh(this._glow, glowQuad(), matFor('glow', token, rgb ?? undefined));
-    if (this._trail?.isValid) applyMesh(this._trail, trailQuad(), matFor('trail', token, rgb ?? undefined));
-    for (let i = 0; i < this._sparks.length; i++) {
-      const spark = this._sparks[i];
-      if (spark?.isValid) applyMesh(spark, glowQuad(), matFor('glow', token, rgb ?? undefined));
+    const tint = rgb ?? undefined;
+    if (this._soft?.isValid && this._softBatch) {
+      applyMesh(this._soft, this._softBatch.mesh, matFor('glow', token, tint));
     }
-  }
-
-  private _hideSparks(): void {
-    for (let i = 0; i < this._sparks.length; i++) {
-      const spark = this._sparks[i];
-      if (spark?.isValid) spark.active = false;
+    if (this._bolt?.isValid && this._ballBatch) {
+      const mr = applyMesh(this._bolt, this._ballBatch.mesh, matFor('ball', token, tint));
+      if (mr && this._trailBatch?.mesh === this._ballBatch.mesh) {
+        mr.setSharedMaterial(matFor('trail', token, tint), 1);
+      }
+    }
+    if (this._ribbon?.isValid && this._trailBatch && this._trailBatch.mesh !== this._ballBatch?.mesh) {
+      applyMesh(this._ribbon, this._trailBatch.mesh, matFor('trail', token, tint));
     }
   }
 
@@ -800,43 +940,53 @@ export class InkShot extends Component {
     const fade = u > 0.88 ? (1 - u) / 0.12 : 1;
     const flown = len * u;
 
-    if (this._ball?.isValid) {
-      faceCamAt(this._ball, _pos, _camP);
-      this._ball.setScale(BALL * fade, BALL * fade, 1);
-      this._ball.active = true;
-    }
-    if (this._glow?.isValid) {
-      if (this._ball?.isValid) this._glow.setWorldRotation(_rot);
-      else faceCamAt(this._glow, _pos, _camP);
-      this._glow.setScale(GLOW * fade, GLOW * fade, 1);
-      this._glow.active = true;
-    }
-    if (this._trail?.isValid) {
-      const tail = Math.min(TRAIL_L, Math.max(0.06, flown * 0.92));
-      this._trail.active = flown > 0.03;
-      faceTrailAt(_pos, _dir, _camP);
-      this._trail.setWorldRotation(_rot);
-      this._trail.setScale(TRAIL_W * fade, tail, 1);
+    billboardCam(_pos, _camP);
+    _billQ.set(_rot);
+    faceTrailAt(_pos, _dir, _camP);
+
+    const soft = this._softBatch;
+    if (soft) {
+      writeQuad(soft.pos, 0, 0, 0, 0, _billQ, GLOW * fade, GLOW * fade, GLOW_CORNERS);
+      const sparkOk = !!( _glowMat ?? _ballMat ?? _glowTex);
+      for (let i = 0; i < SPARKS; i++) {
+        const back = SPARK_GAP * (i + 1);
+        if (!sparkOk || flown < back + 0.02) {
+          hideQuad(soft.pos, 1 + i);
+          continue;
+        }
+        const s = SPARK_S[i] * fade * (1 - i * 0.12);
+        writeQuad(
+          soft.pos,
+          1 + i,
+          -_dir.x * back,
+          -_dir.y * back,
+          -_dir.z * back,
+          _rot,
+          s,
+          s,
+          GLOW_CORNERS,
+        );
+      }
+      pushDyn(soft);
+      if (this._soft?.isValid) this._soft.active = true;
     }
 
-    const sparkMat = _glowMat ?? _ballMat ?? _glowTex;
-    for (let i = 0; i < this._sparks.length; i++) {
-      const spark = this._sparks[i];
-      if (!spark?.isValid) continue;
-      const back = SPARK_GAP * (i + 1);
-      if (!sparkMat || flown < back + 0.02) {
-        spark.active = false;
-        continue;
-      }
-      spark.active = true;
-      spark.setWorldPosition(
-        _pos.x - _dir.x * back,
-        _pos.y - _dir.y * back,
-        _pos.z - _dir.z * back,
-      );
-      spark.setWorldRotation(_rot);
-      const s = SPARK_S[i] * fade * (1 - i * 0.12);
-      spark.setScale(s, s, 1);
+    const ball = this._ballBatch;
+    const trail = this._trailBatch;
+    if (ball) {
+      writeQuad(ball.pos, 0, 0, 0, 0, _billQ, BALL * fade, BALL * fade, GLOW_CORNERS);
+      pushDyn(ball);
     }
+    if (trail) {
+      if (flown > 0.03) {
+        const tail = Math.min(TRAIL_L, Math.max(0.06, flown * 0.92));
+        writeQuad(trail.pos, 0, 0, 0, 0, _rot, TRAIL_W * fade, tail, TRAIL_CORNERS);
+      } else {
+        hideQuad(trail.pos, 0);
+      }
+      pushDyn(trail);
+    }
+    if (this._bolt?.isValid) this._bolt.active = true;
+    if (this._ribbon?.isValid) this._ribbon.active = flown > 0.03;
   }
 }

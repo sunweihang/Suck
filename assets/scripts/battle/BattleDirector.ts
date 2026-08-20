@@ -60,7 +60,7 @@ import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
-import { bindBrickSkin, brickSkinBatched, brickSkinNeedsFlush, clearBrickSkin, dirtyBrickSkin, flushBrickSkin, popBrickSkin, tickBrickSkin } from './BrickSkin';
+import { bindBrickSkin, brickSkinBatched, brickSkinNeedsFlush, clearBrickSkin, coverBrickSkin, flushBrickSkin, popBrickSkin, requestBrickSkinFlush, tickBrickSkin } from './BrickSkin';
 import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, setFieldSpin, worldToRest } from './FieldSpin';
 import { setBrickMeshEnabled } from './ToyBlockMesh';
 import { UnitActor } from './UnitActor';
@@ -804,7 +804,9 @@ export class BattleDirector extends Component {
 
   private _hasRearBench(): boolean {
     for (const u of this._units) {
+      if (!u.node.active || u.trapped) continue;
       if (u.onBench && !this._isColFront(u)) return true;
+      if ((u.state === 'bench' || u.state === 'drag') && u.benchRank > 0) return true;
     }
     return false;
   }
@@ -812,7 +814,8 @@ export class BattleDirector extends Component {
   private _canShovel(): boolean {
     if (!this._bench) return false;
     for (const s of this._slots) {
-      if (s.occupant?.usable) return true;
+      const u = s.occupant;
+      if (!s.empty && u?.node?.isValid && u.node.active) return true;
     }
     return false;
   }
@@ -1196,6 +1199,7 @@ export class BattleDirector extends Component {
     }
     this._hideBuried();
     this._bumpVis();
+    requestBrickSkinFlush();
     this._flushSkin();
   }
 
@@ -1213,9 +1217,7 @@ export class BattleDirector extends Component {
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
     this._queueVisPatch(block);
-    popBrickSkin(block);
     this._revealAround(block);
-    dirtyBrickSkin();
   }
 
   private _bindTouch(): void {
@@ -1463,7 +1465,7 @@ export class BattleDirector extends Component {
         _world.y += 0.22;
         this._commitItemFx('hook', _world, () => {
           this._deployHooked(rear);
-        });
+        }, true);
       } else if (!this._guideKeepPick()) {
         this._hookPick = false;
         this._emitItems();
@@ -1477,7 +1479,7 @@ export class BattleDirector extends Component {
         _world.y += 0.22;
         this._commitItemFx('shovel', _world, () => {
           this._shovelToBench(unit);
-        });
+        }, true);
       } else if (!this._guideKeepPick()) {
         this._shovelPick = false;
         this._emitItems();
@@ -1526,7 +1528,7 @@ export class BattleDirector extends Component {
   /** Last empty pits == leftover octopuses → seat them without a tap. */
   private _maybeAutoPlace(): void {
     if (this._autoPlacing || !this._playing || this._won || this._lost) return;
-    if (!this._itemsReady || this._lastGuide) return;
+    if (!this._itemsReady || this._lastGuide || this._itemFxBusy) return;
     if (this._hookPick || this._shovelPick || this._bombPick) return;
     const pits = this._countOpenEmptySlots();
     if (pits <= 0 || pits !== this._countAwaitingUnits()) return;
@@ -1571,6 +1573,11 @@ export class BattleDirector extends Component {
   }
 
   private _placeUnit(unit: UnitActor, slot: SlotPad, delay = 0, keepScale = false): void {
+    if (!slot.open || (!slot.empty && slot.occupant !== unit)) {
+      const next = this._hintSlot(unit);
+      if (!next) return;
+      slot = next;
+    }
     gameAudio()?.playUiClick();
     slot.occupant = unit;
     unit.lockedCol = slot.homeCol;
@@ -1631,7 +1638,7 @@ export class BattleDirector extends Component {
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
       if (!u.node.activeInHierarchy || u.trapped || u.asBlock || u.power <= 0) continue;
-      if (u.lockedCol < 0) this._recoverSeat(u);
+      if (u.lockedCol < 0 && u.state !== 'bench' && u.state !== 'drag') this._recoverSeat(u);
       if (!this._canFire(u)) continue;
       if (!seated) {
         this._ensureVis();
@@ -1685,6 +1692,10 @@ export class BattleDirector extends Component {
       if (s.empty) continue;
       filled += 1;
       const u = s.occupant;
+      if (u?.traveling) {
+        absorbing = true;
+        continue;
+      }
       if (!u?.usable) continue;
       if (u.inflight > 0) absorbing = true;
       else if (u.power > 0 && this._canEventuallyAbsorb(u)) canAbsorb = true;
@@ -1800,7 +1811,11 @@ export class BattleDirector extends Component {
     if (!destroyed) return;
     u.power = Math.max(0, u.power - 1);
     u.syncPowerLabel();
-    if (u.power <= 0) this._retireUnit(u);
+    if (u.power <= 0) {
+      const col = (u.state === 'bench' || u.state === 'drag') ? u.benchCol : -1;
+      this._retireUnit(u);
+      if (col >= 0) this._refillBenchCol(col);
+    }
   }
 
   private _shatterBrick(block: BlockCell, kick?: Vec3): boolean {
@@ -1850,19 +1865,18 @@ export class BattleDirector extends Component {
     });
   }
 
-  /** Only guns seated in a pit. Flying-to-seat must not block the first shots. */
+  /** Only guns that have finished flying into a pit. */
   private _canFire(u: UnitActor): boolean {
     if (this._teachingShovel()) return false;
-    return !u.asBlock && u.lockedCol >= 0 && u.state !== 'drag' && !u.trapped;
+    return !u.asBlock && u.lockedCol >= 0 && (u.state === 'walk' || u.state === 'attack') && !u.trapped && !u.traveling;
   }
 
   private _recoverSeat(u: UnitActor): void {
-    if (u.asBlock) return;
+    if (u.asBlock || u.state === 'bench' || u.state === 'drag') return;
     for (let i = 0; i < this._slots.length; i++) {
       const s = this._slots[i];
       if (s.occupant !== u) continue;
       u.lockedCol = s.homeCol;
-      if (u.state === 'bench') u.state = 'attack';
       return;
     }
     u.node.getWorldPosition(_tmp);
@@ -1886,7 +1900,6 @@ export class BattleDirector extends Component {
     if (!best) return;
     best.occupant = u;
     u.lockedCol = best.homeCol;
-    if (u.state === 'bench') u.state = 'attack';
   }
 
   private _tintOf(colorId: number): readonly [number, number, number] {
@@ -2373,7 +2386,7 @@ export class BattleDirector extends Component {
       const sb = this._nextToShell(b) ? 0 : 1;
       return sa - sb || a.layer - b.layer || a.row - b.row;
     });
-    dirtyBrickSkin();
+    requestBrickSkinFlush();
   }
 
   private _nextToShell(block: BlockCell): boolean {
@@ -2386,9 +2399,15 @@ export class BattleDirector extends Component {
   }
 
   private _touchBuried(block: BlockCell): void {
+    const was = block.buried;
     setBrickDrawn(block, !this._isBuried(block));
-    if (!block.alive || block.buried) pullFrom(this._shell, block);
-    else if (this._shell.indexOf(block) < 0) this._shell.push(block);
+    if (!block.alive || block.buried) {
+      pullFrom(this._shell, block);
+      if (!was && block.buried) popBrickSkin(block);
+    } else {
+      if (this._shell.indexOf(block) < 0) this._shell.push(block);
+      if (was && !block.buried) coverBrickSkin(block);
+    }
   }
 
   private _hideBuriedInCols(cols: ReadonlySet<number>): void {
@@ -2405,7 +2424,6 @@ export class BattleDirector extends Component {
         }
       }
     });
-    dirtyBrickSkin();
   }
 
   private _flushSkin(): void {
@@ -2457,8 +2475,6 @@ export class BattleDirector extends Component {
       b.setGrayed(b.alive && this._plateBlocks(b.row, b.col));
     }
     this._bumpVis();
-    dirtyBrickSkin();
-    this._flushSkin();
   }
 
   private _rowHasBricksAtOrAbove(ironRow: number): boolean {
@@ -2776,7 +2792,6 @@ export class BattleDirector extends Component {
       this._hideBuried();
     }
     this._bumpVis();
-    this._flushSkin();
   }
 
   private _blocksHold(block: BlockCell, skipColor?: ColorId): boolean {
@@ -3106,16 +3121,17 @@ export class BattleDirector extends Component {
     if (autoPlace) this._maybeAutoPlace();
   }
 
-  private _commitItemFx(id: ItemId, world: Vec3 | null, apply: () => void): void {
+  private _commitItemFx(id: ItemId, world: Vec3 | null, apply: () => void, immediate = false): void {
     if (this._itemFxBusy || !this._afford(id)) return;
     this._itemFxBusy = true;
     this._spend(id, false);
+    if (immediate) apply();
     const land = world ? new Vec3(world.x, world.y, world.z) : null;
     const finish = (): void => {
       if (!this.isValid || !this._itemFxBusy) return;
       this.unschedule(finish);
       this._itemFxBusy = false;
-      apply();
+      if (!immediate) apply();
       this._maybeAutoPlace();
     };
     this.scheduleOnce(finish, 1.8);
@@ -3359,6 +3375,8 @@ export class BattleDirector extends Component {
   }
 
   private _deployHooked(unit: UnitActor): boolean {
+    if (!unit?.node?.isValid || !unit.node.active) return false;
+    if (unit.lockedCol >= 0 && (unit.state === 'walk' || unit.state === 'attack')) return true;
     const slot = this._hintSlot(unit);
     if (slot) {
       this._placeUnit(unit, slot, 0, true);
@@ -3369,7 +3387,8 @@ export class BattleDirector extends Component {
       this._mergeUnit(unit, merge);
       return true;
     }
-    return this._promoteToFront(unit);
+    if (this._promoteToFront(unit)) return true;
+    return unit.onBench && this._isColFront(unit);
   }
 
   private _pickSlotUnit(e: PointerEvt): UnitActor | null {
@@ -3378,7 +3397,7 @@ export class BattleDirector extends Component {
     let bestD = GAME.slotPickR * GAME.slotPickR;
     for (const s of this._slots) {
       const u = s.occupant;
-      if (!u?.usable) continue;
+      if (s.empty || !u?.node?.isValid || !u.node.active) continue;
       u.node.getWorldPosition(_world);
       _world.y += 0.16;
       const d = rayPointDistSq(_ray, _world);
@@ -3419,7 +3438,7 @@ export class BattleDirector extends Component {
         owned = true;
       }
     }
-    if (!owned) return false;
+    if (!owned && unit.lockedCol < 0 && unit.state !== 'walk' && unit.state !== 'attack') return false;
     unit.node.getWorldPosition(_world);
     _world.y += 0.18;
     playMergeBurst(this.node, _world);
@@ -3462,6 +3481,8 @@ export class BattleDirector extends Component {
     const r1 = unit.benchRank;
     front.benchRank = r1;
     unit.benchRank = r0;
+    front.asBlock = r1 > 0;
+    unit.asBlock = r0 > 0;
     front.homePos.set(benchSeatX(col), front.homePos.y, benchSeatZ(r1));
     unit.homePos.set(benchSeatX(col), unit.homePos.y, benchSeatZ(r0));
     if (front.state === 'bench') front.slideToHome();

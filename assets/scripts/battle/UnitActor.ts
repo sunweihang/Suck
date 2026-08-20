@@ -203,7 +203,7 @@ export class UnitActor extends Component {
   }
 
   get traveling(): boolean {
-    return this._slideLeft > 0 || this._flyWait > 0 || this._vanish;
+    return this._flying || this._slideLeft > 0 || this._flyWait > 0 || this._vanish;
   }
 
   private _wake(): void {
@@ -269,7 +269,7 @@ export class UnitActor extends Component {
       this.targetPos,
       0.28 + Math.min(0.34, dist * 0.14),
       0.32 + Math.min(0.55, dist * 0.24),
-      keepScale,
+      true,
       keepScale,
     );
     this._flyWait = Math.max(0, delay);

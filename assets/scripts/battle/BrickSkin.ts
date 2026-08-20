@@ -33,13 +33,15 @@ type Batch = {
 };
 
 const _batches = new Map<string, Batch>();
+const _fly = new Map<string, Batch>();
 const _of = new Map<BlockCell, Batch>();
 const _batchMats = new Map<string, Material>();
+const _flyMats = new Map<string, Material>();
 const _colors = new Map<string, Color>();
 
 let _host: Node | null = null;
 let _cube: Mesh | null = null;
-let _rebuild = false;
+let _mustFlush = false;
 let _useBatch = false;
 
 function skipBody(name: string): boolean {
@@ -47,6 +49,11 @@ function skipBody(name: string): boolean {
 }
 
 function setBodyEnabled(node: Node, on: boolean): void {
+  if (!node.children.length) {
+    const mr = node.getComponent(MeshRenderer);
+    if (mr && !skipBody(mr.node.name)) mr.enabled = on;
+    return;
+  }
   const mrs = node.getComponentsInChildren(MeshRenderer);
   for (let i = 0; i < mrs.length; i++) {
     const mr = mrs[i];
@@ -85,13 +92,14 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return c;
 }
 
-function batchMat(rgb: readonly [number, number, number]): Material | null {
+function batchMat(rgb: readonly [number, number, number], fly = false): Material | null {
+  const store = fly ? _flyMats : _batchMats;
   const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
-  const hit = _batchMats.get(key);
+  const hit = store.get(key);
   if (hit?.passes?.length) return hit;
-  const mat = makeBrickBatchMat(colorOf(rgb));
+  const mat = makeBrickBatchMat(colorOf(rgb), !fly);
   if (!mat) return null;
-  _batchMats.set(key, mat);
+  store.set(key, mat);
   return mat;
 }
 
@@ -178,14 +186,17 @@ function ensureHost(field: Node | null, actors: Node | null): Node | null {
 }
 
 function dropHost(): void {
-  _batches.forEach((batch) => {
+  const kill = (batch: Batch): void => {
     try {
       batch.vb.destroy();
     } catch {
       /* already gone */
     }
-  });
+  };
+  _batches.forEach(kill);
+  _fly.forEach(kill);
   _batches.clear();
+  _fly.clear();
   _of.clear();
   if (_host?.isValid) _host.destroy();
   _host = null;
@@ -201,17 +212,27 @@ function probeBatch(): boolean {
 }
 
 export function brickSkinNeedsFlush(): boolean {
-  return _rebuild;
+  return _mustFlush;
 }
 
-function takeBatch(key: string, rgb: readonly [number, number, number], host: Node): Batch | null {
-  const hit = _batches.get(key);
+export function requestBrickSkinFlush(): void {
+  _mustFlush = true;
+}
+
+function takeBatch(
+  key: string,
+  rgb: readonly [number, number, number],
+  host: Node,
+  fly = false,
+): Batch | null {
+  const store = fly ? _fly : _batches;
+  const hit = store.get(key);
   if (hit) return hit;
   const dev = gfxDevice();
   const cube = _cube;
-  const mat = batchMat(rgb);
+  const mat = batchMat(rgb, fly);
   if (!dev || !cube || !mat || !host.isValid) return null;
-  const node = new Node(`Skin_${key}`);
+  const node = new Node(fly ? `Fly_${key}` : `Skin_${key}`);
   node.layer = Layers.Enum.DEFAULT;
   host.addChild(node);
   const mr = node.addComponent(MeshRenderer);
@@ -237,7 +258,7 @@ function takeBatch(key: string, rgb: readonly [number, number, number], host: No
     cap,
     dirty: true,
   };
-  _batches.set(key, batch);
+  store.set(key, batch);
   return batch;
 }
 
@@ -265,14 +286,23 @@ function growBatch(batch: Batch, need: number): boolean {
   return true;
 }
 
-function uploadBatch(batch: Batch): void {
+function keepRest(cell: BlockCell): boolean {
+  return !!cell?.node?.isValid && cell.node.active && !cell.buried && cell.onField;
+}
+
+function keepFly(cell: BlockCell): boolean {
+  return !!cell?.node?.isValid && cell.node.active && !cell.onField;
+}
+
+function uploadBatch(batch: Batch, fly: boolean): void {
   const cells = batch.cells;
   if (cells.length > batch.cap && !growBatch(batch, cells.length)) return;
   const data = batch.data;
+  const keep = fly ? keepFly : keepRest;
   let w = 0;
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
-    if (!cell?.node?.isValid || !cell.alive || cell.buried || cell.inFlight) {
+    if (!keep(cell)) {
       _of.delete(cell);
       continue;
     }
@@ -312,13 +342,13 @@ function showBody(block: BlockCell): void {
 }
 
 function canSkin(block: BlockCell): boolean {
-  return !!block?.node?.isValid && block.alive && !block.buried && !block.inFlight;
+  return keepRest(block);
 }
 
-function addToBatch(block: BlockCell, host: Node): boolean {
-  if (!canSkin(block)) return false;
+function addToStore(block: BlockCell, host: Node, fly: boolean): boolean {
+  if (fly ? !keepFly(block) : !keepRest(block)) return false;
   const rgb = displayRgb(block);
-  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+  const key = fly ? `f:${rgb[0]},${rgb[1]},${rgb[2]}` : `${rgb[0]},${rgb[1]},${rgb[2]}`;
   const cur = _of.get(block);
   if (cur && cur.key === key) {
     cur.dirty = true;
@@ -329,13 +359,17 @@ function addToBatch(block: BlockCell, host: Node): boolean {
     pullCell(cur, block);
     _of.delete(block);
   }
-  const batch = takeBatch(key, rgb, host);
+  const batch = takeBatch(key, rgb, host, fly);
   if (!batch) return false;
   batch.cells.push(block);
   batch.dirty = true;
   _of.set(block, batch);
   hideBody(block);
   return true;
+}
+
+function addToBatch(block: BlockCell, host: Node): boolean {
+  return addToStore(block, host, false);
 }
 
 function fallbackDraw(blocks: BlockCell[], buried: (b: BlockCell) => boolean): void {
@@ -357,29 +391,31 @@ export function bindBrickSkin(field: Node | null, actors: Node | null): void {
 
 export function clearBrickSkin(): void {
   dropHost();
-  _rebuild = false;
+  _mustFlush = false;
 }
 
 export function dirtyBrickSkin(): void {
-  _rebuild = true;
+  _batches.forEach((batch) => {
+    batch.dirty = true;
+  });
+}
+
+export function markBrickSkin(block: BlockCell | null | undefined): void {
+  const batch = block ? _of.get(block) : undefined;
+  if (batch) batch.dirty = true;
 }
 
 export function popBrickSkin(block: BlockCell | null | undefined): void {
   if (!block?.node?.isValid) return;
-  try {
-    const batch = _of.get(block);
-    if (batch) {
-      pullCell(batch, block);
-      _of.delete(block);
-    }
-    showBody(block);
-  } catch {
-    /* do not block a shot because a renderer failed to hang */
+  const batch = _of.get(block);
+  if (batch) {
+    pullCell(batch, block);
+    _of.delete(block);
   }
 }
 
 export function coverBrickSkin(block: BlockCell | null | undefined): void {
-  if (!block || !canSkin(block)) return;
+  if (!block || !keepRest(block)) return;
   if (!_useBatch || !_host?.isValid) {
     showBody(block);
     return;
@@ -387,12 +423,22 @@ export function coverBrickSkin(block: BlockCell | null | undefined): void {
   if (!addToBatch(block, _host)) showBody(block);
 }
 
+/** Baked-off flying cubes stay instanced. Spin is already in the world matrix. */
+export function flyBrickSkin(block: BlockCell | null | undefined): void {
+  if (!block || !keepFly(block)) return;
+  if (!_useBatch || !_host?.isValid) {
+    showBody(block);
+    return;
+  }
+  if (!addToStore(block, _host, true)) showBody(block);
+}
+
 /** Resting shell cubes share one draw per color. Flying cubes keep their own renderer. */
 export function flushBrickSkin(blocks: BlockCell[], buried: (b: BlockCell) => boolean): void {
   const host = _host;
   if (!probeBatch() || !host?.isValid) {
     fallbackDraw(blocks, buried);
-    _rebuild = false;
+    _mustFlush = false;
     return;
   }
   _batches.forEach((batch) => {
@@ -406,19 +452,16 @@ export function flushBrickSkin(blocks: BlockCell[], buried: (b: BlockCell) => bo
     b.meshless = false;
     if (!addToBatch(b, host)) showBody(b);
   }
-  _batches.forEach((batch) => uploadBatch(batch));
-  _rebuild = false;
+  _batches.forEach((batch) => uploadBatch(batch, false));
+  _mustFlush = false;
 }
 
 export function tickBrickSkin(): void {
   if (!_useBatch) return;
-  if (_rebuild) {
-    _batches.forEach((batch) => {
-      batch.dirty = true;
-    });
-    _rebuild = false;
-  }
   _batches.forEach((batch) => {
-    if (batch.dirty) uploadBatch(batch);
+    if (batch.dirty) uploadBatch(batch, false);
+  });
+  _fly.forEach((batch) => {
+    if (batch.dirty || batch.cells.length) uploadBatch(batch, true);
   });
 }

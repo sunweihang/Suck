@@ -197,7 +197,7 @@ export function makeFieldUnlit(color: Color): Material {
  * the engine instanced buffer (1 instance). USE_BRICK_INSTANCING reads matrices
  * from our vertex stream instead, so the pass stays a regular draw.
  */
-export function makeBrickBatchMat(color: Color): Material | null {
+export function makeBrickBatchMat(color: Color, fieldSpin = true): Material | null {
   if (!_brickFx) return null;
   const mat = new Material();
   try {
@@ -211,7 +211,7 @@ export function makeBrickBatchMat(color: Color): Material | null {
   }
   if (!mat.passes?.length) return null;
   bindLitProps(mat, color, 0.62, 0.04, 0, true);
-  return registerFieldMat(mat);
+  return fieldSpin ? registerFieldMat(mat) : mat;
 }
 
 const _fieldLitCache = new Map<string, Material>();

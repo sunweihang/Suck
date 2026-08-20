@@ -29,7 +29,11 @@ export class SlotPad extends Component {
   }
 
   get empty(): boolean {
-    return !this.occupant || !this.occupant.usable;
+    const u = this.occupant;
+    if (!u?.node?.isValid || !u.node.active || u.trapped) return true;
+    // Bench / drag have left the pit. Walk still owns it while flying in
+    // (`usable` is false during that arc).
+    return u.state === 'bench' || u.state === 'drag';
   }
 
   get open(): boolean {

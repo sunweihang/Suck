@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, isColorToken, parseColorToken } from '../game/GameConfig';
-import { coverBrickSkin, dirtyBrickSkin, popBrickSkin } from './BrickSkin';
+import { coverBrickSkin, flyBrickSkin, markBrickSkin, popBrickSkin } from './BrickSkin';
 import { bindFieldNode, fieldWorldOf } from './FieldSpin';
 import { applyBrickGray, applyBrickPlastic, releaseFieldBrick, wakeBrickMesh } from './ToyBlockMesh';
 import { hideBlowTrail } from './BlowTrail';
@@ -120,7 +120,7 @@ export class BlockCell extends Component {
     if (Vec3.squaredDistance(this._moveFrom, this._moveTo) < 1e-6) return;
     this._moveT = 0;
     this._moveDur = Math.max(0.08, duration);
-    popBrickSkin(this);
+    markBrickSkin(this);
     this._armMotion();
   }
 
@@ -140,7 +140,7 @@ export class BlockCell extends Component {
     if (this._grayed === on) return;
     this._grayed = on;
     applyBrickGray(this.node, on);
-    dirtyBrickSkin();
+    coverBrickSkin(this);
   }
 
   unlock(): boolean {
@@ -154,12 +154,16 @@ export class BlockCell extends Component {
     if (!this.locked || this._sucking || this._nudgeT > 0) return;
     this.node.getPosition(this._nudgeBase);
     this._nudgeT = 0.28;
-    popBrickSkin(this);
+    markBrickSkin(this);
     this._armMotion();
   }
 
   get inFlight(): boolean {
     return this._sucking || this._claimed || this._blown;
+  }
+
+  get onField(): boolean {
+    return this._fieldSpun;
   }
 
   get claimed(): boolean {
@@ -184,6 +188,7 @@ export class BlockCell extends Component {
     popBrickSkin(this);
     this._fieldSpun = false;
     releaseFieldBrick(this.node);
+    flyBrickSkin(this);
   }
 
   /** Claimed by a shot: stay put, no longer a target. */
@@ -278,10 +283,9 @@ export class BlockCell extends Component {
         this._moveFrom.y + (this._moveTo.y - this._moveFrom.y) * k,
         this._moveFrom.z,
       );
+      markBrickSkin(this);
       if (u >= 1) {
         this._moveDur = 0;
-        coverBrickSkin(this);
-        dirtyBrickSkin();
         if (this._nudgeT <= 0) this._restMotion();
       }
       return;
@@ -294,10 +298,11 @@ export class BlockCell extends Component {
       this._nudgeT -= dt;
       if (this._nudgeT <= 0) {
         this.node.setPosition(this._nudgeBase);
-        coverBrickSkin(this);
+        markBrickSkin(this);
         this._restMotion();
         return;
       }
+      markBrickSkin(this);
       const amp = 0.03 * (this._nudgeT / 0.28);
       const n = (0.28 - this._nudgeT) * 52;
       this.node.setPosition(
