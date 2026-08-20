@@ -1,4 +1,4 @@
-import { assetManager, instantiate, Layers, Node, Prefab, Sprite, SpriteFrame, UITransform, Vec3, resources } from 'cc';
+import { assetManager, instantiate, Layers, Mesh, MeshRenderer, Node, Prefab, Sprite, SpriteFrame, UITransform, Vec3, resources } from 'cc';
 import {
   BENCH,
   ColorToken,
@@ -38,7 +38,7 @@ import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
 import { applyBombs, preloadBombs } from './Bombs';
-import { applyMagnetLook, applyPaintLook, applySandLook, paintUnitColor, paintVoxelId, preloadVoxelLook } from './BrickSpecials';
+import { applyMagnetLook, applyPaintLook, applySandLook, paintUnitColor, paintVoxelId, preloadVoxelLook, rememberBrickMesh } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
@@ -180,6 +180,56 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
   return n;
 }
 
+/** Bare stand-in for a brick nobody can see: same node and BlockCell, no model in the scene. */
+function spawnHidden(parent: Node, name: string, pos: Vec3): Node {
+  const n = new Node(name);
+  n.layer = Layers.Enum.DEFAULT;
+  parent.addChild(n);
+  n.setPosition(pos);
+  return n;
+}
+
+/** All block prefabs point at the same cube, so any loaded one hands over the shared mesh. */
+function brickCubeMesh(pfs: Record<string, Prefab>): Mesh | null {
+  for (const key in pfs) {
+    const mesh = pfs[key]?.data?.getComponent(MeshRenderer)?.mesh;
+    if (mesh) return mesh;
+  }
+  return null;
+}
+
+function voxelKey(x: number, y: number, z: number): number {
+  return ((x + 1) * 128 + (y + 1)) * 128 + (z + 1);
+}
+
+/**
+ * Solid sculptures hide well over half their bricks inside. Spotting them here keeps
+ * their models out of the scene; BattleDirector re-checks with `_isBuried` right after
+ * the build, so a wrong guess costs a renderer, never correctness.
+ */
+function boxedInVoxels(voxels: LevelDef['voxels']): Set<number> {
+  const solid = new Set<number>();
+  for (let i = 0; i < voxels.length; i++) {
+    const v = voxels[i];
+    solid.add(voxelKey(v.x, v.y, v.z));
+  }
+  const out = new Set<number>();
+  for (let i = 0; i < voxels.length; i++) {
+    const v = voxels[i];
+    if (
+      solid.has(voxelKey(v.x + 1, v.y, v.z))
+      && solid.has(voxelKey(v.x - 1, v.y, v.z))
+      && solid.has(voxelKey(v.x, v.y + 1, v.z))
+      && solid.has(voxelKey(v.x, v.y - 1, v.z))
+      && solid.has(voxelKey(v.x, v.y, v.z + 1))
+      && solid.has(voxelKey(v.x, v.y, v.z - 1))
+    ) {
+      out.add(voxelKey(v.x, v.y, v.z));
+    }
+  }
+  return out;
+}
+
 function loadChestPrefab(): Promise<Prefab | null> {
   return loadPrefabMaybe(prefabPath('Chest'), prefabUuid('Chest'));
 }
@@ -295,22 +345,23 @@ export async function buildPlayWorld(
     const originX = -((cols - 1) * step) / 2;
     const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
     const voxels = level.voxels;
+    const canSkip = rememberBrickMesh(brickCubeMesh(blockPfs));
+    const boxedIn = canSkip ? boxedInVoxels(voxels) : null;
     for (let i = 0; i < voxels.length; i++) {
       const v = voxels[i];
       const token = v.token;
       const blockPf = blockPfs[isColorToken(token) ? token : 'o'] || blockPfs['o'];
       if (!blockPf) throw new Error('no block prefab ' + token);
-      const n = spawn(
-        blockPf,
-        wall,
-        `Blk_${token}_${v.x}_${v.y}_${v.z}`,
-        new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step),
-      );
+      const name = `Blk_${token}_${v.x}_${v.y}_${v.z}`;
+      const pos = new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step);
+      const hidden = !!boxedIn?.has(voxelKey(v.x, v.y, v.z));
+      const n = hidden ? spawnHidden(wall, name, pos) : spawn(blockPf, wall, name, pos);
       const cell = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
       cell.syncFromName();
       if (isColorToken(token)) cell.colorId = parseColorToken(token);
       cell.voxelId = v.colorId;
-      paintVoxelId(n, v.colorId);
+      cell.meshless = hidden;
+      if (!hidden) paintVoxelId(n, v.colorId);
       if ((i & 63) === 63) {
         note(0.48 + 0.4 * ((i + 1) / voxels.length));
         await waitTick();

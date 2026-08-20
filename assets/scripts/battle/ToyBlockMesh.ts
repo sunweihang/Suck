@@ -238,6 +238,11 @@ function partsOf(node: Node): { mr: MeshRenderer[]; sp: Sprite[] } {
   return parts;
 }
 
+/** Call after adding or dropping a renderer, or the cached part list goes stale. */
+export function forgetBrickParts(node: Node): void {
+  _parts.delete(node);
+}
+
 function grayMat(src: Material): Material {
   let g = _grayMats.get(src);
   if (g) return g;

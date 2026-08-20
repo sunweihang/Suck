@@ -39,6 +39,8 @@ export class BlockCell extends Component {
   raftHomeCol = 0;
   /** Boxed in on all six sides, so no camera can ever see or target it. */
   buried = false;
+  /** Built without a renderer because it was boxed in; one is attached the first time it shows. */
+  meshless = false;
 
   private readonly _baseScale = new Vec3();
   private readonly _from = new Vec3();

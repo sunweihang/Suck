@@ -1,8 +1,8 @@
-import { Color, Material, MeshRenderer, Node } from 'cc';
+import { Color, Material, Mesh, MeshRenderer, Node } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
+import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -140,6 +140,30 @@ export function paintVoxelRgb(root: Node, rgb: readonly [number, number, number]
 
 export function paintVoxelId(root: Node, colorId: number): void {
   paintLook(root, lookOfVoxel(colorId));
+}
+
+let _brickMesh: Mesh | null = null;
+
+/** Every block prefab shares one cube, so one copy covers bricks built without a renderer. */
+export function rememberBrickMesh(mesh: Mesh | null | undefined): boolean {
+  if (mesh) _brickMesh = mesh;
+  return !!_brickMesh;
+}
+
+/**
+ * Boxed-in bricks are built as bare nodes — no renderer, no model in the render
+ * scene. Digging one out is the first time it needs to draw.
+ */
+export function attachBrickRenderer(node: Node, colorId: number): boolean {
+  if (!node?.isValid || !_brickMesh) return false;
+  if (node.getComponent(MeshRenderer)) return true;
+  const mr = node.addComponent(MeshRenderer);
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  mr.mesh = _brickMesh;
+  forgetBrickParts(node);
+  paintVoxelId(node, colorId);
+  return true;
 }
 
 export function paintNodeColor(root: Node, token: ColorToken): void {

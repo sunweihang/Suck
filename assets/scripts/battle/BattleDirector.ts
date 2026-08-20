@@ -47,7 +47,7 @@ import {
   slotY,
 } from '../game/GameConfig';
 import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
-import { paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
+import { attachBrickRenderer, paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
@@ -197,6 +197,9 @@ function cellKey(col: number, row: number, layer: number): number {
 
 function setBrickDrawn(cell: BlockCell, on: boolean): void {
   cell.buried = !on;
+  if (on && cell.meshless && attachBrickRenderer(cell.node, cell.voxelId)) {
+    cell.meshless = false;
+  }
   setBrickMeshEnabled(cell.node, on);
 }
 
