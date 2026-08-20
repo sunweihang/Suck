@@ -1,11 +1,46 @@
-import { MeshRenderer, Node } from 'cc';
+import {
+  Color,
+  Layers,
+  Material,
+  Mesh,
+  MeshRenderer,
+  Node,
+  RenderingSubMesh,
+  director,
+  gfx,
+} from 'cc';
 import type { BlockCell } from './BlockCell';
-import { wakeBrickMesh } from './ToyBlockMesh';
+import { attachBrickRenderer, brickCubeMesh, sandRgbOf } from './BrickSpecials';
+import { lookOfVoxel } from '../game/VoxelPalette';
+import { inflateFieldCull, makeBrickBatchMat, wakeBrickMesh } from './ToyBlockMesh';
 
 const SKIN_ROOT = 'BrickSkins';
 const SKIP_BODY = /^(HoldRim|Outline|Crease|BlobShadow|Pad|Power|Bank|Text|Lock|Chip_|Trail_|Hit_|Muzzle_|Paint|Magnet)/;
+const GRAY_DIM = 0.76;
+const INST_FLOATS = 12;
+const INST_STRIDE = INST_FLOATS * 4;
+const MIN_CAP = 32;
+
+type Batch = {
+  key: string;
+  node: Node;
+  mr: MeshRenderer;
+  cells: BlockCell[];
+  data: Float32Array;
+  vb: gfx.Buffer;
+  cap: number;
+  dirty: boolean;
+};
+
+const _batches = new Map<string, Batch>();
+const _of = new Map<BlockCell, Batch>();
+const _batchMats = new Map<string, Material>();
+const _colors = new Map<string, Color>();
 
 let _host: Node | null = null;
+let _cube: Mesh | null = null;
+let _rebuild = false;
+let _useBatch = false;
 
 function skipBody(name: string): boolean {
   return SKIP_BODY.test(name) || /^[DN]\d$/.test(name);
@@ -20,53 +55,370 @@ function setBodyEnabled(node: Node, on: boolean): void {
   }
 }
 
-function clearChildren(root: Node): void {
-  const kids = root.children.slice();
-  for (let i = 0; i < kids.length; i++) kids[i].destroy();
+function gfxDevice(): gfx.Device | null {
+  return director.root?.device ?? null;
 }
 
-export function bindBrickSkin(_field: Node | null, actors: Node | null): void {
-  if (_host?.isValid && _host.parent !== actors) {
-    clearChildren(_host);
-    _host.destroy();
-    _host = null;
-  }
-  if (actors?.isValid) {
-    const leftover = actors.getChildByName(SKIN_ROOT);
-    if (leftover) {
-      clearChildren(leftover);
-      leftover.destroy();
+function instancingOk(): boolean {
+  const dev = gfxDevice();
+  return !!dev?.hasFeature(gfx.Feature.INSTANCED_ARRAYS);
+}
+
+export function brickSkinBatched(): boolean {
+  return _useBatch;
+}
+
+function displayRgb(block: BlockCell): readonly [number, number, number] {
+  let rgb = block.voxelId >= 0 ? lookOfVoxel(block.voxelId).rgb : lookOfVoxel(0).rgb;
+  if (block.sand) rgb = sandRgbOf(rgb);
+  if (!block.grayed) return rgb;
+  const y = Math.round(((rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000) * GRAY_DIM);
+  return [y, y, y];
+}
+
+function colorOf(rgb: readonly [number, number, number]): Color {
+  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+  let c = _colors.get(key);
+  if (c) return c;
+  c = new Color(rgb[0], rgb[1], rgb[2], 255);
+  _colors.set(key, c);
+  return c;
+}
+
+function batchMat(rgb: readonly [number, number, number]): Material | null {
+  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+  const hit = _batchMats.get(key);
+  if (hit?.passes?.length) return hit;
+  const mat = makeBrickBatchMat(colorOf(rgb));
+  if (!mat) return null;
+  _batchMats.set(key, mat);
+  return mat;
+}
+
+function nextCap(n: number): number {
+  let cap = MIN_CAP;
+  while (cap < n) cap <<= 1;
+  return cap;
+}
+
+function writePacked(data: Float32Array, i: number, m: { m00: number; m01: number; m02: number; m04: number; m05: number; m06: number; m08: number; m09: number; m10: number; m12: number; m13: number; m14: number }): void {
+  const o = i * INST_FLOATS;
+  data[o] = m.m00;
+  data[o + 1] = m.m01;
+  data[o + 2] = m.m02;
+  data[o + 3] = m.m12;
+  data[o + 4] = m.m04;
+  data[o + 5] = m.m05;
+  data[o + 6] = m.m06;
+  data[o + 7] = m.m13;
+  data[o + 8] = m.m08;
+  data[o + 9] = m.m09;
+  data[o + 10] = m.m10;
+  data[o + 11] = m.m14;
+}
+
+function makeInstVb(dev: gfx.Device, cap: number): gfx.Buffer {
+  return dev.createBuffer(new gfx.BufferInfo(
+    gfx.BufferUsageBit.VERTEX | gfx.BufferUsageBit.TRANSFER_DST,
+    gfx.MemoryUsageBit.HOST | gfx.MemoryUsageBit.DEVICE,
+    INST_STRIDE * cap,
+    INST_STRIDE,
+  ));
+}
+
+function bindInstanceStream(mr: MeshRenderer, cube: Mesh, vb: gfx.Buffer): boolean {
+  const model = mr.model;
+  const src = cube.renderingSubMeshes?.[0];
+  if (!model || !src?.vertexBuffers.length) return false;
+  const stream = src.vertexBuffers.length;
+  const attributes = src.attributes.map((a) => new gfx.Attribute(
+    a.name,
+    a.format,
+    a.isNormalized,
+    a.stream,
+    !!a.isInstanced,
+    a.location,
+  ));
+  attributes.push(new gfx.Attribute('a_matWorld0', gfx.Format.RGBA32F, false, stream, true));
+  attributes.push(new gfx.Attribute('a_matWorld1', gfx.Format.RGBA32F, false, stream, true));
+  attributes.push(new gfx.Attribute('a_matWorld2', gfx.Format.RGBA32F, false, stream, true));
+  const sub = new RenderingSubMesh(
+    [...src.vertexBuffers, vb],
+    attributes,
+    src.primitiveMode,
+    src.indexBuffer,
+    src.indirectBuffer,
+    false,
+  );
+  const mat = mr.getSharedMaterial(0);
+  if (!mat) return false;
+  model.initSubModel(0, sub, mat);
+  inflateFieldCull(cube);
+  return true;
+}
+
+function setInstanceCount(mr: MeshRenderer, n: number): void {
+  const ia = mr.model?.subModels[0]?.inputAssembler;
+  if (ia) ia.instanceCount = n;
+  mr.enabled = n > 0;
+}
+
+function ensureHost(field: Node | null, actors: Node | null): Node | null {
+  const parent = field?.getChildByName('Wall') ?? field ?? actors;
+  if (!parent?.isValid) return null;
+  if (_host?.isValid && _host.parent === parent) return _host;
+  if (_host?.isValid) dropHost();
+  const n = new Node(SKIN_ROOT);
+  n.layer = Layers.Enum.DEFAULT;
+  parent.addChild(n);
+  n.setPosition(0, 0, 0);
+  n.setRotationFromEuler(0, 0, 0);
+  _host = n;
+  return n;
+}
+
+function dropHost(): void {
+  _batches.forEach((batch) => {
+    try {
+      batch.vb.destroy();
+    } catch {
+      /* already gone */
     }
-  }
+  });
+  _batches.clear();
+  _of.clear();
+  if (_host?.isValid) _host.destroy();
   _host = null;
+}
+
+function probeBatch(): boolean {
+  if (_useBatch) return true;
+  _cube = brickCubeMesh();
+  if (!_cube?.renderingSubMeshes?.[0] || !instancingOk() || !RenderingSubMesh) return false;
+  const mat = batchMat([214, 123, 19]);
+  _useBatch = !!mat;
+  return _useBatch;
+}
+
+export function brickSkinNeedsFlush(): boolean {
+  return _rebuild;
+}
+
+function takeBatch(key: string, rgb: readonly [number, number, number], host: Node): Batch | null {
+  const hit = _batches.get(key);
+  if (hit) return hit;
+  const dev = gfxDevice();
+  const cube = _cube;
+  const mat = batchMat(rgb);
+  if (!dev || !cube || !mat || !host.isValid) return null;
+  const node = new Node(`Skin_${key}`);
+  node.layer = Layers.Enum.DEFAULT;
+  host.addChild(node);
+  const mr = node.addComponent(MeshRenderer);
+  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
+  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  mr.setSharedMaterial(mat, 0);
+  mr.mesh = cube;
+  const cap = MIN_CAP;
+  const vb = makeInstVb(dev, cap);
+  if (!bindInstanceStream(mr, cube, vb)) {
+    node.destroy();
+    vb.destroy();
+    return null;
+  }
+  setInstanceCount(mr, 0);
+  const batch: Batch = {
+    key,
+    node,
+    mr,
+    cells: [],
+    data: new Float32Array(cap * INST_FLOATS),
+    vb,
+    cap,
+    dirty: true,
+  };
+  _batches.set(key, batch);
+  return batch;
+}
+
+function growBatch(batch: Batch, need: number): boolean {
+  const cap = nextCap(need);
+  if (cap <= batch.cap) return true;
+  const dev = gfxDevice();
+  const cube = _cube;
+  if (!dev || !cube) return false;
+  const vb = makeInstVb(dev, cap);
+  const data = new Float32Array(cap * INST_FLOATS);
+  data.set(batch.data);
+  if (!bindInstanceStream(batch.mr, cube, vb)) {
+    vb.destroy();
+    return false;
+  }
+  try {
+    batch.vb.destroy();
+  } catch {
+    /* */
+  }
+  batch.vb = vb;
+  batch.data = data;
+  batch.cap = cap;
+  return true;
+}
+
+function uploadBatch(batch: Batch): void {
+  const cells = batch.cells;
+  if (cells.length > batch.cap && !growBatch(batch, cells.length)) return;
+  const data = batch.data;
+  let w = 0;
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i];
+    if (!cell?.node?.isValid || !cell.alive || cell.buried || cell.inFlight) {
+      _of.delete(cell);
+      continue;
+    }
+    cells[w] = cell;
+    writePacked(data, w, cell.node.worldMatrix);
+    w += 1;
+  }
+  cells.length = w;
+  if (w > 0) batch.vb.update(data);
+  setInstanceCount(batch.mr, w);
+  batch.dirty = false;
+}
+
+function pullCell(batch: Batch, block: BlockCell): void {
+  const i = batch.cells.indexOf(block);
+  if (i < 0) return;
+  batch.cells[i] = batch.cells[batch.cells.length - 1];
+  batch.cells.pop();
+  batch.dirty = true;
+}
+
+function hideBody(block: BlockCell): void {
+  setBodyEnabled(block.node, false);
+}
+
+function showBody(block: BlockCell): void {
+  try {
+    const id = block.voxelId >= 0 ? block.voxelId : block.colorId;
+    if (!block.node.getComponent(MeshRenderer)?.mesh) {
+      attachBrickRenderer(block.node, id);
+    }
+    setBodyEnabled(block.node, true);
+    wakeBrickMesh(block.node);
+  } catch {
+    /* flying brick can still leave the batch without a private mesh */
+  }
+}
+
+function canSkin(block: BlockCell): boolean {
+  return !!block?.node?.isValid && block.alive && !block.buried && !block.inFlight;
+}
+
+function addToBatch(block: BlockCell, host: Node): boolean {
+  if (!canSkin(block)) return false;
+  const rgb = displayRgb(block);
+  const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+  const cur = _of.get(block);
+  if (cur && cur.key === key) {
+    cur.dirty = true;
+    hideBody(block);
+    return true;
+  }
+  if (cur) {
+    pullCell(cur, block);
+    _of.delete(block);
+  }
+  const batch = takeBatch(key, rgb, host);
+  if (!batch) return false;
+  batch.cells.push(block);
+  batch.dirty = true;
+  _of.set(block, batch);
+  hideBody(block);
+  return true;
+}
+
+function fallbackDraw(blocks: BlockCell[], buried: (b: BlockCell) => boolean): void {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!b.alive || buried(b)) continue;
+    if (b.meshless && attachBrickRenderer(b.node, b.voxelId)) b.meshless = false;
+    setBodyEnabled(b.node, true);
+  }
+}
+
+export function bindBrickSkin(field: Node | null, actors: Node | null): void {
+  if (_host?.isValid && _host.parent !== (field?.getChildByName('Wall') ?? field ?? actors)) {
+    dropHost();
+  }
+  ensureHost(field, actors);
+  probeBatch();
 }
 
 export function clearBrickSkin(): void {
-  if (_host?.isValid) {
-    clearChildren(_host);
-    _host.destroy();
-  }
-  _host = null;
+  dropHost();
+  _rebuild = false;
 }
 
 export function dirtyBrickSkin(): void {
-  /* merge off */
+  _rebuild = true;
 }
 
 export function popBrickSkin(block: BlockCell | null | undefined): void {
   if (!block?.node?.isValid) return;
-  setBodyEnabled(block.node, true);
-  wakeBrickMesh(block.node);
+  try {
+    const batch = _of.get(block);
+    if (batch) {
+      pullCell(batch, block);
+      _of.delete(block);
+    }
+    showBody(block);
+  } catch {
+    /* do not block a shot because a renderer failed to hang */
+  }
 }
 
-export function coverBrickSkin(_block: BlockCell | null | undefined): void {
-  /* merge off */
+export function coverBrickSkin(block: BlockCell | null | undefined): void {
+  if (!block || !canSkin(block)) return;
+  if (!_useBatch || !_host?.isValid) {
+    showBody(block);
+    return;
+  }
+  if (!addToBatch(block, _host)) showBody(block);
 }
 
-/** Drop leftover merge hosts. Individual brick meshes stay on. */
-export function flushBrickSkin(_blocks: BlockCell[], _buried: (b: BlockCell) => boolean): void {
-  if (!_host?.isValid) return;
-  clearChildren(_host);
-  _host.destroy();
-  _host = null;
+/** Resting shell cubes share one draw per color. Flying cubes keep their own renderer. */
+export function flushBrickSkin(blocks: BlockCell[], buried: (b: BlockCell) => boolean): void {
+  const host = _host;
+  if (!probeBatch() || !host?.isValid) {
+    fallbackDraw(blocks, buried);
+    _rebuild = false;
+    return;
+  }
+  _batches.forEach((batch) => {
+    batch.cells.length = 0;
+    batch.dirty = true;
+  });
+  _of.clear();
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!canSkin(b) || buried(b)) continue;
+    b.meshless = false;
+    if (!addToBatch(b, host)) showBody(b);
+  }
+  _batches.forEach((batch) => uploadBatch(batch));
+  _rebuild = false;
+}
+
+export function tickBrickSkin(): void {
+  if (!_useBatch) return;
+  if (_rebuild) {
+    _batches.forEach((batch) => {
+      batch.dirty = true;
+    });
+    _rebuild = false;
+  }
+  _batches.forEach((batch) => {
+    if (batch.dirty) uploadBatch(batch);
+  });
 }

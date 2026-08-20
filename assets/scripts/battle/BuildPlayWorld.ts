@@ -37,7 +37,7 @@ import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
-import { applySandLook, attachBrickRenderer, hangBrickRenderer, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
+import { applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
@@ -187,7 +187,6 @@ function placeBrick(
   voxelId: number,
   hidden: boolean,
   readyMesh: boolean,
-  nearShell: boolean,
   prefab: Prefab | null,
 ): BlockCell {
   const n = readyMesh || !prefab ? spawnBrick(parent, name, pos) : spawn(prefab, parent, name, pos);
@@ -196,13 +195,7 @@ function placeBrick(
   if (isColorToken(token)) cell.colorId = parseColorToken(token);
   cell.voxelId = voxelId;
   if (readyMesh) {
-    if (hidden && !nearShell) {
-      hangBrickRenderer(n);
-      cell.meshless = true;
-    } else {
-      attachBrickRenderer(n, voxelId);
-      cell.meshless = false;
-    }
+    cell.meshless = hidden;
   } else {
     cell.meshless = hidden;
     if (!hidden) paintVoxelId(n, voxelId);
@@ -251,19 +244,6 @@ function boxedInVoxels(voxels: LevelDef['voxels']): Set<number> {
     }
   }
   return out;
-}
-
-const NEAR_SHELL: ReadonlyArray<readonly [number, number, number]> = [
-  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
-];
-
-/** Boxed-in brick that touches the camera shell — mesh it now so the first peel is free. */
-function nearShellVoxel(x: number, y: number, z: number, boxedIn: Set<number>): boolean {
-  for (let i = 0; i < NEAR_SHELL.length; i++) {
-    const d = NEAR_SHELL[i];
-    if (!boxedIn.has(voxelKey(x + d[0], y + d[1], z + d[2]))) return true;
-  }
-  return false;
 }
 
 function loadChestPrefab(): Promise<Prefab | null> {
@@ -402,7 +382,6 @@ export async function buildPlayWorld(
         v.colorId,
         hidden,
         readyMesh,
-        hidden && boxedIn ? nearShellVoxel(v.x, v.y, v.z, boxedIn) : false,
         blockPf,
       );
       if ((i & 63) === 63) {
@@ -441,11 +420,13 @@ export async function buildPlayWorld(
           isColorToken(token) ? TOKEN_VOXEL_ID[token] : TOKEN_VOXEL_ID.o,
           false,
           readyMesh,
-          false,
           blockPf,
         );
         if (locked && z === 0) applyLockNails(brick.node);
-        if (level.sandCols?.includes(x)) applySandLook(brick.node);
+        if (level.sandCols?.includes(x)) {
+          brick.sand = true;
+          applySandLook(brick.node);
+        }
       }
     }
   }

@@ -192,6 +192,28 @@ export function makeFieldUnlit(color: Color): Material {
   return makeFieldLit(color, 0.62, 0.04, 0);
 }
 
+/**
+ * One MeshRenderer draws N cubes. USE_INSTANCING would send this host through
+ * the engine instanced buffer (1 instance). USE_BRICK_INSTANCING reads matrices
+ * from our vertex stream instead, so the pass stays a regular draw.
+ */
+export function makeBrickBatchMat(color: Color): Material | null {
+  if (!_brickFx) return null;
+  const mat = new Material();
+  try {
+    mat.initialize({
+      effectAsset: _brickFx,
+      techniqueIndex: 0,
+      defines: [{ USE_BRICK_INSTANCING: true }],
+    });
+  } catch {
+    return null;
+  }
+  if (!mat.passes?.length) return null;
+  bindLitProps(mat, color, 0.62, 0.04, 0, true);
+  return registerFieldMat(mat);
+}
+
 const _fieldLitCache = new Map<string, Material>();
 
 /**

@@ -102,6 +102,14 @@ export function rememberBrickMesh(mesh: Mesh | null | undefined): boolean {
   return !!_brickMesh;
 }
 
+export function brickCubeMesh(): Mesh | null {
+  return _brickMesh;
+}
+
+export function sandRgbOf(rgb: readonly [number, number, number]): readonly [number, number, number] {
+  return sandRgb(rgb);
+}
+
 function hangRenderer(node: Node): MeshRenderer | null {
   if (!node?.isValid) return null;
   let mr = node.getComponent(MeshRenderer);

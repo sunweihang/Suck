@@ -37,6 +37,8 @@ export class BlockCell extends Component {
   raftHomeCol = 0;
   /** Boxed in on all six sides, so no camera can ever see or target it. */
   buried = false;
+  /** Old cells-level sand column: tint is baked into the color batch key. */
+  sand = false;
   /** Renderer is hung, but the shared cube is not assigned yet. */
   meshless = false;
 
@@ -138,6 +140,7 @@ export class BlockCell extends Component {
     if (this._grayed === on) return;
     this._grayed = on;
     applyBrickGray(this.node, on);
+    dirtyBrickSkin();
   }
 
   unlock(): boolean {
@@ -151,6 +154,7 @@ export class BlockCell extends Component {
     if (!this.locked || this._sucking || this._nudgeT > 0) return;
     this.node.getPosition(this._nudgeBase);
     this._nudgeT = 0.28;
+    popBrickSkin(this);
     this._armMotion();
   }
 
@@ -290,6 +294,7 @@ export class BlockCell extends Component {
       this._nudgeT -= dt;
       if (this._nudgeT <= 0) {
         this.node.setPosition(this._nudgeBase);
+        coverBrickSkin(this);
         this._restMotion();
         return;
       }
