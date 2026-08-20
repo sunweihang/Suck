@@ -307,8 +307,8 @@ export class PlayHud extends Component {
     this._itemBar();
 
     const hand = this._mk('HintHand', 160, 220);
-    hand.addComponent(HintHand);
     hand.active = false;
+    hand.addComponent(HintHand);
   }
 
   private _settingsBtn(): Node {

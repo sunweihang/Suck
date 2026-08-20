@@ -252,7 +252,6 @@ export class GameBootstrap extends Component {
         this.node.scene && this._mainCam?.node
           ? bootStep('backdrop', spawnToyBackdrop(this.node.scene, this._mainCam.node))
           : Promise.resolve();
-      await this._bootWorld();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
       await artJob;
@@ -269,7 +268,6 @@ export class GameBootstrap extends Component {
       this._chest?.applyArt();
       this._itemShop?.applyArt();
       this._applyPortraitFrame();
-      this._bindBattle();
       await load.finish();
       load.hide();
       this._showHome();
@@ -337,6 +335,7 @@ export class GameBootstrap extends Component {
     n.destroy();
   }
 
+  /** Instantiates the current map. Splash skips this; Play runs it under BootLoad. */
   private _bootWorld(): Promise<void> {
     if (this._bootJob) return this._bootJob;
     this._bootJob = this._bootWorldInner().finally(() => {

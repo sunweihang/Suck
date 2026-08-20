@@ -822,10 +822,12 @@ export class BattleDirector extends Component {
     let n = this.node.getChildByName('HintHand');
     if (!n) {
       n = new Node('HintHand');
+      n.active = false;
       this.node.addChild(n);
     }
     const hint = n.getComponent(HintHand) ?? n.addComponent(HintHand);
     hint.bindCamera(this._cam);
+    hint.hide();
     return hint;
   }
 

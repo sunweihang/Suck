@@ -21,7 +21,7 @@ import { chestPercentOf, chestReadyOf, chestStepOf } from '../game/ChestProgress
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
-import { afterDraws, clearWinConfetti, playWinConfetti, preloadWinConfetti } from './WinConfetti';
+import { clearWinConfetti, playWinConfetti, warmupWinConfetti } from './WinConfetti';
 
 const { ccclass } = _decorator;
 
@@ -95,8 +95,8 @@ export class VictoryPanel extends Component {
   }
 
   /**
-   * Compile shaders / upload textures while the host splash still covers the canvas.
-   * Uses near-zero opacity so splash pixels are not replaced.
+   * Compile UI + particle shaders while BootLoad still covers the canvas.
+   * Near-zero opacity so splash pixels are not replaced.
    */
   async warmup(): Promise<void> {
     this._ensureTree();
@@ -113,12 +113,9 @@ export class VictoryPanel extends Component {
     this._bakePctAtlas();
     this._setPctText(40);
     this._fade(1);
-    await preloadWinConfetti(this.node);
-    playWinConfetti(this.node);
+    await warmupWinConfetti(this.node);
     await gameAudio()?.ensureWin();
-    await afterDraws(4);
     if (!this.node.isValid) return;
-    clearWinConfetti(this.node);
     this._fade(0);
     this.node.pauseSystemEvents(true);
     this._open = false;

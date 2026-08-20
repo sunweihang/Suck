@@ -81,6 +81,46 @@ export function preloadWinConfetti(host?: Node): Promise<void> {
   });
 }
 
+const WARM_NAME = 'WarmPs';
+
+/** One emitter uploads frames and compiles the particle shader. Full volley waits until show(). */
+export async function warmupWinConfetti(host: Node): Promise<void> {
+  await loadArt();
+  if (!host?.isValid) return;
+  const root = rootOf(host);
+  let art = 'confetti-0';
+  if (!_frames.has(art)) {
+    const first = _frames.keys().next();
+    if (first.done) {
+      await afterDraws(2);
+      return;
+    }
+    art = first.value;
+  }
+  const ps = ensurePs(root, {
+    name: WARM_NAME,
+    art,
+    burst: 4,
+    life: 0.25,
+    speed: 40,
+    speedVar: 0,
+    size: 16,
+    sizeVar: 0,
+    gravity: 0,
+    angle: 90,
+    angleVar: 0,
+    color: WHITE,
+    spin: 0,
+  });
+  if (ps) playBurst(ps, 4, 0);
+  await afterDraws(2);
+  if (!host.isValid) return;
+  const warm = root.getChildByName(WARM_NAME);
+  if (!warm?.isValid) return;
+  warm.getComponent(ParticleSystem2D)?.stopSystem();
+  warm.destroy();
+}
+
 function rootOf(host: Node): Node {
   let root = host.getChildByName(NAME);
   if (!root) {

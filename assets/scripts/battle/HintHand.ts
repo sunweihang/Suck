@@ -40,7 +40,7 @@ export class HintHand extends Component {
   private readonly _pos = new Vec3();
   private readonly _camQ = new Quat();
   private _t = 0;
-  private _hidden = false;
+  private _hidden = true;
   private _hasPath = false;
   private _ui = false;
   private _cam: Camera | null = null;
@@ -65,32 +65,36 @@ export class HintHand extends Component {
   }
 
   placeWorld(from: Vec3, to: Vec3): void {
-    this._ui = false;
-    this._hidden = false;
-    this._from.set(from);
-    this._to.set(to);
-    this._hasPath = true;
-    this.node.active = true;
-    this._syncLayer();
+    this._place(from, to, false);
   }
 
   placeUi(from: Vec3, to: Vec3): void {
-    this._ui = true;
-    this._hidden = false;
-    this._from.set(from);
-    this._to.set(to);
-    this._hasPath = true;
-    this.node.active = true;
-    this._syncLayer();
+    this._place(from, to, true);
   }
 
   update(dt: number): void {
     if (this._hidden || !this.node.active || !this._hasPath) return;
     this._t += dt;
-    const tap = this._samePoint();
+    this._applyPose();
+  }
+
+  private _place(from: Vec3, to: Vec3, ui: boolean): void {
+    const fresh = this._hidden || !this.node.active;
+    this._hidden = false;
+    this._from.set(from);
+    this._to.set(to);
+    this._hasPath = true;
+    if (fresh) this._t = 0;
+    this.node.active = true;
+    this._ui = ui;
+    this._syncLayer();
+    this._applyPose();
+  }
+
+  private _applyPose(): void {
     const scale = this._ui ? UI_SCALE : WORLD_SCALE;
     this.node.setScale(scale, scale, scale);
-    if (tap) this._poseTap();
+    if (this._samePoint()) this._poseTap();
     else this._poseSwipe();
     if (this._ui) {
       this.node.setRotationFromEuler(0, 0, 0);
