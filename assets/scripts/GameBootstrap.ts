@@ -43,6 +43,7 @@ import {
   applyDesignResolution,
   applyPortraitCameraRect,
   capRenderResolution,
+  needsLetterbox,
   portraitVisibleSize,
 } from './game/PortraitFit';
 import { Theme } from './game/Theme';
@@ -202,10 +203,7 @@ export class GameBootstrap extends Component {
     if (this._homeDrawn) return;
     this._homeDrawn = true;
     this._ugcHud?.hide();
-    if (this._letterboxCam?.isValid) {
-      this._letterboxCam.clearColor = LETTERBOX_CLEAR;
-      this._letterboxCam.enabled = true;
-    }
+    this._syncLetterboxCam();
     this._setWorldLive(false);
     notifyHostSplashHomeReady();
     initRewardedAd();
@@ -993,8 +991,17 @@ export class GameBootstrap extends Component {
     cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
     cam.clearColor = LETTERBOX_CLEAR;
     cam.rect.set(0, 0, 1, 1);
-    cam.enabled = this._homeDrawn;
+    cam.enabled = false;
     this._letterboxCam = cam;
+    this._syncLetterboxCam();
+  }
+
+  private _syncLetterboxCam(): void {
+    const cam = this._letterboxCam;
+    if (!cam?.isValid) return;
+    cam.clearColor = LETTERBOX_CLEAR;
+    cam.rect.set(0, 0, 1, 1);
+    cam.enabled = this._homeDrawn && needsLetterbox();
   }
 
   private _applyPortraitFrame = (): void => {
@@ -1008,11 +1015,8 @@ export class GameBootstrap extends Component {
       applyPortraitCameraRect(this._uiCam);
     }
     if (this._mainCam?.isValid) this._frameMainCamera();
-    if (this._letterboxCam?.isValid) {
-      this._letterboxCam.clearColor = LETTERBOX_CLEAR;
-      this._letterboxCam.rect.set(0, 0, 1, 1);
-      this._letterboxCam.enabled = this._homeDrawn;
-    }
+    this._syncLetterboxCam();
+    if (this._battle?.node.active) this._battle.reposeView();
     layoutWorldBg(this.node.scene);
     this._home?.layoutChrome();
     this._ugcHud?.layoutChrome();
@@ -1331,6 +1335,11 @@ export class GameBootstrap extends Component {
 
   /** Home covers the 3D field; keep the world hidden until play. Sky stays on the main camera. */
   private _setWorldLive(on: boolean): void {
+    if (!on) {
+      this._battle?.parkView();
+      this._frameMainCamera();
+      this._tuneLighting();
+    }
     const world = this._ugcEditor?.node ?? this._battle?.node;
     if (world?.isValid) world.active = on;
     const cam = this._mainCam;
@@ -1418,6 +1427,7 @@ export class GameBootstrap extends Component {
       this._battle.enabled = true;
     }
     this._bindBattle();
+    this._battle?.reposeView();
     this._home?.hide();
     this._ugcHud?.hide();
     this._settings?.hide();

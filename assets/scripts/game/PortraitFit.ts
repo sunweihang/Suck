@@ -168,3 +168,9 @@ export function applyPortraitCameraRect(cam: Camera): void {
   }
   cam.rect = new Rect(r.x, r.y, r.width, r.height);
 }
+
+/** True when SHOW_ALL leaves side/top bars. Phones on FIXED_WIDTH stay full-bleed. */
+export function needsLetterbox(): boolean {
+  const r = portraitCameraRect();
+  return r.x > 0.002 || r.y > 0.002 || r.width < 0.996 || r.height < 0.996;
+}

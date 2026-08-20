@@ -391,7 +391,18 @@ export class BattleDirector extends Component {
   }
 
   onDestroy(): void {
+    this._resetDock();
     this._unbindTouch();
+  }
+
+  /** Tray stays at the origin; the field owns spin. */
+  parkView(): void {
+    this._resetDock();
+    this._posedRot.set(NaN, NaN, NaN, NaN);
+  }
+
+  reposeView(): void {
+    this.parkView();
   }
 
   update(dt: number): void {
@@ -459,6 +470,7 @@ export class BattleDirector extends Component {
   }
 
   private _collect(): void {
+    this.parkView();
     this._blocks.length = 0;
     this._units.length = 0;
     this._aimBest.clear();
@@ -483,7 +495,6 @@ export class BattleDirector extends Component {
     this._chestBusy = false;
     this._raftT = 0;
     Quat.fromAxisAngle(this._spinRot, Vec3.UNIT_Y, (PLAY.fieldYawDeg * Math.PI) / 180);
-    this._posedRot.set(NaN, NaN, NaN, NaN);
     this._spinVel = 0;
     this._pitchVel = 0;
     this._ptrDown = false;
@@ -2516,6 +2527,19 @@ export class BattleDirector extends Component {
     if (Quat.equals(this._spinRot, this._posedRot)) return;
     this._posedRot.set(this._spinRot);
     this._field?.setRotation(this._spinRot);
+  }
+
+  private _resetDock(): void {
+    const bench = this._bench ?? this.node.getChildByName('Bench');
+    const slots = this.node.getChildByName('Slots');
+    if (bench?.isValid) {
+      bench.setPosition(0, 0, 0);
+      bench.setRotationFromEuler(0, 0, 0);
+    }
+    if (slots?.isValid) {
+      slots.setPosition(0, 0, 0);
+      slots.setRotationFromEuler(0, 0, 0);
+    }
   }
 
   private _placeRaft(offset: number): void {
