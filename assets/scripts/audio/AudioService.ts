@@ -27,12 +27,11 @@ const GET_NEW_GAIN = 1;
 /** Shoot a Cube Puzzle! Win_3 — victory panel stinger. */
 const WIN_GAIN = 1;
 /**
- * absorb.mp3: ~25ms lead-in, audible to ~110ms, silence after ~120ms.
- * Pulse after the audible body; only cut once the tail is already quiet.
+ * absorb.wav: attack in ~10ms, faded to silence by ~80ms, file ends at 100ms.
+ * One voice, never stop() mid-play — a hard cut of the tail buzzes.
  */
-const ABSORB_PULSE_SEC = 0.112;
-const ABSORB_SAFE_CUT_SEC = 0.12;
-const ABSORB_QUEUE_CAP = 8;
+const ABSORB_QUEUE_CAP = 1;
+const ABSORB_END_PAD_SEC = 0.008;
 
 /**
  * Looping BGM (Unravel) + absorb / UI-click one-shots (TripleTown).
@@ -376,15 +375,16 @@ export class AudioService {
     }
   }
 
+  private _absorbDur(): number {
+    const clip = this._absorbClip;
+    const d = typeof clip?.getDuration === 'function' ? clip.getDuration() : 0;
+    return (d > 0.02 ? d : 0.1) + ABSORB_END_PAD_SEC;
+  }
+
   private _pulseAbsorb(): void {
     if (this._disposed || this._absorbQueued <= 0) return;
     const now = Date.now() * 0.001;
-    const src = this._absorbSfx;
-    if (src.playing && now - this._absorbAt < ABSORB_SAFE_CUT_SEC) {
-      this._scheduleAbsorbPulse(this._absorbAt + ABSORB_SAFE_CUT_SEC - now);
-      return;
-    }
-    const wait = this._absorbAt + ABSORB_PULSE_SEC - now;
+    const wait = this._absorbAt + this._absorbDur() - now;
     if (wait > 0.001) {
       this._scheduleAbsorbPulse(wait);
       return;
@@ -406,14 +406,8 @@ export class AudioService {
   private _playAbsorbHit(clip: AudioClip): void {
     const src = this._absorbSfx;
     if (!src.node?.isValid) return;
-    if (src.playing) {
-      try {
-        src.stop();
-      } catch {
-        /* ignore */
-      }
-    }
     src.clip = clip;
+    src.loop = false;
     src.volume = Math.min(1, this._sfxGain * ABSORB_GAIN);
     src.play();
   }

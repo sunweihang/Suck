@@ -397,7 +397,7 @@ export function createInkShot(host: Node): InkShot {
   node.active = false;
   host.addChild(node);
   const shot = node.getComponent(InkShot) ?? node.addComponent(InkShot);
-  shot.enabled = true;
+  shot.enabled = false;
   shot.prepareLook();
   return shot;
 }
@@ -668,7 +668,7 @@ export class InkShot extends Component {
     this._onHit = onHit ?? null;
     this._armed = false;
     this.node.active = true;
-    this.enabled = true;
+    this.enabled = false;
     this.node.setWorldRotation(Quat.IDENTITY);
     this.node.setScale(1, 1, 1);
     try {
@@ -832,7 +832,7 @@ export class InkShot extends Component {
         _pos.y - _dir.y * back,
         _pos.z - _dir.z * back,
       );
-      faceCamAt(spark, spark.worldPosition, _camP);
+      spark.setWorldRotation(_rot);
       const s = SPARK_S[i] * fade * (1 - i * 0.12);
       spark.setScale(s, s, 1);
     }

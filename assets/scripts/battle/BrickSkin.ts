@@ -63,17 +63,10 @@ export function coverBrickSkin(_block: BlockCell | null | undefined): void {
   /* merge off */
 }
 
-/** Keep every brick mesh on. Merged skins stay disabled. */
-export function flushBrickSkin(blocks: BlockCell[], _buried: (b: BlockCell) => boolean): void {
-  if (_host?.isValid) {
-    clearChildren(_host);
-    _host.destroy();
-    _host = null;
-  }
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (!b.node?.isValid) continue;
-    setBodyEnabled(b.node, true);
-    wakeBrickMesh(b.node);
-  }
+/** Drop leftover merge hosts. Individual brick meshes stay on. */
+export function flushBrickSkin(_blocks: BlockCell[], _buried: (b: BlockCell) => boolean): void {
+  if (!_host?.isValid) return;
+  clearChildren(_host);
+  _host.destroy();
+  _host = null;
 }

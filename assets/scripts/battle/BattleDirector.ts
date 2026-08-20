@@ -46,11 +46,11 @@ import {
   shooterStandZ,
   slotY,
 } from '../game/GameConfig';
-import { nearestVoxelId, rgbLooksSame, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
+import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
-import { activeGuide, completeGuide, type GuideView } from '../game/TutorialGuide';
+import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit, DEBRIS_POOL_MAX, makeDebrisBit } from './DebrisBit';
@@ -244,6 +244,9 @@ export class BattleDirector extends Component {
   private _visDirty = true;
   private _visSkip = 0;
   private _unstickT = 0;
+  private _hintT = 0;
+  private readonly _incoming = new Set<BlockCell>();
+  private readonly _idVoxel = new Int16Array(COLOR_COUNT).fill(-2);
   private _shotStuck = 0;
   private readonly _raftBricks: BlockCell[] = [];
   private readonly _aimBest = new Map<UnitActor, BlockCell>();
@@ -422,8 +425,7 @@ export class BattleDirector extends Component {
     if (this._nudgeCool > 0) this._nudgeCool -= dt;
     this._tickCombat(dt);
     this._refreshPlates(dt);
-    this._syncHint();
-    this._flushSkin();
+    this._syncHint(dt);
   }
 
   private _tickShots(dt: number): void {
@@ -439,7 +441,8 @@ export class BattleDirector extends Component {
     if (this.node.activeInHierarchy && !this._playing) this._playing = true;
     let flying = 0;
     let moving = 0;
-    const incoming = new Set<BlockCell>();
+    const incoming = this._incoming;
+    incoming.clear();
     for (let i = 0; i < this._shots.length; i++) {
       const s = this._shots[i];
       if (!s.busy) continue;
@@ -598,6 +601,9 @@ export class BattleDirector extends Component {
     this._needHoldRefresh = false;
     this._stuckT = 0;
     this._unstickT = 0;
+    this._hintT = 0;
+    this._incoming.clear();
+    this._idVoxel.fill(-2);
     this._shotStuck = 0;
     this._nudgeCool = 0;
     this._refreshLocks();
@@ -752,12 +758,24 @@ export class BattleDirector extends Component {
     return hint;
   }
 
-  private _syncHint(): void {
+  private _syncHint(dt: number): void {
     if (!this._playing || this._won || this._lost) {
       this._emitGuide(null);
       this._hint?.hide();
       return;
     }
+    const guideId = guideIdForLevel(PLAY.levelId);
+    if (!guideId || isGuideDone(guideId)) {
+      this._emitGuide(null);
+      this._hint?.hide();
+      return;
+    }
+    this._hintT += dt;
+    const moving = this._spinning || this._spinVel !== 0 || this._pitchVel !== 0;
+    if (!moving && this._hintT < 0.08 && this._guideKey) {
+      return;
+    }
+    this._hintT = 0;
     const guide = activeGuide(PLAY.levelId, {
       hookPick: this._hookPick,
       shovelPick: this._shovelPick,
@@ -1443,7 +1461,7 @@ export class BattleDirector extends Component {
     shot.landPaint = block.paint;
     shot.landToken = tokenOfColorId(block.colorId);
     const fireToken = tokenOfColorId(u.colorId);
-    const fireRgb = readPaintRgb(u.node) ?? this._tintOf(u.colorId);
+    const fireRgb = this._tintOf(u.colorId);
     shot.fire(_tmp, _world, fireToken, dur, 0, this._onShotLand, fireRgb);
     playMuzzleFlash(this._flyRoot ?? this.node, _tmp, _hitDir, fireToken, fireRgb);
     } catch {
@@ -1478,7 +1496,7 @@ export class BattleDirector extends Component {
       this._flyRoot ?? this.node,
       _world,
       u ? tokenOfColorId(u.colorId) : token,
-      u ? (readPaintRgb(u.node) ?? this._tintOf(u.colorId)) : undefined,
+      u ? this._tintOf(u.colorId) : undefined,
     );
     // landKick follows the bolt into the sculpture. Bounce XZ back out so a
     // solid apple does not swallow the cube; keep Y so shots from below still pop up.
@@ -1652,16 +1670,11 @@ export class BattleDirector extends Component {
   }
 
   private _unitVoxel(u: UnitActor): number {
-    const rgb = readPaintRgb(u.node) ?? this._tintOf(u.colorId);
-    const fromPaint = nearestVoxelId(rgb);
-    if (fromPaint >= 0) return fromPaint;
-    return u.voxelId;
+    return u.voxelId >= 0 ? u.voxelId : this._voxelOfColorId(u.colorId);
   }
 
   private _sameColor(block: BlockCell, u: UnitActor): boolean {
-    const brickRgb = block.voxelId >= 0 ? rgbOfVoxel(block.voxelId) : this._tintOf(block.colorId);
-    const unitRgb = readPaintRgb(u.node) ?? this._tintOf(u.colorId);
-    if (rgbLooksSame(brickRgb, unitRgb)) return true;
+    if (block.colorId === u.colorId) return true;
     const unitVoxel = this._unitVoxel(u);
     if (block.voxelId >= 0 && unitVoxel >= 0 && voxelsAlias(block.voxelId, unitVoxel)) return true;
     return this._idsMatch(block.colorId, u.colorId);
@@ -2054,9 +2067,12 @@ export class BattleDirector extends Component {
   }
 
   private _rowHasBricksAtOrAbove(ironRow: number): boolean {
-    for (let i = 0; i < this._blocks.length; i++) {
-      const b = this._blocks[i];
-      if (b.row >= ironRow && b.node.active) return true;
+    for (let r = ironRow; r < this._byRow.length; r++) {
+      const list = this._byRow[r];
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].node.active) return true;
+      }
     }
     return false;
   }
@@ -2702,10 +2718,19 @@ export class BattleDirector extends Component {
     return false;
   }
 
+  private _voxelOfColorId(id: number): number {
+    if (id < 0 || id >= COLOR_COUNT) return nearestVoxelId(this._tintOf(id));
+    const hit = this._idVoxel[id];
+    if (hit !== -2) return hit;
+    const v = nearestVoxelId(this._tintOf(id));
+    this._idVoxel[id] = v;
+    return v;
+  }
+
   private _idsMatch(a: number, b: number): boolean {
     if (a === b) return true;
-    const va = nearestVoxelId(this._tintOf(a));
-    const vb = nearestVoxelId(this._tintOf(b));
+    const va = this._voxelOfColorId(a);
+    const vb = this._voxelOfColorId(b);
     return va >= 0 && vb >= 0 && voxelsAlias(va, vb);
   }
 

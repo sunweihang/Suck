@@ -26,6 +26,7 @@ const TIP_AX = 0.018;
 const TIP_AY = 0.989;
 const TAP_CYCLE = 1.05;
 const SWIPE_CYCLE = 1.7;
+const _tint = new Color(255, 255, 255, 255);
 
 function smooth(t: number): number {
   const x = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -58,6 +59,7 @@ export class HintHand extends Component {
   }
 
   hide(): void {
+    if (this._hidden && !this.node.active) return;
     this._hidden = true;
     this.node.active = false;
   }
@@ -149,7 +151,10 @@ export class HintHand extends Component {
     this._shadow?.setRotationFromEuler(0, 0, rot);
     this._shadow?.setScale(1 - press * 0.04, 1 - press * 0.04, 1);
     const sd = this._shadow?.getComponent(Sprite);
-    if (sd) sd.color = new Color(255, 255, 255, Math.round(70 + press * 50));
+    if (sd) {
+      _tint.a = Math.round(70 + press * 50);
+      sd.color = _tint;
+    }
   }
 
   private _poseRings(u: number): void {
@@ -173,7 +178,10 @@ export class HintHand extends Component {
     if (!n.active) return;
     n.setScale(scale, scale, 1);
     const sp = n.getComponent(Sprite);
-    if (sp) sp.color = new Color(255, 255, 255, Math.round(255 * alpha));
+    if (sp) {
+      _tint.a = Math.round(255 * alpha);
+      sp.color = _tint;
+    }
   }
 
   private _hideRings(): void {
