@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
 import { ColorId, GAME, PLAY, SPECIAL_SPAN, isColorToken, parseColorToken } from '../game/GameConfig';
+import { coverBrickSkin, dirtyBrickSkin, popBrickSkin } from './BrickSkin';
 import { bindFieldNode, fieldWorldOf } from './FieldSpin';
 import { applyBrickGray, applyBrickPlastic, releaseFieldBrick, wakeBrickMesh } from './ToyBlockMesh';
 import { hideBlowTrail } from './BlowTrail';
@@ -94,6 +95,7 @@ export class BlockCell extends Component {
     if (Vec3.squaredDistance(this._moveFrom, this._moveTo) < 1e-6) return;
     this._moveT = 0;
     this._moveDur = Math.max(0.08, duration);
+    popBrickSkin(this);
     this.enabled = true;
   }
 
@@ -143,6 +145,7 @@ export class BlockCell extends Component {
     this._claimed = false;
     this.node.active = true;
     wakeBrickMesh(this.node);
+    coverBrickSkin(this);
   }
 
   worldPos(out: Vec3): Vec3 {
@@ -151,6 +154,7 @@ export class BlockCell extends Component {
 
   private _leaveField(): void {
     if (!this._fieldSpun) return;
+    popBrickSkin(this);
     this._fieldSpun = false;
     releaseFieldBrick(this.node);
   }
@@ -263,6 +267,8 @@ export class BlockCell extends Component {
       );
       if (u >= 1) {
         this._moveDur = 0;
+        coverBrickSkin(this);
+        dirtyBrickSkin();
         if (this._nudgeT <= 0) this.enabled = false;
       }
       return;

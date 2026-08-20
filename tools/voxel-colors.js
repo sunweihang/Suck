@@ -287,6 +287,21 @@ function powerGaps(level) {
   return { short, bricks, power, colors: new Set(level.voxels.map((v) => v.colorId)).size };
 }
 
+function nearestVoxelId(rgb) {
+  let best = 16;
+  let bestD = Infinity;
+  const ids = Object.keys(VOXEL_RGB);
+  for (let i = 0; i < ids.length; i++) {
+    const id = Number(ids[i]);
+    const d = dist2(rgb, VOXEL_RGB[id]);
+    if (d < bestD || (d === bestD && id > best)) {
+      bestD = d;
+      best = id;
+    }
+  }
+  return best;
+}
+
 module.exports = {
   VOXEL_RGB,
   TOKENS,
@@ -299,6 +314,7 @@ module.exports = {
   isPaperWhite,
   rgbLooksSame,
   officialToken,
+  nearestVoxelId,
   assignTokens,
   assignTokensForVoxels,
   alignUnitTokens,

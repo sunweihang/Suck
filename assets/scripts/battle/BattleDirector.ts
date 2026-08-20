@@ -60,6 +60,7 @@ import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
+import { bindBrickSkin, clearBrickSkin, dirtyBrickSkin, flushBrickSkin, popBrickSkin } from './BrickSkin';
 import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, setFieldSpin, worldToRest } from './FieldSpin';
 import { setBrickMeshEnabled } from './ToyBlockMesh';
 import { UnitActor } from './UnitActor';
@@ -395,6 +396,7 @@ export class BattleDirector extends Component {
     this._resetDock();
     this._unbindTouch();
     bindFieldActors(null);
+    clearBrickSkin();
   }
 
   /** Tray stays at the origin; the field owns spin. */
@@ -421,6 +423,7 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint();
+    this._flushSkin();
   }
 
   private _tickShots(dt: number): void {
@@ -509,6 +512,7 @@ export class BattleDirector extends Component {
     const slots = this.node.getChildByName('Slots');
     const pool = this.node.getChildByName('DebrisPool');
     wall?.children.forEach((n) => {
+      if (n.name === 'BrickSkins') return;
       if (n.name.startsWith('Chest_')) {
         const c = n.getComponent(ChestActor) ?? n.addComponent(ChestActor);
         c.syncFromName();
@@ -923,6 +927,7 @@ export class BattleDirector extends Component {
     }
     this._hideBuried();
     this._bumpVis();
+    this._flushSkin();
   }
 
   private _rowList(row: number): BlockCell[] {
@@ -939,7 +944,9 @@ export class BattleDirector extends Component {
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
     this._visDirty = true;
+    popBrickSkin(block);
     this._revealAround(block);
+    dirtyBrickSkin();
   }
 
   private _bindTouch(): void {
@@ -1523,6 +1530,7 @@ export class BattleDirector extends Component {
     const counted = block.node.active && block.hp > 0;
     const host = this._flyRoot ?? this.node;
     fieldWorldOf(block.node, _world);
+    popBrickSkin(block);
     if (block.node.parent !== host) block.node.setParent(host, true);
     const rgb = this._brickRgb(block);
     block.blowOff(kick);
@@ -1989,6 +1997,11 @@ export class BattleDirector extends Component {
       if (!b.alive) continue;
       setBrickDrawn(b, !this._isBuried(b));
     }
+    dirtyBrickSkin();
+  }
+
+  private _flushSkin(): void {
+    flushBrickSkin(this._blocks, (b) => this._isBuried(b));
   }
 
   private _revealAround(block: BlockCell): void {
@@ -2036,6 +2049,8 @@ export class BattleDirector extends Component {
       b.setGrayed(b.alive && this._plateBlocks(b.row, b.col));
     }
     this._bumpVis();
+    dirtyBrickSkin();
+    this._flushSkin();
   }
 
   private _rowHasBricksAtOrAbove(ironRow: number): boolean {
@@ -2345,6 +2360,7 @@ export class BattleDirector extends Component {
     }
     this._hideBuried();
     this._bumpVis();
+    this._flushSkin();
   }
 
   private _blocksHold(block: BlockCell, skipColor?: ColorId): boolean {
@@ -2530,6 +2546,7 @@ export class BattleDirector extends Component {
     this._wall = field.getChildByName('Wall');
     this._platesRoot = actors.getChildByName('Plates');
     this._raft = actors.getChildByName('Raft');
+    bindBrickSkin(field, actors);
   }
 
   private _poseFieldSpin(): void {

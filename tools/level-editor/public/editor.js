@@ -1099,10 +1099,144 @@
     return $('title').textContent;
   }
 
+  const imgState = { rgba: null, width: 0, height: 0 };
+  let thumbUrl = '';
+
+  function dropThumbUrl() {
+    if (!thumbUrl) return;
+    URL.revokeObjectURL(thumbUrl);
+    thumbUrl = '';
+  }
+
+  function rgbaToB64(data) {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    let bin = '';
+    const step = 0x8000;
+    for (let i = 0; i < bytes.length; i += step) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+    }
+    return btoa(bin);
+  }
+
+  async function fileToRgba(file, maxSide = 320) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const w = Math.max(2, Math.round(bmp.width * scale));
+    const h = Math.max(2, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    const img = ctx.getImageData(0, 0, w, h);
+    return { width: w, height: h, rgba: img.data };
+  }
+
+  function imageOpts() {
+    return {
+      cols: Number($('img-cols')?.value) || 16,
+      rows: Number($('img-rows')?.value) || 22,
+      depth: Number($('img-depth')?.value) || 6,
+      maxColors: Number($('img-colors')?.value) || 8,
+      threshold: Number($('img-threshold')?.value) || 236,
+      pad: Number($('img-pad')?.value) || 1,
+      mode: $('img-solid')?.checked ? 'solid' : 'round',
+    };
+  }
+
+  async function generateFromImage(asNew) {
+    if (!imgState.rgba) throw new Error('先上传一张图片');
+    const opts = imageOpts();
+    setSim('正在从图片生成方块…');
+    const data = await api('/api/from-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...opts,
+        width: imgState.width,
+        height: imgState.height,
+        rgba: rgbaToB64(imgState.rgba),
+        id: asNew ? 0 : state.id,
+      }),
+    });
+    const level = data.level;
+    if ($('img-cols')) $('img-cols').value = data.stats.cols;
+    if ($('img-rows')) $('img-rows').value = data.stats.rows;
+    if ($('img-depth')) $('img-depth').value = data.stats.depth;
+    if (asNew) {
+      const saved = await api('/api/levels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      });
+      state.levels = saved.levels;
+      state.id = saved.id;
+      history.replaceState(null, '', `?id=${saved.id}`);
+      setDirty(false);
+      applyRaw(saved.level, '图片生成', 'voxel');
+      resetHist();
+      markBaseline();
+      setSim(`已新建第 ${saved.id} 关 · ${data.stats.voxels} 块 · ${data.stats.colors} 色`, true);
+      return;
+    }
+    pushHist();
+    level.id = state.id;
+    applyRaw(level, '图片生成', 'voxel');
+    setDirty(true);
+    setSim(`已生成到本关 · ${data.stats.voxels} 块 · ${data.stats.colors} 色，可继续画改后保存`, true);
+  }
+
+  function bindImage() {
+    const file = $('img-file');
+    const thumb = $('img-thumb');
+    const name = $('img-name');
+    if (!file) return;
+    $('btn-img-pick').onclick = () => file.click();
+    $('btn-img-clear').onclick = () => {
+      imgState.rgba = null;
+      imgState.width = 0;
+      imgState.height = 0;
+      file.value = '';
+      dropThumbUrl();
+      thumb.classList.add('hidden');
+      thumb.removeAttribute('src');
+      name.textContent = '选一张正面图，白底最好。';
+    };
+    file.onchange = async () => {
+      const picked = file.files?.[0];
+      if (!picked) return;
+      try {
+        const decoded = await fileToRgba(picked);
+        imgState.rgba = decoded.rgba;
+        imgState.width = decoded.width;
+        imgState.height = decoded.height;
+        dropThumbUrl();
+        thumbUrl = URL.createObjectURL(picked);
+        thumb.src = thumbUrl;
+        thumb.classList.remove('hidden');
+        name.textContent = `${picked.name} · ${decoded.width}×${decoded.height}`;
+      } catch (err) {
+        showErr(err);
+      }
+    };
+    const syncLab = (id, lab) => {
+      if ($(id) && $(lab)) $(lab).textContent = $(id).value;
+    };
+    if ($('img-threshold')) {
+      $('img-threshold').oninput = () => syncLab('img-threshold', 'img-threshold-lab');
+    }
+    if ($('img-pad')) {
+      $('img-pad').oninput = () => syncLab('img-pad', 'img-pad-lab');
+    }
+    $('btn-img-gen').onclick = () => generateFromImage(false).catch(showErr);
+    $('btn-img-new').onclick = () => generateFromImage(true).catch(showErr);
+  }
+
   function resizeGrid() {
     pushHist();
     const cols = Math.max(8, Math.min(36, Number($('cols').value) || state.raw.cols));
-    const rows = Math.max(8, Math.min(28, Number($('rows').value) || state.raw.rows));
+    const rows = Math.max(8, Math.min(32, Number($('rows').value) || state.raw.rows));
     const next = Array.from({ length: cols * rows }, () => null);
     for (let y = 0; y < Math.min(rows, state.raw.rows); y++) {
       for (let x = 0; x < Math.min(cols, state.raw.cols); x++) {
@@ -1178,7 +1312,8 @@
     $('iron').onchange = () => { pushHist(); setDirty(true); draw(); };
     $('gaps').onchange = () => { pushHist(); setDirty(true); draw(); };
     $('btn-prev').onclick = () => loadLevel(Math.max(1, state.id - 1));
-    $('btn-next').onclick = () => loadLevel(Math.min(100, state.id + 1));
+    $('btn-next').onclick = () => loadLevel(Math.min(state.levels.length || 1, state.id + 1));
+    bindImage();
     if ($('btn-undo')) $('btn-undo').onclick = undo;
     if ($('btn-redo')) $('btn-redo').onclick = redo;
     if ($('btn-revert')) $('btn-revert').onclick = revertAll;

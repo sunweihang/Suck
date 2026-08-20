@@ -9,6 +9,7 @@ const io = require('../level-io');
 const { shapeForLevel, THEMES } = require('../level-shapes');
 const { generateFresh, encodeLevel, recalcUnits } = require('../bake-levels');
 const { solveInOrder, solveLevel } = require('../solve-levels');
+const imageVoxel = require('../image-voxel');
 
 const PORT = Number(process.env.LEVEL_EDITOR_PORT) || 3780;
 const PUBLIC = path.join(__dirname, 'public');
@@ -34,7 +35,16 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (c) => chunks.push(c));
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > 12 * 1024 * 1024) {
+        reject(new Error('请求过大'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
@@ -50,7 +60,22 @@ function readBody(req) {
 
 function parseId(url) {
   const m = String(url).match(/\/level\/(\d+)/);
-  return m ? Math.max(1, Math.min(io.LEVEL_COUNT, Number(m[1]) || 1)) : 1;
+  const cap = Math.max(1, io.levelCount());
+  return m ? Math.max(1, Math.min(cap, Number(m[1]) || 1)) : 1;
+}
+
+function nextLevelId() {
+  const pack = io.loadCatalogPack();
+  let max = 0;
+  for (const lv of pack.levels || []) max = Math.max(max, lv.id | 0);
+  return Math.max(io.levelCount(), max) + 1;
+}
+
+function persistLevel(raw) {
+  const packed = imageVoxel.cellsToPacked(raw, io.decodeCell);
+  if (packed.length) raw.voxels = packed;
+  io.saveOverride(raw.id, raw);
+  io.patchCatalogLevel(raw);
 }
 
 function listLevels() {
@@ -132,7 +157,7 @@ async function handleApi(req, res, url) {
   }
   if (url.startsWith('/api/level/') && req.method === 'GET') {
     const id = parseId(url);
-    const raw = io.loadCatalogLevel(id);
+    const raw = imageVoxel.expandLevelForEditor(io.loadCatalogLevel(id));
     raw.id = id;
     raw.hand = io.hasOverride(id);
     send(res, 200, { level: raw, summary: io.summarizeRaw(raw), title: io.levelTitle(id), shape: shapeForLevel(id).name });
@@ -146,9 +171,35 @@ async function handleApi(req, res, url) {
       send(res, 400, { error: '缺少 cols/rows/cells' });
       return;
     }
-    io.saveOverride(id, raw);
-    io.patchCatalogLevel(raw);
+    persistLevel(raw);
     send(res, 200, { ok: true, summary: io.summarizeRaw(raw) });
+    return;
+  }
+  if (url === '/api/from-image' && req.method === 'POST') {
+    const body = await readBody(req);
+    const made = imageVoxel.generateFromRgba(body.rgba, body.width, body.height, {
+      cols: body.cols,
+      rows: body.rows,
+      depth: body.depth,
+      threshold: body.threshold,
+      maxColors: body.maxColors,
+      pad: body.pad,
+      mode: body.mode,
+      id: body.id || 0,
+    });
+    send(res, 200, { level: made.level, stats: made.stats });
+    return;
+  }
+  if (url === '/api/levels' && req.method === 'POST') {
+    const body = await readBody(req);
+    const id = nextLevelId();
+    const raw = { ...(body.level || body), id, hand: true };
+    if (!Array.isArray(raw.cells) || !raw.cols || !raw.rows) {
+      send(res, 400, { error: '缺少 cols/rows/cells' });
+      return;
+    }
+    persistLevel(raw);
+    send(res, 200, { id, level: raw, summary: io.summarizeRaw(raw), levels: listLevels() });
     return;
   }
   if (url.startsWith('/api/level/') && url.endsWith('/solve') && req.method === 'POST') {

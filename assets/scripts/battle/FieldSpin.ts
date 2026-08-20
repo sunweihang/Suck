@@ -1,8 +1,10 @@
-import { Material, Node, Quat, Vec3 } from 'cc';
+import { Material, Node, Quat, Vec3, Vec4 } from 'cc';
 
 const _q = new Quat();
 const _inv = new Quat();
 const _p = new Vec3();
+const _p4 = new Vec4();
+const _q4 = new Vec4();
 const _v = new Vec3();
 const _rq = new Quat();
 
@@ -21,8 +23,10 @@ export function bindFieldActors(node: Node | null): void {
 
 function bindSpinProps(mat: Material): void {
   try {
-    mat.setProperty('spinQuat', _q);
-    mat.setProperty('spinPivot', _p);
+    _q4.set(_q.x, _q.y, _q.z, _q.w);
+    _p4.set(_p.x, _p.y, _p.z, 0);
+    mat.setProperty('spinQuat', _q4);
+    mat.setProperty('spinPivot', _p4);
   } catch {
     /* builtin-standard fallback has no spin */
   }

@@ -21,6 +21,14 @@ function catalogCount() {
 
 const LEVEL_COUNT = catalogCount();
 
+function levelCount() {
+  try {
+    return catalogCount();
+  } catch {
+    return LEVEL_COUNT;
+  }
+}
+
 const SPECIAL_TITLE = {
   1: '新手引导',
   2: '两种颜色',
@@ -239,9 +247,9 @@ function patchCatalogLevel(raw) {
   const levels = pack.levels || [];
   const id = raw.id | 0;
   const idx = levels.findIndex((lv) => lv.id === id);
-  const encoded = raw.cells && raw.cells.length && typeof raw.cells[0] !== 'object'
-    ? { ...raw, id }
-    : encodeLevel(raw);
+  const cells = raw.cells || [];
+  const looksEncoded = cells.every((c) => c == null || typeof c === 'string');
+  const encoded = looksEncoded ? { ...raw, id } : encodeLevel(raw);
   delete encoded.hand;
   if (idx >= 0) levels[idx] = encoded;
   else {
@@ -260,6 +268,36 @@ function levelTitle(id) {
 }
 
 function summarizeRaw(raw) {
+  const packed = raw.voxels || [];
+  if (packed.length >= 4) {
+    const used = new Set();
+    let maxZ = 0;
+    let filled = 0;
+    const seen = new Set();
+    for (let i = 0; i + 3 < packed.length; i += 4) {
+      used.add(packed[i + 3] | 0);
+      maxZ = Math.max(maxZ, packed[i + 2] | 0);
+      const key = `${packed[i] | 0},${packed[i + 1] | 0}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        filled += 1;
+      }
+    }
+    return {
+      id: raw.id,
+      cols: raw.cols,
+      rows: raw.rows,
+      depth: maxZ + 1,
+      filled,
+      bricks: (packed.length / 4) | 0,
+      units: (raw.units || []).length,
+      palette: typeof raw.palette === 'string' ? raw.palette : (raw.palette || []).join(''),
+      used: [...used].join(','),
+      hand: !!raw.hand || hasOverride(raw.id),
+      ironRows: raw.ironRows || [],
+      ironGaps: raw.ironGaps || [],
+    };
+  }
   const cells = raw.cells || [];
   let bricks = 0;
   let filled = 0;
@@ -295,6 +333,7 @@ module.exports = {
   CATALOG,
   OVERRIDE_DIR,
   LEVEL_COUNT,
+  levelCount,
   SPECIAL_TITLE,
   overridePath,
   loadOverride,
