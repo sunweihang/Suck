@@ -185,6 +185,8 @@ async function handleApi(req, res, url) {
       maxColors: body.maxColors,
       pad: body.pad,
       mode: body.mode,
+      sculpt: body.sculpt,
+      ignoreImage: body.ignoreImage,
       id: body.id || 0,
     });
     send(res, 200, { level: made.level, stats: made.stats });

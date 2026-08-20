@@ -37,6 +37,7 @@
         <label class="check"><input id="show-all" type="checkbox" checked /> 画出整叠</label>
         <button id="btn-flat" type="button" title="F">2D俯视</button>
         <button id="btn-cam" type="button" title="R">复位视角</button>
+        <button id="btn-preview" class="primary" type="button" title="V">游戏预览</button>
       </div>
       <div class="canvas-wrap">
         <canvas id="grid" width="720" height="640"></canvas>
@@ -53,14 +54,14 @@
       <img id="img-thumb" class="thumb hidden" alt="参考图" />
       <p id="img-name" class="hint">选一张正面图，白底最好。</p>
       <div class="grid2">
-        <label>列 <input id="img-cols" type="number" min="8" max="32" value="16" /></label>
-        <label>行 <input id="img-rows" type="number" min="8" max="32" value="22" /></label>
+        <label>列 <input id="img-cols" type="number" min="8" max="32" value="24" /></label>
+        <label>行 <input id="img-rows" type="number" min="8" max="32" value="24" /></label>
       </div>
       <div class="grid2">
-        <label>深度 <input id="img-depth" type="number" min="1" max="16" value="6" /></label>
-        <label>颜色 <input id="img-colors" type="number" min="2" max="12" value="8" /></label>
+        <label>深度 <input id="img-depth" type="number" min="1" max="16" value="8" /></label>
+        <label>颜色 <input id="img-colors" type="number" min="2" max="12" value="4" /></label>
       </div>
-      <label>背景阈值 <input id="img-threshold" type="range" min="180" max="250" value="236" /> <span id="img-threshold-lab">236</span></label>
+      <label>背景阈值 <input id="img-threshold" type="range" min="180" max="250" value="208" /> <span id="img-threshold-lab">208</span></label>
       <label>边距 <input id="img-pad" type="range" min="0" max="4" value="1" /> <span id="img-pad-lab">1</span></label>
       <label class="check"><input id="img-solid" type="checkbox" /> 实心厚度（不圆润）</label>
       <div class="row">
@@ -68,8 +69,9 @@
       </div>
       <div class="row">
         <button id="btn-img-new" type="button">另存为新关</button>
+        <button id="btn-img-preview" type="button">游戏预览</button>
       </div>
-      <p class="hint">生成后可直接用画笔、橡皮、层、颜色改。改完点保存。</p>
+      <p class="hint">生成用设计好的立体葡萄串，不按照片抠像素。列/行建议 24。</p>
       <h3>画笔</h3>
       <div id="tools" class="tools"></div>
       <h3>颜色</h3>
@@ -116,6 +118,16 @@
       <p class="hint">保存写入 <code>levels/Lxxx.json</code>，重新生成不会覆盖手改关。</p>
     </aside>
   </main>
+  <div id="preview" class="preview hidden">
+    <div class="preview-bar">
+      <div>游戏内效果 · 和战场同一套方块与镜头</div>
+      <div class="spacer"></div>
+      <button id="btn-preview-close" type="button">关闭</button>
+    </div>
+    <div class="preview-stage">
+      <canvas id="preview-grid"></canvas>
+    </div>
+  </div>
   <div id="help" class="help hidden">
     <div class="help-card">
       <h2>快捷键</h2>
@@ -129,7 +141,7 @@
         <li>右键/Alt+左键拖拽旋转　中键/空格拖拽平移　滚轮缩放</li>
         <li><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> 转视角　<kbd>+</kbd><kbd>-</kbd> 缩放</li>
         <li>右侧 <b>图片生成</b>：上传正面图 → 调列/行/深度/颜色 → 生成到本关或另存新关</li>
-        <li><kbd>F</kbd> 2D俯视　<kbd>R</kbd> 复位立体视角　<kbd>?</kbd> 开关本说明　<kbd>Esc</kbd> 关闭</li>
+        <li><kbd>F</kbd> 2D俯视　<kbd>R</kbd> 复位游戏镜头　<kbd>V</kbd> 游戏预览　<kbd>?</kbd> 开关本说明　<kbd>Esc</kbd> 关闭</li>
       </ul>
       <button id="btn-help-close" type="button">关闭</button>
     </div>

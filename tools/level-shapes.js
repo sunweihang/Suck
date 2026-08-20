@@ -186,15 +186,22 @@ function paintOrange(c, flip) {
 }
 
 function paintGrapes(c, flip) {
-  const bunches = [
-    [0.5, 0.78, 0.12],
-    [0.38, 0.6, 0.14], [0.62, 0.6, 0.14],
-    [0.28, 0.4, 0.14], [0.5, 0.42, 0.15], [0.72, 0.4, 0.14],
-    [0.38, 0.22, 0.13], [0.62, 0.22, 0.13],
+  const rows = [
+    [3, 0.68, 0.10],
+    [4, 0.52, 0.10],
+    [3, 0.36, 0.10],
+    [2, 0.22, 0.09],
+    [1, 0.10, 0.085],
   ];
-  for (const [x, y, r] of bunches) disk(c, U(x, flip), y, r, r * 0.95, '#');
-  thickLine(c, U(0.5, flip), 0.86, U(0.5, flip), 0.98, 0.025, 'T');
-  disk(c, U(0.62, flip), 0.96, 0.1, 0.06, 'L');
+  for (const [n, y, r] of rows) {
+    const span = 0.15 * (n - 1);
+    for (let i = 0; i < n; i++) {
+      disk(c, U(0.5 - span / 2 + i * 0.15, flip), y, r, r * 0.94, '#');
+    }
+  }
+  disk(c, U(0.66, flip), 0.88, 0.09, 0.04, 'L');
+  disk(c, U(0.36, flip), 0.86, 0.07, 0.035, 'L');
+  thickLine(c, U(0.50, flip), 0.68, U(0.50, flip), 0.84, 0.018, 'T');
 }
 
 function paintLemon(c, flip) {

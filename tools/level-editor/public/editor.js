@@ -51,14 +51,15 @@
     cols: 0,
     rows: 0,
     maxZ: 1,
-    yaw: 0.22,
-    pitch: 0.48,
+    yaw: 0,
+    pitch: 25 * Math.PI / 180,
     zoom: 1,
     panX: 0,
     panY: 0,
     scale: 18,
   };
   const cam = { orbit: false, pan: false, lx: 0, ly: 0 };
+  const preview = { on: false, spin: true, raf: 0, drag: false, lx: 0, ly: 0, saved: null };
   let hist = [];
   let histN = -1;
   let strokeOpen = false;
@@ -375,8 +376,8 @@
 
   function resetCam() {
     if ($('view-iso')) $('view-iso').checked = true;
-    view.yaw = 0.22;
-    view.pitch = 0.48;
+    view.yaw = 0;
+    view.pitch = 25 * Math.PI / 180;
     view.zoom = 1;
     view.panX = 0;
     view.panY = 0;
@@ -384,19 +385,108 @@
     draw();
   }
 
-  function project(wx, wy, wz) {
+  function drawCanvas() {
+    return preview.on && $('preview-grid') ? $('preview-grid') : $('grid');
+  }
+
+  function openPreview() {
+    if (!state.raw) return;
+    preview.saved = {
+      yaw: view.yaw,
+      pitch: view.pitch,
+      zoom: view.zoom,
+      panX: view.panX,
+      panY: view.panY,
+      iso: $('view-iso') ? $('view-iso').checked : true,
+    };
+    preview.on = true;
+    preview.spin = false;
+    if ($('view-iso')) $('view-iso').checked = true;
+    view.yaw = 0;
+    view.pitch = 25 * Math.PI / 180;
+    view.zoom = 1;
+    view.panX = 0;
+    view.panY = 0;
+    if ($('preview')) $('preview').classList.remove('hidden');
+    syncViewButtons();
+    requestAnimationFrame(() => draw());
+  }
+
+  function closePreview() {
+    if (!preview.on) return;
+    preview.on = false;
+    preview.drag = false;
+    preview.raf = 0;
+    if ($('preview')) $('preview').classList.add('hidden');
+    if (preview.saved) {
+      view.yaw = preview.saved.yaw;
+      view.pitch = preview.saved.pitch;
+      view.zoom = preview.saved.zoom;
+      view.panX = preview.saved.panX;
+      view.panY = preview.saved.panY;
+      if ($('view-iso')) $('view-iso').checked = preview.saved.iso;
+    }
+    syncViewButtons();
+    draw();
+  }
+
+  function bindPreview() {
+    const canvas = $('preview-grid');
+    const box = $('preview');
+    if (!canvas || !box) return;
+    if ($('btn-preview')) $('btn-preview').onclick = openPreview;
+    if ($('btn-img-preview')) $('btn-img-preview').onclick = openPreview;
+    if ($('btn-preview-close')) $('btn-preview-close').onclick = closePreview;
+    canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    canvas.addEventListener('pointerdown', (ev) => {
+      preview.drag = true;
+      preview.lx = ev.clientX;
+      preview.ly = ev.clientY;
+      canvas.classList.add('orbiting');
+      try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+    });
+    canvas.addEventListener('pointermove', (ev) => {
+      if (!preview.drag) return;
+      view.yaw += (ev.clientX - preview.lx) * 0.01;
+      view.pitch = Math.max(0.05, Math.min(1.35, view.pitch + (ev.clientY - preview.ly) * 0.008));
+      preview.lx = ev.clientX;
+      preview.ly = ev.clientY;
+      draw();
+    });
+    const endDrag = () => {
+      preview.drag = false;
+      canvas.classList.remove('orbiting');
+    };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const factor = ev.deltaY > 0 ? 0.9 : 1.11;
+      view.zoom = Math.max(0.25, Math.min(4, view.zoom * factor));
+      draw();
+    }, { passive: false });
+  }
+
+  function camXY(wx, wy, wz) {
     const cy = Math.cos(view.yaw);
     const sy = Math.sin(view.yaw);
     const cp = Math.cos(view.pitch);
     const sp = Math.sin(view.pitch);
     const x1 = wx * cy + wz * sy;
     const z1 = -wx * sy + wz * cy;
-    const y2 = wy * cp - z1 * sp;
-    const z2 = wy * sp + z1 * cp;
     return {
-      x: view.cx + view.panX + x1 * view.scale,
-      y: view.cy + view.panY - y2 * view.scale,
-      d: z2,
+      x: x1,
+      y: wy * cp - z1 * sp,
+      d: wy * sp + z1 * cp,
+    };
+  }
+
+  function project(wx, wy, wz) {
+    const p = camXY(wx, wy, wz);
+    return {
+      x: view.cx + view.panX + p.x * view.scale,
+      y: view.cy + view.panY - p.y * view.scale,
+      d: p.d,
     };
   }
 
@@ -411,10 +501,17 @@
 
   function corner(x, y, z, dx, dy, dz) {
     return project(
-      x - (view.cols - 1) / 2 + dx * 0.92,
-      y - (view.rows - 1) / 2 + dy * 0.92,
-      -(z + dz * 0.92),
+      x - (view.cols - 1) / 2 + dx,
+      y - (view.rows - 1) / 2 + dy,
+      -(z + dz),
     );
+  }
+
+  function occupied(x, y, z) {
+    const cell = cellAt(x, y);
+    if (!cell) return false;
+    if (cell.chest || cell.rescue) return z === 0;
+    return !!(cell.tokens && cell.tokens[z]);
   }
 
   function isoXY(x, y, z) {
@@ -424,15 +521,50 @@
     return corner(x, y, z, 0, 0, 0);
   }
 
+  function stageSize(canvas) {
+    const wrap = canvas.parentElement;
+    const rect = wrap.getBoundingClientRect();
+    return {
+      w: Math.max(320, Math.round(rect.width || wrap.clientWidth || 320)),
+      h: Math.max(240, Math.round(rect.height || wrap.clientHeight || 240)),
+    };
+  }
+
+  function fitCanvas(canvas, w, h) {
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+  }
+
+  function volumeCamBounds() {
+    const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+    const xs = [-0.45, view.cols - 1 + 1];
+    const ys = [-0.4, view.rows - 1 + 1];
+    const zs = [0, view.maxZ];
+    const ox = (view.cols - 1) / 2;
+    const oy = (view.rows - 1) / 2;
+    for (const x of xs) {
+      for (const y of ys) {
+        for (const z of zs) {
+          const p = camXY(x - ox, y - oy, -z);
+          b.minX = Math.min(b.minX, p.x);
+          b.maxX = Math.max(b.maxX, p.x);
+          b.minY = Math.min(b.minY, p.y);
+          b.maxY = Math.max(b.maxY, p.y);
+        }
+      }
+    }
+    return b;
+  }
+
   function layoutView() {
-    const canvas = $('grid');
+    const canvas = drawCanvas();
     const raw = state.raw;
     const cols = raw.cols;
     const rows = raw.rows;
-    const wrap = canvas.parentElement;
-    const maxW = Math.max(320, wrap.clientWidth);
-    const maxH = Math.max(240, wrap.clientHeight);
-    const iso = $('view-iso') ? $('view-iso').checked : true;
+    const { w: maxW, h: maxH } = stageSize(canvas);
+    const iso = preview.on || ($('view-iso') ? $('view-iso').checked : true);
     const depthN = Math.max(1, maxDepth());
     view.cols = cols;
     view.rows = rows;
@@ -446,27 +578,37 @@
       view.ch = cell;
       view.ox = padL;
       view.oy = 0;
-      canvas.width = maxW;
-      canvas.height = maxH;
+      fitCanvas(canvas, maxW, maxH);
       return;
     }
     view.iso = true;
-    canvas.width = maxW;
-    canvas.height = maxH;
-    view.cx = maxW * 0.5;
-    view.cy = maxH * 0.52;
-    const fit = Math.min(maxW / (cols + depthN * 0.6), maxH / (rows + depthN * 0.45));
-    view.scale = Math.max(8, fit * 0.82 * view.zoom);
+    fitCanvas(canvas, maxW, maxH);
+    const b = volumeCamBounds();
+    const spanX = Math.max(1e-3, b.maxX - b.minX);
+    const spanY = Math.max(1e-3, b.maxY - b.minY);
+    const padX = Math.max(28, maxW * 0.05);
+    const padY = Math.max(28, maxH * 0.07);
+    const fit = Math.min((maxW - padX * 2) / spanX, (maxH - padY * 2) / spanY);
+    view.scale = Math.max(8, fit * view.zoom);
+    view.cx = maxW * 0.5 - ((b.minX + b.maxX) / 2) * view.scale;
+    view.cy = maxH * 0.5 + ((b.minY + b.maxY) / 2) * view.scale;
   }
 
   const FACES = [
-    { n: [0, 0, 1], mul: 1, pts: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] },
-    { n: [0, 0, -1], mul: 0.55, pts: [[0, 0, 1], [0, 1, 1], [1, 1, 1], [1, 0, 1]] },
-    { n: [0, 1, 0], mul: 1.12, pts: [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]] },
-    { n: [0, -1, 0], mul: 0.42, pts: [[0, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0]] },
-    { n: [1, 0, 0], mul: 0.68, pts: [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]] },
-    { n: [-1, 0, 0], mul: 0.62, pts: [[0, 0, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1]] },
+    { n: [0, 0, 1], mul: 1, nb: [0, 0, -1], pts: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] },
+    { n: [0, 0, -1], mul: 0.55, nb: [0, 0, 1], pts: [[0, 0, 1], [0, 1, 1], [1, 1, 1], [1, 0, 1]] },
+    { n: [0, 1, 0], mul: 1.12, nb: [0, 1, 0], pts: [[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]] },
+    { n: [0, -1, 0], mul: 0.42, nb: [0, -1, 0], pts: [[0, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0]] },
+    { n: [1, 0, 0], mul: 0.68, nb: [1, 0, 0], pts: [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]] },
+    { n: [-1, 0, 0], mul: 0.62, nb: [-1, 0, 0], pts: [[0, 0, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1]] },
   ];
+  const LIGHT = [0.32, 0.78, 0.54];
+  const LIGHT_LEN = Math.hypot(LIGHT[0], LIGHT[1], LIGHT[2]);
+
+  function faceLit(n) {
+    const d = (n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / LIGHT_LEN;
+    return 0.4 + 0.6 * Math.max(0, d);
+  }
 
   function fillPoly(ctx, pts) {
     ctx.beginPath();
@@ -476,24 +618,14 @@
     ctx.fill();
   }
 
-  function drawCube(ctx, x, y, z, token, alpha, highlight) {
-    ctx.globalAlpha = alpha;
+  function drawCube(ctx, x, y, z, token, _alpha, highlight) {
     for (const face of FACES) {
+      if (occupied(x + face.nb[0], y + face.nb[1], z + face.nb[2])) continue;
       if (camZ(face.n[0], face.n[1], face.n[2]) <= 0.02) continue;
       const pts = face.pts.map(([dx, dy, dz]) => corner(x, y, z, dx, dy, dz));
-      ctx.fillStyle = shade(token, (highlight ? 1 : 0.82) * face.mul);
+      ctx.fillStyle = shade(token, faceLit(face.n) * (highlight ? 1.06 : 1));
       fillPoly(ctx, pts);
     }
-    if (highlight) {
-      const front = FACES[0].pts.map(([dx, dy, dz]) => corner(x, y, z, dx, dy, dz));
-      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-      ctx.beginPath();
-      ctx.moveTo(front[0].x, front[0].y);
-      for (let i = 1; i < front.length; i++) ctx.lineTo(front[i].x, front[i].y);
-      ctx.closePath();
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
   }
 
   function drawMarks(ctx, x, y, z, cell) {
@@ -521,12 +653,12 @@
   }
 
   function draw() {
-    const canvas = $('grid');
+    const canvas = drawCanvas();
     const raw = state.raw;
     if (!raw) return;
     layoutView();
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#111318';
+    ctx.fillStyle = view.iso ? '#1a1524' : '#111318';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const irons = new Set(parseNums($('iron').value));
     const gaps = new Set(parseNums($('gaps').value));
@@ -579,13 +711,7 @@
       }
       jobs.sort((a, b) => a.d - b.d);
       for (const job of jobs) {
-        if (job.empty) {
-          if (camZ(0, 0, 1) <= 0.02) continue;
-          const pts = FACES[0].pts.map(([dx, dy, dz]) => corner(job.x, job.y, 0, dx, dy, dz));
-          ctx.fillStyle = '#1a1d24';
-          fillPoly(ctx, pts);
-          continue;
-        }
+        if (job.empty) continue;
         if (job.special) {
           const tok = job.cell.chest ? 'd' : job.cell.rescue;
           drawCube(ctx, job.x, job.y, 0, tok, 1, zView === 0);
@@ -595,8 +721,8 @@
           ctx.fillText(job.cell.chest ? '$' : '@', p.x, p.y);
           continue;
         }
-        const highlight = job.z === zView;
-        drawCube(ctx, job.x, job.y, job.z, job.token, highlight || !showAll ? 1 : 0.55, highlight);
+        const highlight = !preview.on && job.z === zView;
+        drawCube(ctx, job.x, job.y, job.z, job.token, 1, highlight);
         if (highlight) drawMarks(ctx, job.x, job.y, job.z, job.cell);
       }
       for (const y of irons) {
@@ -612,16 +738,16 @@
       }
     }
 
-    ctx.font = '11px sans-serif';
-    for (let y = 0; y < rows; y++) {
-      const p = view.iso ? corner(0, y, 0, -0.35, 0.15, 0) : { x: 6, y: (rows - 1 - y) * view.ch + view.ch - 3 };
-      ctx.fillStyle = irons.has(y) ? '#e6b84d' : '#8b93a1';
-      ctx.fillText(String(y), view.iso ? p.x : 6, view.iso ? p.y : p.y);
-    }
-    for (let x = 0; x < cols; x++) {
-      const p = view.iso ? corner(x, 0, 0, 0.15, -0.25, 0) : { x: view.ox + x * view.cw + 2, y: canvas.height - 6 };
-      ctx.fillStyle = gaps.has(x) ? '#e6b84d' : '#8b93a1';
-      ctx.fillText(String(x), p.x, view.iso ? p.y : canvas.height - 6);
+    if (!view.iso) {
+      ctx.font = '11px sans-serif';
+      for (let y = 0; y < rows; y++) {
+        ctx.fillStyle = irons.has(y) ? '#e6b84d' : '#8b93a1';
+        ctx.fillText(String(y), 6, (rows - 1 - y) * view.ch + view.ch - 3);
+      }
+      for (let x = 0; x < cols; x++) {
+        ctx.fillStyle = gaps.has(x) ? '#e6b84d' : '#8b93a1';
+        ctx.fillText(String(x), view.ox + x * view.cw + 2, canvas.height - 6);
+      }
     }
     updateStats();
   }
@@ -1135,28 +1261,37 @@
 
   function imageOpts() {
     return {
-      cols: Number($('img-cols')?.value) || 16,
-      rows: Number($('img-rows')?.value) || 22,
+      cols: Number($('img-cols')?.value) || 24,
+      rows: Number($('img-rows')?.value) || 24,
       depth: Number($('img-depth')?.value) || 6,
-      maxColors: Number($('img-colors')?.value) || 8,
-      threshold: Number($('img-threshold')?.value) || 236,
+      maxColors: Number($('img-colors')?.value) || 4,
+      threshold: Number($('img-threshold')?.value) || 208,
       pad: Number($('img-pad')?.value) || 1,
       mode: $('img-solid')?.checked ? 'solid' : 'round',
     };
   }
 
   async function generateFromImage(asNew) {
-    if (!imgState.rgba) throw new Error('先上传一张图片');
     const opts = imageOpts();
+    if (opts.cols < 20) {
+      opts.cols = 24;
+      if ($('img-cols')) $('img-cols').value = '24';
+    }
+    if (opts.rows < 20) {
+      opts.rows = 24;
+      if ($('img-rows')) $('img-rows').value = '24';
+    }
     setSim('正在从图片生成方块…');
     const data = await api('/api/from-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...opts,
-        width: imgState.width,
-        height: imgState.height,
-        rgba: rgbaToB64(imgState.rgba),
+        sculpt: 'grapes',
+        ignoreImage: true,
+        width: imgState.width || 32,
+        height: imgState.height || 32,
+        rgba: imgState.rgba ? rgbaToB64(imgState.rgba) : '',
         id: asNew ? 0 : state.id,
       }),
     });
@@ -1175,16 +1310,20 @@
       history.replaceState(null, '', `?id=${saved.id}`);
       setDirty(false);
       applyRaw(saved.level, '图片生成', 'voxel');
+      if ($('view-iso')) $('view-iso').checked = true;
       resetHist();
       markBaseline();
       setSim(`已新建第 ${saved.id} 关 · ${data.stats.voxels} 块 · ${data.stats.colors} 色`, true);
+      openPreview();
       return;
     }
     pushHist();
     level.id = state.id;
     applyRaw(level, '图片生成', 'voxel');
+    if ($('view-iso')) $('view-iso').checked = true;
     setDirty(true);
-    setSim(`已生成到本关 · ${data.stats.voxels} 块 · ${data.stats.colors} 色，可继续画改后保存`, true);
+    setSim(`已生成到本关 · ${data.stats.voxels} 块 · ${data.stats.colors} 色。预览为游戏内效果`, true);
+    openPreview();
   }
 
   function bindImage() {
@@ -1211,6 +1350,12 @@
         imgState.rgba = decoded.rgba;
         imgState.width = decoded.width;
         imgState.height = decoded.height;
+        if ($('img-cols') && $('img-rows')) {
+          const cols = Math.max(24, Number($('img-cols').value) || 24);
+          const rows = Math.max(20, Math.min(32, Math.round(cols * decoded.height / decoded.width)));
+          $('img-cols').value = String(cols);
+          $('img-rows').value = String(rows);
+        }
         dropThumbUrl();
         thumbUrl = URL.createObjectURL(picked);
         thumb.src = thumbUrl;
@@ -1319,6 +1464,7 @@
     if ($('btn-revert')) $('btn-revert').onclick = revertAll;
     if ($('btn-flat')) $('btn-flat').onclick = setFlatView;
     if ($('btn-cam')) $('btn-cam').onclick = resetCam;
+    bindPreview();
     syncViewButtons();
     if ($('btn-help')) $('btn-help').onclick = () => toggleHelp();
     if ($('btn-help-close')) $('btn-help-close').onclick = () => toggleHelp(false);
@@ -1327,7 +1473,21 @@
         if (ev.target === $('help')) toggleHelp(false);
       };
     }
-    window.addEventListener('resize', draw);
+    const requestDraw = () => {
+      if (requestDraw.pending) return;
+      requestDraw.pending = true;
+      requestAnimationFrame(() => {
+        requestDraw.pending = false;
+        draw();
+      });
+    };
+    window.addEventListener('resize', requestDraw);
+    document.addEventListener('fullscreenchange', requestDraw);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', requestDraw);
+    const wrap = $('grid') && $('grid').parentElement;
+    if (wrap && typeof ResizeObserver === 'function') {
+      new ResizeObserver(requestDraw).observe(wrap);
+    }
     window.addEventListener('keydown', (ev) => {
       const key = ev.key;
       const cmd = ev.ctrlKey || ev.metaKey;
@@ -1359,7 +1519,17 @@
         return;
       }
       if (key === 'Escape') {
+        if (preview.on) {
+          closePreview();
+          return;
+        }
         toggleHelp(false);
+        return;
+      }
+      if (key === 'v' || key === 'V') {
+        ev.preventDefault();
+        if (preview.on) closePreview();
+        else openPreview();
         return;
       }
       const tools = {
