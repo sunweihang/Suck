@@ -545,36 +545,95 @@ function looksLikeGrapeBunch(peaks) {
   return purple / total >= 0.32 && (green > 0 || purple / total >= 0.5);
 }
 
-function grapeBunchBalls(cols, rows) {
+function grapeBerryLayout(cols, rows, depth) {
   const cx = (cols - 1) * 0.5;
-  const top = rows * 0.68;
-  const bot = rows * 0.08;
-  const r = Math.min(cols, rows) * 0.108;
-  const gap = r * 1.42;
-  const balls = [];
-  const pushRow = (n, t, scale, hex) => {
-    const y = bot + t * (top - bot);
-    const count = hex ? Math.max(1, n - 1) : n;
-    const span = Math.max(0, count - 1) * gap;
+  const r = Math.min(cols, rows) * 0.128;
+  const gap = r * 1.84;
+  const top = rows * 0.62;
+  const bot = rows * 0.11;
+  const cz = (depth - 1) * 0.55;
+  const skins = ['v', 'v', 'p', 'v', 'v', 'v', 'r', 'v', 'v', 'p', 'v', 'v', 'v'];
+  const inners = ['p', 'k', 'r', 'a', 'p', 'k'];
+  const rowsDef = [
+    { n: 3, t: 1.00 },
+    { n: 4, t: 0.72 },
+    { n: 3, t: 0.44 },
+    { n: 2, t: 0.18 },
+    { n: 1, t: 0.00 },
+  ];
+  const berries = [];
+  let i = 0;
+  for (const row of rowsDef) {
+    const y = bot + row.t * (top - bot);
+    const span = Math.max(0, row.n - 1) * gap;
     const x0 = cx - span / 2;
-    for (let i = 0; i < count; i++) {
-      const edge = i === 0 || i === count - 1;
-      balls.push({
-        x: x0 + i * gap + (edge && !hex ? (i === 0 ? -0.18 : 0.18) * r : 0),
-        y: y + ((i & 1) ? 0.2 : -0.12) * r * 0.35,
-        r: r * scale,
+    for (let k = 0; k < row.n; k++, i++) {
+      berries.push({
+        x: x0 + k * gap,
+        y: y + ((k & 1) ? 0.12 : -0.08) * r * 0.35,
+        z: cz + ((k + row.n) % 3 - 1) * r * 0.18,
+        r: r * (0.97 + (k % 2) * 0.05),
+        skin: skins[i % skins.length],
+        inner: inners[i % inners.length],
       });
     }
-  };
-  pushRow(3, 0.90, 1.04, false);
-  pushRow(4, 0.66, 1.04, false);
-  pushRow(3, 0.40, 1.00, false);
-  pushRow(2, 0.18, 0.94, false);
-  pushRow(1, 0.00, 0.88, false);
-  pushRow(3, 0.78, 0.82, true);
-  pushRow(4, 0.53, 0.82, true);
-  pushRow(3, 0.29, 0.78, true);
-  return balls;
+  }
+  return berries;
+}
+
+function grapeBunchBalls(cols, rows) {
+  return grapeBerryLayout(cols, rows, 8).map((s) => ({ x: s.x, y: s.y, r: s.r }));
+}
+
+function stampGrapeBerries(berries, cols, rows, depth) {
+  const stacks = Array.from({ length: cols * rows }, () => new Array(depth).fill(null));
+  for (const b of berries) {
+    const rad = Math.max(1.35, b.r);
+    const r2 = rad * rad;
+    const x0 = Math.max(0, Math.floor(b.x - rad));
+    const x1 = Math.min(cols - 1, Math.ceil(b.x + rad));
+    const y0 = Math.max(0, Math.floor(b.y - rad));
+    const y1 = Math.min(rows - 1, Math.ceil(b.y + rad));
+    const z0 = Math.max(0, Math.floor(b.z - rad));
+    const z1 = Math.min(depth - 1, Math.ceil(b.z + rad));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const cell = stacks[y * cols + x];
+        for (let z = z0; z <= z1; z++) {
+          const dx = x - b.x;
+          const dy = y - b.y;
+          const dz = z - b.z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > r2) continue;
+          const prev = cell[z];
+          if (prev && d2 >= prev.d2) continue;
+          const t = Math.sqrt(d2) / rad;
+          let token = b.skin;
+          if (t < 0.30) token = 'y';
+          else if (t < 0.58) token = b.inner;
+          const hx = dx / rad;
+          const hy = dy / rad;
+          const hz = dz / rad;
+          if (t > 0.70 && hx < -0.12 && hy > 0.18 && hz > 0.12) token = 'a';
+          cell[z] = { d2, token, color: TOKEN_VOXEL_ID[token] };
+        }
+      }
+    }
+  }
+  const voxels = [];
+  const cells = [];
+  for (let i = 0; i < stacks.length; i++) {
+    const raw = stacks[i].filter(Boolean);
+    if (!raw.length) {
+      cells.push(null);
+      continue;
+    }
+    cells.push(raw.map((v) => v.token).join(''));
+    const x = i % cols;
+    const y = (i / cols) | 0;
+    for (let z = 0; z < raw.length; z++) voxels.push({ x, y, z, color: raw[z].color });
+  }
+  return { voxels, cells };
 }
 
 function grapeCenters(cols, rows) {
@@ -640,12 +699,15 @@ function paintGrapeStemLeaf(built, cols, rows) {
   const leafId = TOKEN_VOXEL_ID.g;
   const stemId = TOKEN_VOXEL_ID.d;
   const stemX = (cols - 1) * 0.5;
-  for (let y = Math.round(rows * 0.68); y <= Math.round(rows * 0.84); y++) {
-    setStack(built, cols, rows, stemX, y, 'd', stemId, 2);
+  for (let y = Math.round(rows * 0.68); y <= Math.round(rows * 0.86); y++) {
+    setStack(built, cols, rows, stemX, y, 'd', stemId, 3);
   }
+  setStack(built, cols, rows, stemX - 1, rows * 0.80, 'd', stemId, 2);
+  setStack(built, cols, rows, stemX + 1, rows * 0.82, 'd', stemId, 2);
   const leaves = [
-    { cx: cols * 0.66, cy: rows * 0.90, rx: cols * 0.13, ry: rows * 0.055, rot: 0.55 },
-    { cx: cols * 0.36, cy: rows * 0.88, rx: cols * 0.10, ry: rows * 0.045, rot: -0.6 },
+    { cx: cols * 0.68, cy: rows * 0.91, rx: cols * 0.14, ry: rows * 0.058, rot: 0.52 },
+    { cx: cols * 0.34, cy: rows * 0.89, rx: cols * 0.11, ry: rows * 0.048, rot: -0.58 },
+    { cx: cols * 0.56, cy: rows * 0.94, rx: cols * 0.08, ry: rows * 0.038, rot: 0.15 },
   ];
   for (const L of leaves) {
     const c = Math.cos(L.rot);
@@ -664,35 +726,45 @@ function paintGrapeStemLeaf(built, cols, rows) {
   }
 }
 
-function fillGrapeInterior(built, cols, rows, depth) {
-  const color = TOKEN_VOXEL_ID.v;
-  let again = true;
-  while (again) {
-    again = false;
-    for (let y = 1; y < rows - 1; y++) {
-      for (let x = 1; x < cols - 1; x++) {
-        const i = y * cols + x;
-        if (built.cells[i]) continue;
-        let n = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (!dx && !dy) continue;
-            const t = built.cells[(y + dy) * cols + (x + dx)];
-            if (t && t[0] === 'v') n++;
-          }
-        }
-        if (n < 6) continue;
-        setStack(built, cols, rows, x, y, 'v', color, Math.max(3, Math.round(depth * 0.55)));
-        again = true;
-      }
+function wrapGrapeCores(built, cols, rows) {
+  const core = [
+    { token: 'y', color: TOKEN_VOXEL_ID.y },
+    { token: 'c', color: TOKEN_VOXEL_ID.c },
+  ];
+  const mid = [
+    { token: 'p', color: TOKEN_VOXEL_ID.p },
+    { token: 'k', color: TOKEN_VOXEL_ID.k },
+    { token: 'r', color: TOKEN_VOXEL_ID.r },
+    { token: 'a', color: TOKEN_VOXEL_ID.a },
+  ];
+  for (let i = 0; i < built.cells.length; i++) {
+    const cell = built.cells[i];
+    if (!cell || cell.length < 5) continue;
+    if (cell[0] === 'g' || cell[0] === 'd') continue;
+    const x = i % cols;
+    const y = (i / cols) | 0;
+    const n = cell.length;
+    const coreN = Math.max(1, Math.round(n * 0.30));
+    const midN = Math.max(1, Math.round(n * 0.34));
+    const pickC = core[(x + 3 * y) % core.length];
+    const pickM = mid[(x * 2 + y) % mid.length];
+    const tokens = cell.split('');
+    built.voxels = built.voxels.filter((v) => !(v.x === x && v.y === y));
+    for (let z = 0; z < n; z++) {
+      let token = tokens[z];
+      if (z < coreN) token = pickC.token;
+      else if (z < coreN + midN) token = pickM.token;
+      tokens[z] = token;
+      built.voxels.push({ x, y, z, color: TOKEN_VOXEL_ID[token] ?? TOKEN_VOXEL_ID.v });
     }
+    built.cells[i] = tokens.join('');
   }
 }
 
 function designGrapeSculpture(cols, rows, depth) {
-  const d = Math.max(8, depth);
-  const built = stampBalls(grapeBunchBalls(cols, rows), cols, rows, d, TOKEN_VOXEL_ID.v, 'v');
-  fillGrapeInterior(built, cols, rows, d);
+  const d = Math.max(12, depth);
+  const built = stampSpheresColored(grapeBunchSpheres(cols, rows, d), cols, rows, d);
+  wrapGrapeCores(built, cols, rows);
   paintGrapeStemLeaf(built, cols, rows);
   return built;
 }
@@ -702,7 +774,7 @@ function generateFromRgba(rgbaIn, width, height, opts = {}) {
   const rows = clamp(opts.rows, 8, 32, 24);
   const depth = clamp(opts.depth, 1, 16, 8);
   if (opts.sculpt === 'grapes' || opts.ignoreImage) {
-    const grapeDepth = Math.max(8, depth);
+    const grapeDepth = Math.max(12, depth);
     const built = designGrapeSculpture(cols, rows, grapeDepth);
     const counts = {};
     for (const v of built.voxels) counts[v.color] = (counts[v.color] || 0) + 1;
