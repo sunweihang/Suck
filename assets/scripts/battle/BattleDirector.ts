@@ -135,6 +135,9 @@ const HOLD_SIDES = [[-1, 0], [1, 0], [0, 1]] as const;
 const MESH_WARM_PER_FRAME = 6;
 /** Cap the walk too, or a mostly-warmed backlog costs a long scan for nothing. */
 const MESH_WARM_SCAN = 96;
+const EMPTY_BLOCKS: readonly BlockCell[] = [];
+const VIS_SKIP_SPIN = 5;
+const VIS_SKIP_REST = 8;
 
 const COLOR_WALK = [
   [-1, 0, 0],
@@ -253,6 +256,10 @@ export class BattleDirector extends Component {
   private readonly _at = new Map<number, BlockCell>();
   private readonly _vis = new Set<BlockCell>();
   private readonly _visList: BlockCell[] = [];
+  private readonly _visByRgb = new Map<number, BlockCell[]>();
+  private readonly _visByColor = new Map<number, BlockCell[]>();
+  private readonly _visScratch: BlockCell[] = [];
+  private readonly _visPatch: BlockCell[] = [];
   private _visKey = 0x7fffffff;
   private _visGen = 0;
   private _needHoldRefresh = false;
@@ -466,6 +473,7 @@ export class BattleDirector extends Component {
       this._unstickCombat();
     }
     this._tickShots(dt);
+    BlockCell.tickMotion(dt);
     this._fireUnits(dt);
     this._tickField(dt);
     tickHiddenPattern(dt);
@@ -1004,13 +1012,76 @@ export class BattleDirector extends Component {
 
   private _visHitCount(u: UnitActor): number {
     let n = 0;
-    const list = this._visList;
+    const list = this._visHits(u);
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       if (!b.suckable || !this._sameColor(b, u) || this._plateBlocks(b.row, b.col)) continue;
       n += 1;
     }
     return n;
+  }
+
+  private _visRgbKey(colorId: number, voxelId: number): number {
+    const id = voxelId >= 0 ? voxelId : this._voxelOfColorId(colorId);
+    if (id >= 0) {
+      const rgb = rgbOfVoxel(id);
+      return (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+    }
+    return (colorId + 0x1000000) | 0;
+  }
+
+  private _visHits(u: UnitActor): readonly BlockCell[] {
+    const byRgb = this._visByRgb.get(this._visRgbKey(u.colorId, this._unitVoxel(u)));
+    const byColor = this._visByColor.get(u.colorId);
+    if (byRgb?.length && byColor?.length && byRgb !== byColor) {
+      const scratch = this._visScratch;
+      scratch.length = 0;
+      for (let i = 0; i < byRgb.length; i++) scratch.push(byRgb[i]);
+      for (let i = 0; i < byColor.length; i++) scratch.push(byColor[i]);
+      return scratch;
+    }
+    if (byRgb?.length) return byRgb;
+    if (byColor?.length) return byColor;
+    return EMPTY_BLOCKS;
+  }
+
+  private _colorBucketOf(block: BlockCell): BlockCell[] {
+    let list = this._visByColor.get(block.colorId);
+    if (!list) {
+      list = [];
+      this._visByColor.set(block.colorId, list);
+    }
+    return list;
+  }
+
+  private _rgbBucketOf(block: BlockCell): BlockCell[] {
+    const key = this._visRgbKey(block.colorId, block.voxelId);
+    let list = this._visByRgb.get(key);
+    if (!list) {
+      list = [];
+      this._visByRgb.set(key, list);
+    }
+    return list;
+  }
+
+  private _addVis(block: BlockCell): void {
+    if (this._vis.has(block)) return;
+    this._vis.add(block);
+    this._visList.push(block);
+    this._rgbBucketOf(block).push(block);
+    this._colorBucketOf(block).push(block);
+  }
+
+  private _removeVis(block: BlockCell): void {
+    if (!this._vis.delete(block)) return;
+    pullFrom(this._visList, block);
+    pullFrom(this._rgbBucketOf(block), block);
+    pullFrom(this._colorBucketOf(block), block);
+  }
+
+  private _queueVisPatch(block: BlockCell): void {
+    if (this._visDirty) return;
+    this._visPatch.push(block);
   }
 
   private _guideRearUnit(): UnitActor | null {
@@ -1116,11 +1187,10 @@ export class BattleDirector extends Component {
     pullFrom(this._byCol[block.col], block);
     pullFrom(this._byRow[block.row], block);
     this._at.delete(cellKey(block.col, block.row, block.layer));
-    this._vis.delete(block);
-    pullFrom(this._visList, block);
+    this._removeVis(block);
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
-    this._visDirty = true;
+    this._queueVisPatch(block);
     popBrickSkin(block);
     this._revealAround(block);
     dirtyBrickSkin();
@@ -1861,7 +1931,7 @@ export class BattleDirector extends Component {
   }
 
   private _bestBlock(u: UnitActor): BlockCell | null {
-    if (u.ghost || this._visDirty) this._visibleSet(u.ghost);
+    if (u.ghost || this._visDirty || this._visPatch.length) this._visibleSet(u.ghost);
     if (this._aimVisKey !== this._visKey) {
       this._aimBest.clear();
       this._aimVisKey = this._visKey;
@@ -1876,13 +1946,14 @@ export class BattleDirector extends Component {
         return cached;
       }
     }
-    const best = this._pickTarget(u, this._visList);
+    const best = this._pickTarget(u);
     if (best) this._aimBest.set(u, best);
     else this._aimBest.delete(u);
     return best;
   }
 
-  private _pickTarget(u: UnitActor, list: readonly BlockCell[]): BlockCell | null {
+  private _pickTarget(u: UnitActor): BlockCell | null {
+    const list = this._visHits(u);
     let best: BlockCell | null = null;
     let bestScore = -1e9;
     u.node.getWorldPosition(_tmp);
@@ -1964,6 +2035,8 @@ export class BattleDirector extends Component {
   private _bumpVis(): void {
     this._visGen = (this._visGen + 1) & 0xffff;
     this._visKey = 0x7fffffff;
+    this._visDirty = true;
+    this._visPatch.length = 0;
   }
 
   private _visBucket(): number {
@@ -1986,20 +2059,32 @@ export class BattleDirector extends Component {
 
   private _visibleSet(ghost: boolean): Set<BlockCell> {
     const key = this._visBucket() ^ (ghost ? 0x20000000 : 0) ^ (this._visGen << 1);
+    if (this._visPatch.length) this._patchCamVis(ghost);
     if (key === this._visKey && !this._visDirty && this._visList.length > 0) return this._vis;
     if (!this._visDirty && this._visList.length > 0) {
       // A drag spin changes the bucket every frame; aim may lag a couple of
       // frames behind the wall without the player noticing.
       this._visSkip += 1;
-      if (this._visSkip < (this._spinning ? 3 : 8)) return this._vis;
+      if (this._visSkip < (this._spinning ? VIS_SKIP_SPIN : VIS_SKIP_REST)) return this._vis;
       this._visSkip = 0;
     } else {
       this._visSkip = 0;
     }
     this._visDirty = false;
+    this._visPatch.length = 0;
     this._visKey = key;
     this._rebuildCamVis(ghost);
     return this._vis;
+  }
+
+  private _syncCamLocal(): void {
+    const cam = this._cam;
+    if (cam?.node?.isValid) cam.node.getWorldPosition(_camP);
+    else _camP.set(0, 8, 20);
+    worldToRest(_camP, _camP);
+    const wall = this._wall;
+    if (wall?.isValid) wall.inverseTransformPoint(_camLocal, _camP);
+    else _camLocal.set(_camP);
   }
 
   /**
@@ -2009,22 +2094,77 @@ export class BattleDirector extends Component {
   private _rebuildCamVis(ghost: boolean): void {
     this._vis.clear();
     this._visList.length = 0;
-    const cam = this._cam;
-    if (cam?.node?.isValid) cam.node.getWorldPosition(_camP);
-    else _camP.set(0, 8, 20);
-    worldToRest(_camP, _camP);
-    const wall = this._wall;
-    if (wall?.isValid) wall.inverseTransformPoint(_camLocal, _camP);
-    else _camLocal.set(_camP);
+    this._visByRgb.forEach((list) => {
+      list.length = 0;
+    });
+    this._visByColor.forEach((list) => {
+      list.length = 0;
+    });
+    this._syncCamLocal();
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       // Boxed-in bricks fail _camExposed by definition; skipping them here
       // keeps the six face probes off the inside of solid sculptures.
       if (b.buried || !b.suckable || this._plateBlocks(b.row, b.col)) continue;
-      if (this._camExposed(b, ghost)) {
-        this._vis.add(b);
-        this._visList.push(b);
+      if (this._camExposed(b, ghost)) this._addVis(b);
+    }
+  }
+
+  private _patchCamVis(ghost: boolean): void {
+    const seeds = this._visPatch;
+    if (!seeds.length) return;
+    this._syncCamLocal();
+    const seen = new Set<BlockCell>();
+    const consider = (b: BlockCell | null): void => {
+      if (!b?.alive || seen.has(b)) return;
+      seen.add(b);
+      if (b.buried || !b.suckable || this._plateBlocks(b.row, b.col)) {
+        this._removeVis(b);
+        return;
       }
+      if (this._camExposed(b, ghost)) this._addVis(b);
+      else this._removeVis(b);
+    };
+    for (let i = 0; i < seeds.length; i++) {
+      const block = seeds[i];
+      this._removeVis(block);
+      for (let k = 0; k < COLOR_WALK.length; k++) {
+        const d = COLOR_WALK[k];
+        consider(this._aliveAt(block.col + d[0], block.row + d[1], block.layer + d[2]));
+      }
+      this._walkVisBehind(block, consider);
+    }
+    seeds.length = 0;
+    this._aimBest.clear();
+  }
+
+  /** Cells that sat behind a removed brick along the last camera axis. */
+  private _walkVisBehind(block: BlockCell, consider: (b: BlockCell | null) => void): void {
+    const p = block.node?.isValid ? block.node.position : _tmp.set(0, 0, 0);
+    const gx = _camLocal.x - p.x;
+    const gy = _camLocal.y - p.y;
+    const gz = -(_camLocal.z - p.z);
+    const ax = Math.abs(gx);
+    const ay = Math.abs(gy);
+    const az = Math.abs(gz);
+    let dc = 0;
+    let dr = 0;
+    let dl = 0;
+    if (ax >= ay && ax >= az) dc = gx > 0 ? -1 : 1;
+    else if (ay >= az) dr = gy > 0 ? -1 : 1;
+    else dl = gz > 0 ? -1 : 1;
+    let c = block.col + dc;
+    let r = block.row + dr;
+    let l = block.layer + dl;
+    const maxC = this._cols;
+    const maxR = this._byRow.length;
+    const maxL = PLAY.wallDepth + 2;
+    for (let s = 0; s < 32; s++) {
+      if (c < 0 || r < 0 || l < 0 || c >= maxC || r >= maxR || l >= maxL) return;
+      consider(this._aliveAt(c, r, l));
+      c += dc;
+      r += dr;
+      l += dl;
     }
   }
 
@@ -2189,9 +2329,31 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.alive) continue;
-      setBrickDrawn(b, !this._isBuried(b));
+      this._touchBuried(b);
       if (b.meshless) this._meshless.push(b);
     }
+    this._meshless.sort((a, b) => a.layer - b.layer || a.row - b.row);
+    dirtyBrickSkin();
+  }
+
+  private _touchBuried(block: BlockCell): void {
+    setBrickDrawn(block, !this._isBuried(block));
+  }
+
+  private _hideBuriedInCols(cols: ReadonlySet<number>): void {
+    const seen = new Set<BlockCell>();
+    cols.forEach((col) => {
+      for (let c = col - 1; c <= col + 1; c++) {
+        const list = this._byCol[c];
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const b = list[i];
+          if (seen.has(b)) continue;
+          seen.add(b);
+          this._touchBuried(b);
+        }
+      }
+    });
     dirtyBrickSkin();
   }
 
@@ -2558,10 +2720,10 @@ export class BattleDirector extends Component {
       list[i].row = i;
       list[i].beginMove(list[i].node.position.x, PLAY.wallBaseY + i * PLAY.blockStep, 0.38);
     }
-    this._reindexCols();
+    this._reindexCols(new Set([col]));
   }
 
-  private _reindexCols(): void {
+  private _reindexSpatial(): void {
     for (let i = 0; i < this._byCol.length; i++) this._byCol[i].length = 0;
     for (let i = 0; i < this._byRow.length; i++) this._byRow[i].length = 0;
     this._at.clear();
@@ -2572,7 +2734,12 @@ export class BattleDirector extends Component {
       this._rowList(b.row).push(b);
       this._at.set(cellKey(b.col, b.row, b.layer), b);
     }
-    this._hideBuried();
+  }
+
+  private _reindexCols(dirtyCols?: ReadonlySet<number>): void {
+    this._reindexSpatial();
+    if (dirtyCols && dirtyCols.size) this._hideBuriedInCols(dirtyCols);
+    else this._hideBuried();
     this._bumpVis();
     this._flushSkin();
   }
@@ -2854,17 +3021,18 @@ export class BattleDirector extends Component {
     const shift = Math.round(offset / PLAY.blockStep);
     if (shift === this._raftShift) return;
     this._raftShift = shift;
-    let moved = false;
+    const dirty = new Set<number>();
     const last = this._cols - 1;
     for (let i = 0; i < this._raftBricks.length; i++) {
       const b = this._raftBricks[i];
       if (!b.raft || !b.alive || b.inFlight) continue;
       const col = Math.max(0, Math.min(last, b.raftHomeCol + shift));
       if (col === b.col) continue;
+      dirty.add(b.col);
+      dirty.add(col);
       b.col = col;
-      moved = true;
     }
-    if (moved) this._reindexCols();
+    if (dirty.size) this._reindexCols(dirty);
   }
 
   private _tickRaft(dt: number): void {

@@ -616,6 +616,7 @@ export class InkShot extends Component {
   private readonly _sparks: Node[] = [];
   private _token = '';
   private _rgb: readonly [number, number, number] | null = null;
+  private _paintKey = '';
   private readonly _from = new Vec3();
   private readonly _to = new Vec3();
   private _t = 0;
@@ -766,6 +767,9 @@ export class InkShot extends Component {
   }
 
   private _paint(token: string, rgb?: readonly [number, number, number] | null): void {
+    const key = rgb ? `${token}:${rgb[0]},${rgb[1]},${rgb[2]}` : token;
+    if (key === this._paintKey && this._ball?.isValid) return;
+    this._paintKey = key;
     if (this._ball?.isValid) applyMesh(this._ball, glowQuad(), matFor('ball', token, rgb ?? undefined));
     if (this._glow?.isValid) applyMesh(this._glow, glowQuad(), matFor('glow', token, rgb ?? undefined));
     if (this._trail?.isValid) applyMesh(this._trail, trailQuad(), matFor('trail', token, rgb ?? undefined));

@@ -208,11 +208,16 @@ export class UnitActor extends Component {
     return this._slideLeft > 0 || this._flyWait > 0 || this._vanish;
   }
 
+  private _wake(): void {
+    this.enabled = true;
+  }
+
   playVanish(done?: () => void): void {
     if (this._vanish) {
       done?.();
       return;
     }
+    this._wake();
     this._vanish = true;
     this._shownPower = -1;
     this._syncPowerText();
@@ -228,6 +233,7 @@ export class UnitActor extends Component {
   }
 
   resetHome(): void {
+    this._wake();
     this.state = 'bench';
     this.lockedCol = -1;
     this._slideLeft = 0;
@@ -239,6 +245,7 @@ export class UnitActor extends Component {
   }
 
   slideToHome(): void {
+    this._wake();
     this.node.getPosition(this._slideFrom);
     this._slideTo.set(this.homePos);
     this._flying = false;
@@ -272,6 +279,7 @@ export class UnitActor extends Component {
   }
 
   private _beginFly(local: Vec3, dur: number, arc: number, occupy: boolean, keepScale = false): void {
+    this._wake();
     this.node.getPosition(this._slideFrom);
     this.node.getScale(this._flyFromScale);
     this._slideTo.set(local);
@@ -283,6 +291,7 @@ export class UnitActor extends Component {
   }
 
   flashFree(): void {
+    this._wake();
     this._q.punchMerge();
   }
 
@@ -358,6 +367,16 @@ export class UnitActor extends Component {
       if (this._wantsAnim()) this._q.tick(dt, this.state, this.inflight);
     }
     if (this._shownPower !== this.power) this._syncPowerText();
+    if (this._canSleep()) this.enabled = false;
+  }
+
+  private _canSleep(): boolean {
+    return this._queued()
+      && this._queuePosed
+      && this._slideLeft <= 0
+      && this._flyWait <= 0
+      && !this._flying
+      && !this._vanish;
   }
 
   private _wantsOutline(): boolean {
@@ -427,6 +446,7 @@ export class UnitActor extends Component {
   }
 
   refreshSeatLook(): void {
+    this._wake();
     this._activateFrontSeat();
     const kind = this._queued() ? 'queue' : 'turret';
     const outline = this._wantsOutline();

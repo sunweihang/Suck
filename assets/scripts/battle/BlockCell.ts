@@ -20,6 +20,7 @@ const SHRINK_START = 0.9;
 const FLOOR_Y = 0.14;
 /** Original VoxelDestroy: cube keeps size, pops, then falls. */
 const BLOW_G = 17;
+const _motion: BlockCell[] = [];
 
 @ccclass('BlockCell')
 export class BlockCell extends Component {
@@ -65,6 +66,11 @@ export class BlockCell extends Component {
   private _moveT = 0;
   private _moveDur = 0;
   private _fieldSpun = true;
+  private _motion = false;
+
+  static tickMotion(dt: number): void {
+    for (let i = _motion.length - 1; i >= 0; i--) _motion[i].advance(dt);
+  }
 
   onLoad(): void {
     applyBrickPlastic(this.node);
@@ -89,7 +95,25 @@ export class BlockCell extends Component {
     hideBlowTrail(this.node);
     this._fieldSpun = true;
     bindFieldNode(this.node);
+    this._restMotion();
+  }
+
+  private _armMotion(): void {
     this.enabled = false;
+    if (this._motion) return;
+    this._motion = true;
+    _motion.push(this);
+  }
+
+  private _restMotion(): void {
+    this.enabled = false;
+    if (!this._motion) return;
+    this._motion = false;
+    const i = _motion.indexOf(this);
+    if (i >= 0) {
+      _motion[i] = _motion[_motion.length - 1];
+      _motion.pop();
+    }
   }
 
   beginMove(x: number, y: number, duration = 0.22): void {
@@ -100,7 +124,7 @@ export class BlockCell extends Component {
     this._moveT = 0;
     this._moveDur = Math.max(0.08, duration);
     popBrickSkin(this);
-    this.enabled = true;
+    this._armMotion();
   }
 
   get alive(): boolean {
@@ -132,7 +156,7 @@ export class BlockCell extends Component {
     if (!this.locked || this._sucking || this._nudgeT > 0) return;
     this.node.getPosition(this._nudgeBase);
     this._nudgeT = 0.28;
-    this.enabled = true;
+    this._armMotion();
   }
 
   get inFlight(): boolean {
@@ -177,7 +201,7 @@ export class BlockCell extends Component {
     this._blown = false;
     this._target = null;
     this._onLand = null;
-    this.enabled = false;
+    this._restMotion();
     hideBlowTrail(this.node);
     this.node.active = false;
     onDone?.();
@@ -214,7 +238,7 @@ export class BlockCell extends Component {
     this._suckDur = 0.92 + Math.random() * 0.28;
     this.node.setScale(this._baseScale);
     this.node.active = true;
-    this.enabled = true;
+    this._armMotion();
     hideBlowTrail(this.node);
   }
 
@@ -231,7 +255,7 @@ export class BlockCell extends Component {
     this._leaveField();
     this.node.getWorldPosition(this._from);
     this.node.getWorldRotation(this._q);
-    this.enabled = true;
+    this._armMotion();
   }
 
   beginSuck(target: Node, duration: number, onLand?: () => void): void {
@@ -256,10 +280,14 @@ export class BlockCell extends Component {
     if (this._axis.lengthSqr() < 1e-6) this._axis.set(1, 0.3, 0.2);
     this._axis.normalize();
     this._spin = (480 + Math.random() * 420) * (Math.random() < 0.5 ? -1 : 1);
-    this.enabled = true;
+    this._armMotion();
   }
 
   update(dt: number): void {
+    this.advance(dt);
+  }
+
+  advance(dt: number): void {
     if (this._moveDur > 0 && !this._sucking && !this._priming) {
       this._moveT += dt;
       const u = Math.min(1, this._moveT / this._moveDur);
@@ -273,7 +301,7 @@ export class BlockCell extends Component {
         this._moveDur = 0;
         coverBrickSkin(this);
         dirtyBrickSkin();
-        if (this._nudgeT <= 0) this.enabled = false;
+        if (this._nudgeT <= 0) this._restMotion();
       }
       return;
     }
@@ -289,7 +317,7 @@ export class BlockCell extends Component {
       this._nudgeT -= dt;
       if (this._nudgeT <= 0) {
         this.node.setPosition(this._nudgeBase);
-        this.enabled = false;
+        this._restMotion();
         return;
       }
       const amp = 0.03 * (this._nudgeT / 0.28);
@@ -343,7 +371,7 @@ export class BlockCell extends Component {
       this._target = null;
       const done = this._onLand;
       this._onLand = null;
-      this.enabled = false;
+      this._restMotion();
       this.node.active = false;
       done?.();
     }
@@ -367,7 +395,7 @@ export class BlockCell extends Component {
     if (u < 1) return;
     this._blown = false;
     hideBlowTrail(this.node);
-    this.enabled = false;
+    this._restMotion();
     this.node.active = false;
   }
 
@@ -390,7 +418,7 @@ export class BlockCell extends Component {
     this._target = null;
     const done = this._onLand;
     this._onLand = null;
-    this.enabled = false;
+    this._restMotion();
     done?.();
   }
 

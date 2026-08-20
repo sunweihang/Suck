@@ -21,10 +21,36 @@ export function bindFieldActors(node: Node | null): void {
   _actors = node;
 }
 
+type SpinHandle = { q: number; p: number };
+
+const _spinHandles = new WeakMap<Material, SpinHandle>();
+
+function spinHandle(mat: Material): SpinHandle | null {
+  const cached = _spinHandles.get(mat);
+  if (cached) return cached;
+  const pass = mat.passes?.[0] as { getHandle?: (n: string) => number } | undefined;
+  const q = pass?.getHandle?.('spinQuat');
+  const p = pass?.getHandle?.('spinPivot');
+  if (typeof q !== 'number' || typeof p !== 'number') return null;
+  const hit = { q, p };
+  _spinHandles.set(mat, hit);
+  return hit;
+}
+
 function bindSpinProps(mat: Material): void {
+  const pass = mat.passes?.[0] as
+    | { setUniform?: (h: number, v: Vec4) => void }
+    | undefined;
+  if (!pass) return;
+  _q4.set(_q.x, _q.y, _q.z, _q.w);
+  _p4.set(_p.x, _p.y, _p.z, 0);
+  const h = spinHandle(mat);
+  if (h && pass.setUniform) {
+    pass.setUniform(h.q, _q4);
+    pass.setUniform(h.p, _p4);
+    return;
+  }
   try {
-    _q4.set(_q.x, _q.y, _q.z, _q.w);
-    _p4.set(_p.x, _p.y, _p.z, 0);
     mat.setProperty('spinQuat', _q4);
     mat.setProperty('spinPivot', _p4);
   } catch {

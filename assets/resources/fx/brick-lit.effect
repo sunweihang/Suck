@@ -63,6 +63,9 @@ CCProgram brick-vs %{
     v_worldP = wp.xyz;
 #if USE_ALBEDO_MAP
     v_uv = a_texCoord * tilingOffset.xy + tilingOffset.zw;
+#if USE_HIDDEN_SCROLL
+    v_uv += cc_time.x * vec2(0.08, -0.08);
+#endif
 #endif
     return cc_matProj * cc_matView * wp;
   }

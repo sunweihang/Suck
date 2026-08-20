@@ -124,6 +124,7 @@ export function makeInstancedTextured(
   roughness: number,
   metallic: number,
   emit: number,
+  hiddenScroll = false,
 ): Material {
   if (_brickFx) {
     const mat = new Material();
@@ -131,7 +132,7 @@ export function makeInstancedTextured(
       mat.initialize({
         effectAsset: _brickFx,
         techniqueIndex: 0,
-        defines: [{ USE_INSTANCING: true, USE_ALBEDO_MAP: true }],
+        defines: [{ USE_INSTANCING: true, USE_ALBEDO_MAP: true, USE_HIDDEN_SCROLL: hiddenScroll }],
       });
     } catch {
       return makeStandardTextured(tex, color, roughness, metallic, emit);
@@ -167,6 +168,10 @@ export function preloadBrickLit(): Promise<void> {
     else resources.load(BRICK_LIT, EffectAsset, done);
   });
   return _brickBoot;
+}
+
+export function isBrickLitMat(mat: Material): boolean {
+  return !!_brickFx && mat.effectAsset === _brickFx;
 }
 
 export function makeInstancedUnlit(color: Color): Material {

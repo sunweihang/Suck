@@ -3,7 +3,7 @@ import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { HIDDEN_QUEUE_AFTER_LEVEL } from '../game/LevelCatalog';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, makeInstancedTextured, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
+import { applyToyCaster, forgetBrickParts, inflateFieldCull, isBrickLitMat, makeFieldLit, makeFieldUnlit, makeInstancedLit, makeInstancedTextured, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -206,6 +206,7 @@ let _hiddenMat: Material | null = null;
 let _hiddenBoot: Promise<void> | null = null;
 let _hiddenUvX = 0;
 let _hiddenUvY = 0;
+let _hiddenScrollGpu = false;
 const _hiddenTiling = new Vec4(1, -1, 0, 1);
 
 /** Official levels after 30 may hide a few queued cubes with T_Hidden_Pattern. */
@@ -290,8 +291,10 @@ function bindHiddenUv(mat: Material): void {
 function hiddenMat(): Material {
   if (_hiddenMat && usable(_hiddenMat)) return _hiddenMat;
   if (_hiddenTex) {
-    const mat = makeInstancedTextured(_hiddenTex, HIDDEN_TINT, 0.72, 0.04, 0);
+    const mat = makeInstancedTextured(_hiddenTex, HIDDEN_TINT, 0.72, 0.04, 0, true);
+    _hiddenTiling.set(1, -1, 0, 1);
     bindHiddenUv(mat);
+    _hiddenScrollGpu = isBrickLitMat(mat);
     _hiddenMat = mat;
     _mats.set('unit-hidden', mat);
     return mat;
@@ -306,7 +309,7 @@ function hiddenMat(): Material {
 
 /** Original Toony Colors Pro _ScrollTexture at 0.4 / 0.4. */
 export function tickHiddenPattern(dt: number): void {
-  if (!_hiddenMat || !usable(_hiddenMat)) return;
+  if (!_hiddenMat || !usable(_hiddenMat) || _hiddenScrollGpu) return;
   _hiddenUvX = (_hiddenUvX + HIDDEN_SCROLL * dt) % 1;
   _hiddenUvY = (_hiddenUvY + HIDDEN_SCROLL * dt) % 1;
   bindHiddenUv(_hiddenMat);
