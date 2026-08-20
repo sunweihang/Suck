@@ -187,24 +187,21 @@ function paintOrange(c, flip) {
 
 function paintGrapes(c, flip) {
   const rows = [
-    [3, 0.70, 0.095],
-    [4, 0.54, 0.098],
-    [5, 0.38, 0.100],
-    [4, 0.24, 0.094],
-    [3, 0.12, 0.088],
-    [1, 0.04, 0.080],
+    [3, 0.66, 0.11],
+    [4, 0.48, 0.11],
+    [3, 0.30, 0.105],
+    [2, 0.16, 0.10],
+    [1, 0.06, 0.09],
   ];
-  const accents = ['#', 'H', 'E', 'R', '#'];
   for (const [n, y, r] of rows) {
-    const span = 0.14 * (n - 1);
+    const span = 0.18 * (n - 1);
     for (let i = 0; i < n; i++) {
-      disk(c, U(0.5 - span / 2 + i * 0.14, flip), y, r, r * 0.94, accents[(i + Math.round(y * 10)) % accents.length]);
+      disk(c, U(0.5 - span / 2 + i * 0.18, flip), y, r, r * 0.94, i === 1 && n > 2 ? 'H' : '#');
     }
   }
-  disk(c, U(0.66, flip), 0.88, 0.09, 0.04, 'L');
-  disk(c, U(0.36, flip), 0.86, 0.07, 0.035, 'L');
-  disk(c, U(0.54, flip), 0.93, 0.06, 0.03, 'L');
-  thickLine(c, U(0.50, flip), 0.68, U(0.50, flip), 0.86, 0.018, 'T');
+  disk(c, U(0.64, flip), 0.88, 0.11, 0.05, 'L');
+  disk(c, U(0.40, flip), 0.86, 0.07, 0.04, 'L');
+  thickLine(c, U(0.50, flip), 0.64, U(0.50, flip), 0.84, 0.02, 'T');
 }
 
 function paintLemon(c, flip) {
