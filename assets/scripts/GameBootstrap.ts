@@ -529,6 +529,7 @@ export class GameBootstrap extends Component {
       gold: GOLD.win,
       canDouble: true,
       cleared,
+      chestItems: this._clearChest?.items ?? [],
     });
     if (this._canvas) {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
@@ -556,7 +557,7 @@ export class GameBootstrap extends Component {
     const amount = this._clearGold > 0 ? this._clearGold : fallback;
     this._clearGold = 0;
     const extra = consumeClearChest(this);
-    void this._flyGoldThen(amount + extra.gold, kind, extra.items);
+    void this._flyGoldThen(amount + extra.gold, kind);
   }
 
   private _claimDouble(): void {
@@ -578,7 +579,7 @@ export class GameBootstrap extends Component {
     const amount = (result === 'rewarded' ? base * 2 : base) + extra.gold;
     this._clearGold = 0;
     this._doubleBusy = false;
-    void this._flyGoldThen(amount, kind, extra.items);
+    void this._flyGoldThen(amount, kind);
   }
 
   private _lockSettle(kind: 'win' | 'fail'): void {
@@ -586,7 +587,7 @@ export class GameBootstrap extends Component {
     else this._victory?.lock();
   }
 
-  private async _flyGoldThen(amount: number, kind: 'win' | 'fail', items: readonly ItemId[] = []): Promise<void> {
+  private async _flyGoldThen(amount: number, kind: 'win' | 'fail'): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
     this._beginSettleClaim(kind);
@@ -598,7 +599,6 @@ export class GameBootstrap extends Component {
     const canvas = this._canvas;
     if (!canvas?.isValid || amount <= 0) {
       if (amount > 0) this._wallet.add(amount);
-      if (kind === 'win' && items.length) await this._flyChestItems(items);
       after();
       return;
     }
@@ -630,7 +630,6 @@ export class GameBootstrap extends Component {
       });
     });
     this._wallet.save();
-    if (kind === 'win' && items.length) await this._flyChestItems(items);
     after();
   }
 

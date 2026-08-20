@@ -18,6 +18,7 @@ import {
   tween,
 } from 'cc';
 import { chestPercentOf, chestReadyOf, chestStepOf } from '../game/ChestProgress';
+import type { ItemId } from '../game/LevelCatalog';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
@@ -53,6 +54,14 @@ const SHEEN = new Color(190, 240, 255, 210);
 const PCT_INK = new Color(255, 255, 255, 255);
 const PCT_OUTLINE = new Color(16, 18, 28, 255);
 const PCT_FONT = 92;
+const PRIZE_ICON = 260;
+const PRIZE_GAP = 48;
+const ITEM_ICON_KEY = {
+  shuffle: 'icShuffle',
+  hook: 'icHook',
+  shovel: 'icShovel',
+  bomb: 'icBomb',
+} as const;
 
 @ccclass('VictoryPanel')
 export class VictoryPanel extends Component {
@@ -72,6 +81,8 @@ export class VictoryPanel extends Component {
   private _pctAnim: { v: number } | null = null;
   private _open = false;
   private _gpuHot = false;
+  private _chestItems: ItemId[] = [];
+  private _prizeOn = false;
 
   isOpen(): boolean {
     return this._open;
@@ -125,14 +136,18 @@ export class VictoryPanel extends Component {
     this._cleared = 0;
     this._fill = 0;
     this._fillPx = -1;
+    this._chestItems = [];
+    this._resetPrize();
   }
 
-  show(opts?: { hasNext?: boolean; gold?: number; canDouble?: boolean; nextLabel?: string; cleared?: number }): void {
+  show(opts?: { hasNext?: boolean; gold?: number; canDouble?: boolean; nextLabel?: string; cleared?: number; chestItems?: readonly ItemId[] }): void {
     this._ensureTree();
     this._gold = Math.max(0, Math.floor(opts?.gold ?? 0));
     this._canDouble = opts?.canDouble !== false && this._gold > 0;
     this._nextLabel = opts?.nextLabel || '下一关';
     this._cleared = Math.max(0, Math.floor(opts?.cleared ?? 0));
+    this._chestItems = (opts?.chestItems ?? []).filter(Boolean);
+    this._resetPrize();
     this._locked = false;
     this._open = true;
     this.node.active = true;
@@ -171,12 +186,15 @@ export class VictoryPanel extends Component {
     this._open = false;
     Tween.stopAllByTarget(this._stage());
     Tween.stopAllByTarget(this._chestWrap());
+    this._stopPrizeTweens();
     if (this._pctAnim) Tween.stopAllByTarget(this._pctAnim);
     clearWinConfetti(this.node);
     this._fade(0);
     this.node.pauseSystemEvents(true);
     this.node.active = false;
     this._locked = false;
+    this._chestItems = [];
+    this._resetPrize();
   }
 
   private _fade(opacity: number): void {
@@ -547,6 +565,7 @@ export class VictoryPanel extends Component {
       this._mk('FillArt', clip, CHEST, CHEST);
       this._stylePct(this._mk('Pct', wrap, 360, 120), '0%');
     }
+    this._ensurePrize(wrap);
     this._syncChest();
   }
 
@@ -583,11 +602,16 @@ export class VictoryPanel extends Component {
     pct?.setPosition(0, 12, 0);
     if (hint) hint.active = false;
     if (glow) glow.active = false;
-    this._paintChestArt();
-    this._applyFill(this._fill);
+    wrap.getChildByName('Prize')?.setPosition(0, 8, 0);
+    if (this._prizeOn) this._layoutPrize();
+    else {
+      this._paintChestArt();
+      this._applyFill(this._fill);
+    }
   }
 
   private _paintChestArt(): void {
+    if (this._prizeOn) return;
     const wrap = this._chestWrap();
     if (!wrap) return;
     const shadow = wrap.getChildByName('Shadow');
@@ -616,6 +640,7 @@ export class VictoryPanel extends Component {
   }
 
   private _applyFill(t: number): void {
+    if (this._prizeOn) return;
     const clip = this._chestWrap()?.getChildByName('FillClip');
     const art = clip?.getChildByName('FillArt');
     if (!clip || !art) return;
@@ -649,6 +674,200 @@ export class VictoryPanel extends Component {
     sp.color = Color.WHITE;
   }
 
+  private _ensurePrize(wrap: Node): Node {
+    let prize = wrap.getChildByName('Prize');
+    if (!prize) {
+      prize = this._mk('Prize', wrap, CHEST + 80, CHEST);
+      prize.active = false;
+    }
+    for (let i = 0; i < 2; i++) {
+      if (!prize.getChildByName(`Item_${i}`)) this._mk(`Item_${i}`, prize, PRIZE_ICON, PRIZE_ICON);
+    }
+    return prize;
+  }
+
+  private _resetPrize(): void {
+    this._stopPrizeTweens();
+    this._prizeOn = false;
+    const wrap = this._chestWrap();
+    if (!wrap) return;
+    const prize = wrap.getChildByName('Prize');
+    if (prize) {
+      prize.active = false;
+      prize.setScale(1, 1, 1);
+      this._setOp(prize, 255);
+    }
+    for (const name of ['Shadow', 'FillClip', 'Pct'] as const) {
+      const n = wrap.getChildByName(name);
+      if (!n) continue;
+      n.active = true;
+      n.setScale(1, 1, 1);
+      this._setOp(n, 255);
+    }
+    if (prize) {
+      for (const child of prize.children) {
+        child.setScale(1, 1, 1);
+        child.setPosition(0, 0, 0);
+        this._setOp(child, 255);
+      }
+    }
+  }
+
+  private _showPrize(): void {
+    if (this._prizeOn) return;
+    if (this._chestItems.length <= 0) {
+      this._breatheChest();
+      return;
+    }
+    const wrap = this._chestWrap();
+    if (!wrap) return;
+    const prize = this._ensurePrize(wrap);
+    this._prizeOn = true;
+    this._playChestOut(wrap);
+    this._playPrizeIn(prize, () => this._breatheChest());
+  }
+
+  private _playChestOut(wrap: Node): void {
+    const shadow = wrap.getChildByName('Shadow');
+    const clip = wrap.getChildByName('FillClip');
+    const pct = wrap.getChildByName('Pct');
+    const squash = new Vec3(1.14, 0.78, 1);
+    const gone = new Vec3(0.22, 0.22, 1);
+    for (const n of [shadow, clip]) {
+      if (!n) continue;
+      n.active = true;
+      Tween.stopAllByTarget(n);
+      n.setScale(1, 1, 1);
+      this._setOp(n, 255);
+      tween(n)
+        .to(0.1, { scale: new Vec3(1.1, 1.1, 1) }, { easing: 'sineOut' })
+        .to(0.14, { scale: squash }, { easing: 'quadIn' })
+        .to(0.26, { scale: gone }, { easing: 'quadIn' })
+        .call(() => {
+          if (n.isValid) n.active = false;
+        })
+        .start();
+      tween(this._op(n))
+        .delay(0.18)
+        .to(0.26, { opacity: 0 }, { easing: 'quadIn' })
+        .start();
+    }
+    if (!pct) return;
+    Tween.stopAllByTarget(pct);
+    pct.setScale(1, 1, 1);
+    this._setOp(pct, 255);
+    tween(pct)
+      .to(0.2, { scale: new Vec3(0.62, 0.62, 1) }, { easing: 'quadIn' })
+      .call(() => {
+        if (pct.isValid) pct.active = false;
+      })
+      .start();
+    tween(this._op(pct))
+      .to(0.2, { opacity: 0 }, { easing: 'quadIn' })
+      .start();
+  }
+
+  private _playPrizeIn(prize: Node, done: () => void): void {
+    prize.active = true;
+    prize.setScale(1, 1, 1);
+    prize.setPosition(0, 8, 0);
+    this._setOp(prize, 255);
+    const ids = this._chestItems;
+    let left = 0;
+    for (let i = 0; i < ids.length && i < 2; i++) if (ids[i]) left += 1;
+    if (left <= 0) {
+      done();
+      return;
+    }
+    gameAudio()?.playGetNew();
+    const finish = (): void => {
+      left -= 1;
+      if (left <= 0) done();
+    };
+    for (let i = 0; i < 2; i++) {
+      const node = prize.getChildByName(`Item_${i}`);
+      const id = ids[i];
+      if (!node) continue;
+      if (!id) {
+        node.active = false;
+        continue;
+      }
+      node.active = true;
+      node.getComponent(UITransform)?.setContentSize(PRIZE_ICON, PRIZE_ICON);
+      applyArtSpriteSoon(node, ITEM_ICON_KEY[id], PRIZE_ICON, PRIZE_ICON);
+      Tween.stopAllByTarget(node);
+      node.setPosition(0, 12, 0);
+      node.setScale(0.12, 0.12, 1);
+      this._setOp(node, 0);
+      const tx = this._prizeX(i);
+      tween(node)
+        .delay(0.2 + i * 0.08)
+        .to(0.42, { position: new Vec3(tx, 0, 0), scale: new Vec3(1.16, 1.16, 1) }, { easing: 'backOut' })
+        .to(0.14, { scale: new Vec3(1, 1, 1) }, { easing: 'sineOut' })
+        .call(finish)
+        .start();
+      tween(this._op(node))
+        .delay(0.2 + i * 0.08)
+        .to(0.22, { opacity: 255 }, { easing: 'sineOut' })
+        .start();
+    }
+  }
+
+  private _layoutPrize(): void {
+    const prize = this._chestWrap()?.getChildByName('Prize');
+    if (!prize) return;
+    prize.getComponent(UITransform)?.setContentSize(CHEST + 80, CHEST);
+    prize.setPosition(0, 8, 0);
+    prize.setScale(1, 1, 1);
+    const ids = this._chestItems;
+    for (let i = 0; i < 2; i++) {
+      const node = prize.getChildByName(`Item_${i}`);
+      if (!node) continue;
+      const id = ids[i];
+      node.active = !!id;
+      if (!id) continue;
+      node.getComponent(UITransform)?.setContentSize(PRIZE_ICON, PRIZE_ICON);
+      node.setPosition(this._prizeX(i), 0, 0);
+      node.setScale(1, 1, 1);
+      this._setOp(node, 255);
+      applyArtSpriteSoon(node, ITEM_ICON_KEY[id], PRIZE_ICON, PRIZE_ICON);
+    }
+  }
+
+  private _prizeX(i: number): number {
+    const n = Math.min(2, this._chestItems.length);
+    const total = n * PRIZE_ICON + Math.max(0, n - 1) * PRIZE_GAP;
+    return -total * 0.5 + PRIZE_ICON * 0.5 + i * (PRIZE_ICON + PRIZE_GAP);
+  }
+
+  private _op(node: Node): UIOpacity {
+    return node.getComponent(UIOpacity) ?? node.addComponent(UIOpacity);
+  }
+
+  private _setOp(node: Node, v: number): void {
+    this._op(node).opacity = v;
+  }
+
+  private _stopPrizeTweens(): void {
+    const wrap = this._chestWrap();
+    if (!wrap) return;
+    const nodes = [wrap.getChildByName('Shadow'), wrap.getChildByName('FillClip'), wrap.getChildByName('Pct'), wrap.getChildByName('Prize')];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!n) continue;
+      Tween.stopAllByTarget(n);
+      const op = n.getComponent(UIOpacity);
+      if (op) Tween.stopAllByTarget(op);
+    }
+    const prize = wrap.getChildByName('Prize');
+    if (!prize) return;
+    for (const child of prize.children) {
+      Tween.stopAllByTarget(child);
+      const op = child.getComponent(UIOpacity);
+      if (op) Tween.stopAllByTarget(op);
+    }
+  }
+
   private _playChestPct(): void {
     const wrap = this._chestWrap();
     if (!wrap?.active || this._cleared <= 0) return;
@@ -674,16 +893,13 @@ export class VictoryPanel extends Component {
         if (!chestReadyOf(this._cleared)) return;
         Tween.stopAllByTarget(wrap);
         wrap.setScale(1, 1, 1);
-        tween(wrap)
-          .to(0.22, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'backOut' })
-          .to(0.16, { scale: new Vec3(1, 1, 1) }, { easing: 'quadOut' })
-          .call(() => this._breatheChest())
-          .start();
+        this._showPrize();
       })
       .start();
   }
 
   private _setPctText(n: number): void {
+    if (this._prizeOn) return;
     const node = this._chestWrap()?.getChildByName('Pct');
     if (!node) return;
     for (const child of node.children) child.active = false;
