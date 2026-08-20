@@ -157,12 +157,16 @@ export function rememberBrickMesh(mesh: Mesh | null | undefined): boolean {
 export function attachBrickRenderer(node: Node, colorId: number): boolean {
   if (!node?.isValid || !_brickMesh) return false;
   if (node.getComponent(MeshRenderer)) return true;
+  const mat = brickMat(lookOfVoxel(colorId).rgb);
+  inflateFieldCull(_brickMesh);
+  // Assigning mesh tears down and rebuilds the model, so settle everything else first
+  // and pay for exactly one rebuild.
   const mr = node.addComponent(MeshRenderer);
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  mr.setSharedMaterial(mat, 0);
   mr.mesh = _brickMesh;
   forgetBrickParts(node);
-  paintVoxelId(node, colorId);
   return true;
 }
 
