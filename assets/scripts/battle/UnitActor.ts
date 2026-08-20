@@ -23,7 +23,6 @@ export class UnitActor extends Component {
   asBlock = false;
   /** This cube rolled the hidden pattern for the current level. */
   colorHidden = false;
-  magnet = false;
   trapped = false;
   freeing = false;
   trapCol = -1;
@@ -165,7 +164,6 @@ export class UnitActor extends Component {
   }
 
   reuse(name: string): void {
-    this.magnet = false;
     this.asBlock = false;
     this.colorHidden = false;
     this.trapped = false;

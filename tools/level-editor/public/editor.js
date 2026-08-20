@@ -17,8 +17,6 @@
     ['erase', '橡皮'],
     ['fill', '填充'],
     ['lock', '钉子'],
-    ['bomb', '炸弹'],
-    ['can', '染色'],
     ['chest', '宝箱'],
     ['rescue', '拯救'],
     ['iron', '铁板行'],
@@ -91,37 +89,20 @@
     if (raw[0] === '$') return { tokens: [], chest: true };
     const tokens = [];
     const locked = [];
-    const bomb = [];
-    const paint = [];
-    const magnet = [];
     let anyLock = false;
-    let anyBomb = false;
-    let anyPaint = false;
-    let anyMagnet = false;
     for (let i = 0; i < raw.length; i++) {
-      let mark = '';
       if (raw[i] === '*' || raw[i] === '!' || raw[i] === '^') {
-        mark = raw[i];
         i += 1;
         if (i >= raw.length) break;
       }
       const ch = raw[i];
       const up = ch >= 'A' && ch <= 'Z';
       tokens.push((up ? ch.toLowerCase() : ch));
-      locked.push(up && !mark);
-      bomb.push(mark === '*');
-      paint.push(mark === '!');
-      magnet.push(mark === '^');
-      if (up && !mark) anyLock = true;
-      if (mark === '*') anyBomb = true;
-      if (mark === '!') anyPaint = true;
-      if (mark === '^') anyMagnet = true;
+      locked.push(up);
+      if (up) anyLock = true;
     }
     const cell = { tokens };
     if (anyLock) cell.locked = locked;
-    if (anyBomb) cell.bomb = bomb;
-    if (anyPaint) cell.paint = paint;
-    if (anyMagnet) cell.magnet = magnet;
     return cell;
   }
 
@@ -131,9 +112,6 @@
     if (cell.chest) return '$';
     return (cell.tokens || []).map((t, z) => {
       const ch = cell.locked?.[z] ? t.toUpperCase() : t;
-      if (cell.magnet?.[z]) return `^${ch}`;
-      if (cell.paint?.[z]) return `!${ch}`;
-      if (cell.bomb?.[z]) return `*${ch}`;
       return ch;
     }).join('');
   }
@@ -288,7 +266,7 @@
       } else if (cell.tokens?.length) {
         if (z < cell.tokens.length) {
           cell.tokens.splice(z, 1);
-          ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => cell[k]?.splice(z, 1));
+          ['locked'].forEach((k) => cell[k]?.splice(z, 1));
         }
         if (!cell.tokens.length) state.cells[i] = null;
       }
@@ -316,12 +294,6 @@
     if (state.tool === 'lock') {
       ensureFlags(cell, 'locked', cell.tokens.length);
       cell.locked[z] = true;
-    } else if (state.tool === 'bomb') {
-      ensureFlags(cell, 'bomb', cell.tokens.length);
-      cell.bomb[z] = true;
-    } else if (state.tool === 'can') {
-      ensureFlags(cell, 'paint', cell.tokens.length);
-      cell.paint[z] = true;
     }
     state.cells[i] = cell;
     setDirty(true);
@@ -819,24 +791,9 @@
   function drawMarks(ctx, x, y, z, cell) {
     const a = corner(x, y, z, 0.2, 0.2, 0);
     const b = corner(x, y, z, 0.8, 0.8, 0);
-    const cx = (a.x + b.x) / 2;
-    const cy = (a.y + b.y) / 2;
     if (cell.locked?.[z]) {
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-    }
-    if (cell.bomb?.[z]) {
-      ctx.fillStyle = '#111';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (cell.paint?.[z]) {
-      ctx.strokeStyle = '#fff';
-      ctx.beginPath();
-      ctx.moveTo(a.x, b.y);
-      ctx.lineTo(b.x, a.y);
-      ctx.stroke();
     }
   }
 
@@ -1254,14 +1211,9 @@
     for (const cell of hits) {
       const insertAt = srcZ + 1;
       const srcTok = cell.tokens[srcZ];
-      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => {
-        if (cell[k]) ensureFlags(cell, k, cell.tokens.length);
-      });
+      if (cell.locked) ensureFlags(cell, 'locked', cell.tokens.length);
       cell.tokens.splice(insertAt, 0, srcTok);
-      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => {
-        if (!cell[k]) return;
-        cell[k].splice(insertAt, 0, !!cell[k][srcZ]);
-      });
+      if (cell.locked) cell.locked.splice(insertAt, 0, !!cell.locked[srcZ]);
     }
     if ($('view-iso')) $('view-iso').checked = true;
     if ($('show-all')) $('show-all').checked = true;
@@ -1283,7 +1235,7 @@
     for (const i of hits) {
       const cell = state.cells[i];
       cell.tokens.splice(z, 1);
-      ['locked', 'bomb', 'paint', 'magnet'].forEach((k) => cell[k]?.splice(z, 1));
+      ['locked'].forEach((k) => cell[k]?.splice(z, 1));
       if (!cell.tokens.length && !cell.chest && !cell.rescue) state.cells[i] = null;
     }
     setDirty(true);
@@ -1721,8 +1673,8 @@
         return;
       }
       const tools = {
-        b: 'paint', e: 'erase', g: 'fill', n: 'lock', o: 'bomb',
-        t: 'can', c: 'chest', q: 'rescue', i: 'iron', p: 'gap',
+        b: 'paint', e: 'erase', g: 'fill', n: 'lock',
+        c: 'chest', q: 'rescue', i: 'iron', p: 'gap',
       };
       const tool = tools[key.toLowerCase()];
       if (tool) {

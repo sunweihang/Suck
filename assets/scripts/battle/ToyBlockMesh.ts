@@ -322,7 +322,7 @@ function grayMat(src: Material): Material {
   return g;
 }
 
-/** Desaturate a brick (and its nail / bomb parts) while an iron plate still blocks it. */
+/** Desaturate a brick (and its nail parts) while an iron plate still blocks it. */
 export function applyBrickGray(node: Node, on: boolean): void {
   const parts = partsOf(node);
   const mrs = parts.mr;

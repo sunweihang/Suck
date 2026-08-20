@@ -1084,7 +1084,7 @@ function clearSpan(cells, cols, x, y, span = SPECIAL_SPAN) {
 }
 
 function isSpecialOrigin(cell) {
-  return !!(cell?.rescue || cell?.chest || cell?.bomb?.[0] || cell?.paint?.[0]);
+  return !!(cell?.rescue || cell?.chest);
 }
 
 function sameSpecial(a, b) {
@@ -1825,11 +1825,7 @@ function encodeLevel(level) {
       if (cell.chest) return '$';
       return cell.tokens
         .map((t, z) => {
-          const ch = cell.locked?.[z] ? t.toUpperCase() : t;
-          if (cell.magnet?.[z]) return `^${ch}`;
-          if (cell.paint?.[z]) return `!${ch}`;
-          if (cell.bomb?.[z]) return `*${ch}`;
-          return ch;
+          return cell.locked?.[z] ? t.toUpperCase() : t;
         })
         .join('');
     }),

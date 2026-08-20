@@ -627,8 +627,6 @@ export class InkShot extends Component {
   private _stepFrame = -1;
   landUnit: unknown = null;
   landBlock: unknown = null;
-  landBoom = false;
-  landPaint = false;
   landToken = '';
   readonly landKick = new Vec3();
 

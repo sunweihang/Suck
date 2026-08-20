@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, PLAY, SPECIAL_SPAN, isColorToken, parseColorToken } from '../game/GameConfig';
+import { ColorId, GAME, PLAY, isColorToken, parseColorToken } from '../game/GameConfig';
 import { coverBrickSkin, dirtyBrickSkin, popBrickSkin } from './BrickSkin';
 import { bindFieldNode, fieldWorldOf } from './FieldSpin';
 import { applyBrickGray, applyBrickPlastic, releaseFieldBrick, wakeBrickMesh } from './ToyBlockMesh';
@@ -33,9 +33,6 @@ export class BlockCell extends Component {
   row = 0;
   layer = 0;
   locked = false;
-  bombed = false;
-  paint = false;
-  magnet = false;
   raft = false;
   raftHomeCol = 0;
   /** Boxed in on all six sides, so no camera can ever see or target it. */
@@ -53,7 +50,6 @@ export class BlockCell extends Component {
   private _target: Node | null = null;
   private _sucking = false;
   private _claimed = false;
-  private _priming = false;
   private _blown = false;
   private _suckT = 0;
   private _suckDur = GAME.suckFlightSec;
@@ -79,14 +75,13 @@ export class BlockCell extends Component {
 
   syncFromName(): void {
     this._parseName();
-    const s = PLAY.blockSize * (this.bombed || this.paint ? SPECIAL_SPAN * 0.98 : 1);
+    const s = PLAY.blockSize;
     this.node.setScale(s, s, s);
     this.node.setRotationFromEuler(0, 0, 0);
     this._baseScale.set(this.node.scale);
     this.hp = this.maxHp = GAME.blockHp;
     this._sucking = false;
     this._claimed = false;
-    this._priming = false;
     this._blown = false;
     this._target = null;
     this._onLand = null;
@@ -117,7 +112,7 @@ export class BlockCell extends Component {
   }
 
   beginMove(x: number, y: number, duration = 0.22): void {
-    if (this._sucking || this._priming || this._claimed || this._blown) return;
+    if (this._sucking || this._claimed || this._blown) return;
     this.node.getPosition(this._moveFrom);
     this._moveTo.set(x, y, this._moveFrom.z);
     if (Vec3.squaredDistance(this._moveFrom, this._moveTo) < 1e-6) return;
@@ -169,7 +164,7 @@ export class BlockCell extends Component {
 
   /** Shot vanished without landing — put the brick back in play. */
   releaseClaim(): void {
-    if (!this._claimed || this._sucking || this._priming || this._blown) return;
+    if (!this._claimed || this._sucking || this._blown) return;
     this._claimed = false;
     this.node.active = true;
     wakeBrickMesh(this.node);
@@ -189,7 +184,7 @@ export class BlockCell extends Component {
 
   /** Claimed by a shot: stay put, no longer a target. */
   beginIncoming(): void {
-    if (this.locked || this._sucking || this._priming || this._claimed || !this.node.active) return;
+    if (this.locked || this._sucking || this._claimed || !this.node.active) return;
     this._claimed = true;
   }
 
@@ -197,7 +192,6 @@ export class BlockCell extends Component {
     this.hp = 0;
     this._claimed = false;
     this._sucking = false;
-    this._priming = false;
     this._blown = false;
     this._target = null;
     this._onLand = null;
@@ -212,7 +206,6 @@ export class BlockCell extends Component {
     this.hp = 0;
     this._claimed = false;
     this._sucking = false;
-    this._priming = false;
     this._blown = true;
     this._target = null;
     this._onLand = null;
@@ -242,24 +235,8 @@ export class BlockCell extends Component {
     hideBlowTrail(this.node);
   }
 
-  /** Stay put: swell, shake, then boom. */
-  beginPrimeBoom(_target: Node, duration: number, onBoom?: () => void): void {
-    if (this.locked || this._sucking || !this.node.active) return;
-    this._claimed = false;
-    this._sucking = true;
-    this._priming = true;
-    this._target = null;
-    this._suckT = 0;
-    this._suckDur = Math.max(0.2, duration);
-    this._onLand = onBoom ?? null;
-    this._leaveField();
-    this.node.getWorldPosition(this._from);
-    this.node.getWorldRotation(this._q);
-    this._armMotion();
-  }
-
   beginSuck(target: Node, duration: number, onLand?: () => void): void {
-    if (this.locked || this._sucking || this._priming || !this.node.active) return;
+    if (this.locked || this._sucking || !this.node.active) return;
     this._sucking = true;
     this.hp = 0;
     this._target = target;
@@ -288,7 +265,7 @@ export class BlockCell extends Component {
   }
 
   advance(dt: number): void {
-    if (this._moveDur > 0 && !this._sucking && !this._priming) {
+    if (this._moveDur > 0 && !this._sucking) {
       this._moveT += dt;
       const u = Math.min(1, this._moveT / this._moveDur);
       const k = u * u * (3 - 2 * u);
@@ -303,10 +280,6 @@ export class BlockCell extends Component {
         dirtyBrickSkin();
         if (this._nudgeT <= 0) this._restMotion();
       }
-      return;
-    }
-    if (this._priming) {
-      this._tickPrime(dt);
       return;
     }
     if (this._blown) {
@@ -399,28 +372,6 @@ export class BlockCell extends Component {
     this.node.active = false;
   }
 
-  private _tickPrime(dt: number): void {
-    this._suckT += dt;
-    const u = Math.min(1, this._suckT / this._suckDur);
-    const swell = 1 + 0.42 * u;
-    const amp = 0.01 + 0.024 * u * u;
-    this.node.setWorldPosition(
-      this._from.x + Math.sin(u * Math.PI * 16) * amp,
-      this._from.y + Math.sin(u * Math.PI * 13 + 1.2) * amp,
-      this._from.z,
-    );
-    this.node.setWorldRotation(this._q);
-    this.node.setScale(this._baseScale.x * swell, this._baseScale.y * swell, this._baseScale.z * swell);
-    if (u < 1) return;
-    this.node.setWorldPosition(this._from);
-    this._priming = false;
-    this._sucking = false;
-    this._target = null;
-    const done = this._onLand;
-    this._onLand = null;
-    this._restMotion();
-    done?.();
-  }
 
   private _parseName(): void {
     const p = this.node.name.split('_');
@@ -437,9 +388,6 @@ export class BlockCell extends Component {
     this.layer = Number(p[tokenAt + 3]) || 0;
     const tag = p[tokenAt + 4];
     this.locked = tag === 'L';
-    this.bombed = tag === 'B';
-    this.paint = tag === 'P';
-    this.magnet = tag === 'M';
     this.raft = tag === 'F';
     this.raftHomeCol = this.col;
   }

@@ -1548,7 +1548,7 @@ function asciiFace(level) {
         continue;
       }
       const ch = cell.tokens[0];
-      row += cell.magnet?.[0] ? '^' : cell.paint?.[0] ? '!' : cell.bomb?.[0] ? '*' : cell.locked?.[0] ? ch.toUpperCase() : ch;
+      row += cell.locked?.[0] ? ch.toUpperCase() : ch;
     }
     lines.push(row);
   }
@@ -1564,37 +1564,20 @@ function decodeCatalogCell(raw) {
   if (raw[0] === '$') return { tokens: [], chest: true };
   const tokens = [];
   const locked = [];
-  const bomb = [];
-  const paint = [];
-  const magnet = [];
   let anyLock = false;
-  let anyBomb = false;
-  let anyPaint = false;
-  let anyMagnet = false;
   for (let i = 0; i < raw.length; i++) {
-    let mark = '';
     if (raw[i] === '*' || raw[i] === '!' || raw[i] === '^') {
-      mark = raw[i];
       i += 1;
       if (i >= raw.length) break;
     }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push(up ? ch.toLowerCase() : ch);
-    locked.push(up && !mark);
-    bomb.push(mark === '*');
-    paint.push(mark === '!');
-    magnet.push(mark === '^');
-    if (up && !mark) anyLock = true;
-    if (mark === '*') anyBomb = true;
-    if (mark === '!') anyPaint = true;
-    if (mark === '^') anyMagnet = true;
+    locked.push(up);
+    if (up) anyLock = true;
   }
   const cell = { tokens };
   if (anyLock) cell.locked = locked;
-  if (anyBomb) cell.bomb = bomb;
-  if (anyPaint) cell.paint = paint;
-  if (anyMagnet) cell.magnet = magnet;
   return cell;
 }
 

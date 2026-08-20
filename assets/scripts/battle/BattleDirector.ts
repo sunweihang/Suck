@@ -47,7 +47,7 @@ import {
   slotY,
 } from '../game/GameConfig';
 import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
-import { attachBrickRenderer, paintNodeColor, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
+import { attachBrickRenderer, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
@@ -1687,11 +1687,9 @@ export class BattleDirector extends Component {
     if (!block.node.active || block.hp <= 0 || u.power <= u.inflight) return;
     try {
     gameAudio()?.playAbsorb();
-    const magnet = block.magnet;
     const sandCol = block.col;
     const sandLayer = block.layer;
     this._unindex(block);
-    if (magnet) u.magnet = true;
     if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
     block.beginIncoming();
     u.inflight += 1;
@@ -1712,8 +1710,6 @@ export class BattleDirector extends Component {
     const shot = this._nextShot();
     shot.landUnit = u;
     shot.landBlock = block;
-    shot.landBoom = block.bombed;
-    shot.landPaint = block.paint;
     shot.landToken = tokenOfColorId(block.colorId);
     const fireToken = tokenOfColorId(u.colorId);
     const fireRgb = this._tintOf(u.colorId);
@@ -1727,23 +1723,11 @@ export class BattleDirector extends Component {
   private _landShot(shot: InkShot): void {
     const u = shot.landUnit as UnitActor | null;
     const block = shot.landBlock as BlockCell | null;
-    const boom = shot.landBoom;
-    const paint = shot.landPaint;
     const token = (shot.landToken || 'y') as ColorToken;
     shot.landUnit = null;
     shot.landBlock = null;
     if (!block?.node?.isValid) {
       if (u?.isValid) this._spendShot(u, false);
-      return;
-    }
-    if (boom || paint) {
-      if (!u?.isValid) return;
-      block.beginPrimeBoom(u.node, 0.28, () => {
-        const existed = block.node.active && block.hp > 0;
-        if (boom) this._detonate(u, block);
-        else this._paintSplash(block, u.colorId);
-        if (u.isValid) this._spendShot(u, existed);
-      });
       return;
     }
     fieldWorldOf(block.node, _world);
@@ -2242,52 +2226,6 @@ export class BattleDirector extends Component {
     }
   }
 
-  /** 3x3 blast; extra bricks fly in free and can chain into other bombs. */
-  private _detonate(u: UnitActor, bomb: BlockCell): void {
-    fieldWorldOf(bomb.node, _world);
-    playBaozhaBurst(this.node, _world, 0, 1.95);
-    gameAudio()?.playBoom();
-    const ox = _world.x;
-    const oy = _world.y;
-    const oz = _world.z;
-    this._popBomb(bomb);
-    forSpecialRing(bomb.col, bomb.row, (x, y) => {
-      const n = this._aliveAt(x, y, bomb.layer);
-      if (n) this._blastAway(u, n, ox, oy, oz);
-    });
-  }
-
-  private _popBomb(block: BlockCell): void {
-    if (block.node.active && block.hp > 0) {
-      this._remain = Math.max(0, this._remain - 1);
-    }
-    block.hp = 0;
-    block.node.active = false;
-  }
-
-  private _blastAway(u: UnitActor, block: BlockCell, ox?: number, oy?: number, oz?: number): void {
-    if (!block.alive) return;
-    if (block.locked) block.unlock();
-    const chain = block.bombed;
-    const sandCol = block.col;
-    const sandLayer = block.layer;
-    this._unindex(block);
-    if (this._sandCols.has(sandCol)) this._settleSand(sandCol, sandLayer);
-    if (chain) {
-      this._detonate(u, block);
-      return;
-    }
-    if (ox != null && oy != null && oz != null) {
-      fieldWorldOf(block.node, _tmp);
-      _hitDir.set(_tmp.x - ox, _tmp.y - oy, _tmp.z - oz);
-      const len = Math.sqrt(_hitDir.lengthSqr()) || 1;
-      _hitDir.multiplyScalar(1 / len);
-    } else {
-      _hitDir.set(0, 0, 0);
-    }
-    this._shatterBrick(block, _hitDir);
-  }
-
   /** Whole nailed blob stays shut until no member has a free neighbor on the left, right, or top. */
   private _groupHeld(group: BlockCell[]): boolean {
     for (let i = 0; i < group.length; i++) {
@@ -2397,7 +2335,7 @@ export class BattleDirector extends Component {
 
   /** Fully boxed-in cubes never show; hiding them does not punch hollow models. */
   private _isBuried(block: BlockCell): boolean {
-    if (block.bombed || block.paint || block.locked || block.magnet || block.raft) return false;
+    if (block.locked || block.raft) return false;
     for (let i = 0; i < COLOR_WALK.length; i++) {
       const d = COLOR_WALK[i];
       if (!this._aliveAt(block.col + d[0], block.row + d[1], block.layer + d[2])) return false;
@@ -2784,27 +2722,6 @@ export class BattleDirector extends Component {
     unit.slideToHome();
     unit.setPowerVisible(this._playing);
     return true;
-  }
-
-  private _paintSplash(origin: BlockCell, colorId: ColorId): void {
-    const token = tokenOfColorId(colorId);
-    const col = origin.col;
-    const row = origin.row;
-    const layer = origin.layer;
-    origin.node.getWorldPosition(_world);
-    playMergeBurst(this.node, _world);
-    this._dyeAround(col, row, layer, colorId, token);
-    this._popBomb(origin);
-  }
-
-  private _dyeAround(col: number, row: number, layer: number, colorId: ColorId, token: ColorToken): void {
-    forSpecialRing(col, row, (x, y) => {
-      const b = this._aliveAt(x, y, layer);
-      if (!b) return;
-      b.colorId = colorId;
-      b.voxelId = nearestVoxelId(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.o);
-      paintNodeColor(b.node, token);
-    });
   }
 
   private _settleSand(col: number, layer: number): void {

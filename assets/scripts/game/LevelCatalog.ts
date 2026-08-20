@@ -20,9 +20,6 @@ export let LEVEL_COUNT = 100;
 export type LevelCell = {
   tokens: ColorToken[];
   locked?: boolean[];
-  bomb?: boolean[];
-  paint?: boolean[];
-  magnet?: boolean[];
   rescue?: ColorToken;
   chest?: boolean;
 };
@@ -78,7 +75,7 @@ type RawLevel = {
   depth?: number;
   voxels?: number[];
   units: Array<[string, number] | [string, number, string]>;
-  cells: Array<string | null>;
+  cells?: Array<string | null>;
 };
 
 const SAVE_KEY = 'suck.level';
@@ -319,37 +316,21 @@ function decodeCell(raw: string | null): LevelCell | null {
   }
   const tokens: ColorToken[] = [];
   const locked: boolean[] = [];
-  const bomb: boolean[] = [];
-  const paint: boolean[] = [];
-  const magnet: boolean[] = [];
   let anyLock = false;
-  let anyBomb = false;
-  let anyPaint = false;
-  let anyMagnet = false;
   for (let i = 0; i < raw.length; i++) {
-    let mark = '';
+    // Drop leftover * / ! / ^ marks from retired bomb / paint / magnet bricks.
     if (raw[i] === '*' || raw[i] === '!' || raw[i] === '^') {
-      mark = raw[i];
       i += 1;
       if (i >= raw.length) break;
     }
     const ch = raw[i];
     const up = ch >= 'A' && ch <= 'Z';
     tokens.push((up ? ch.toLowerCase() : ch) as ColorToken);
-    locked.push(up && !mark);
-    bomb.push(mark === '*');
-    paint.push(mark === '!');
-    magnet.push(mark === '^');
-    if (up && !mark) anyLock = true;
-    if (mark === '*') anyBomb = true;
-    if (mark === '!') anyPaint = true;
-    if (mark === '^') anyMagnet = true;
+    locked.push(up);
+    if (up) anyLock = true;
   }
   const cell: LevelCell = { tokens };
   if (anyLock) cell.locked = locked;
-  if (anyBomb) cell.bomb = bomb;
-  if (anyPaint) cell.paint = paint;
-  if (anyMagnet) cell.magnet = magnet;
   return cell;
 }
 
@@ -495,6 +476,6 @@ function decodeLevel(raw: RawLevel): LevelDef {
     voxels,
     palette: [...raw.palette] as ColorToken[],
     units,
-    cells: raw.cells.map(decodeCell),
+    cells: (raw.cells ?? []).map(decodeCell),
   };
 }

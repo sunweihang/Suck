@@ -2,9 +2,7 @@ import { Color, ImageAsset, Material, Mesh, MeshRenderer, Node, Texture2D, Vec4,
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { HIDDEN_QUEUE_AFTER_LEVEL } from '../game/LevelCatalog';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
-import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, forgetBrickParts, inflateFieldCull, isBrickLitMat, makeFieldLit, makeFieldUnlit, makeInstancedLit, makeInstancedTextured, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
-import { getToyBall } from './ToySlotMesh';
+import { forgetBrickParts, inflateFieldCull, isBrickLitMat, makeFieldUnlit, makeInstancedLit, makeInstancedTextured, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
 
 const _mats = new Map<string, Material>();
 
@@ -16,14 +14,6 @@ function glossy(key: string, color: Color, roughness: number, emit: number): Mat
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
   const mat = makeInstancedLit(color, roughness, 0, emit);
-  _mats.set(key, mat);
-  return mat;
-}
-
-function fieldGlossy(key: string, color: Color, roughness: number, emit: number): Material {
-  const hit = _mats.get(key);
-  if (usable(hit)) return hit;
-  const mat = makeFieldLit(color, roughness, 0, emit);
   _mats.set(key, mat);
   return mat;
 }
@@ -59,48 +49,9 @@ function skipPaint(name: string): boolean {
     || name === 'Power'
     || name === 'Bank'
     || name === 'Text'
-    || name.startsWith('Paint')
-    || name.startsWith('Magnet')
     || name.startsWith('Lock')
     || /^[DN]\d$/.test(name)
   );
-}
-
-function part(root: Node, name: string): Node {
-  let n = root.getChildByName(name);
-  if (!n) {
-    n = new Node(name);
-    root.addChild(n);
-    n.layer = root.layer;
-    n.addComponent(MeshRenderer);
-  }
-  n.active = true;
-  return n;
-}
-
-function blob(
-  root: Node,
-  name: string,
-  x: number,
-  y: number,
-  z: number,
-  sx: number,
-  sy: number,
-  sz: number,
-  mat: Material,
-): void {
-  const n = part(root, name);
-  n.setPosition(x, y, z);
-  n.setScale(sx, sy, sz);
-  n.setRotationFromEuler(0, 0, 0);
-  const mr = n.getComponent(MeshRenderer);
-  const mesh = getToyBall();
-  if (!mr || !mesh) return;
-  mr.enabled = true;
-  mr.mesh = mesh;
-  mr.setSharedMaterial(mat, 0);
-  mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
-  mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
 }
 
 function paintLookOn(mrs: MeshRenderer[], look: VoxelLook): void {
@@ -352,21 +303,6 @@ export function readPaintRgb(root: Node): readonly [number, number, number] | nu
     if (rgb) return rgb;
   }
   return null;
-}
-
-export function applyPaintLook(root: Node, token: ColorToken = 'p'): void {
-  applyPaintCan(root, token);
-  applyToyCaster(root, false, false);
-}
-
-export function applyMagnetLook(root: Node): void {
-  const steel = fieldGlossy('magnet-steel', new Color(72, 84, 104, 255), 0.22, 0.1);
-  const red = fieldGlossy('magnet-red', new Color(220, 40, 48, 255), 0.2, 0.2);
-  const blue = fieldGlossy('magnet-blue', new Color(48, 96, 220, 255), 0.2, 0.2);
-  blob(root, 'MagnetArch', 0, 0.16, 0.52, 0.72, 0.55, 0.22, steel);
-  blob(root, 'MagnetL', -0.22, -0.12, 0.54, 0.22, 0.38, 0.2, red);
-  blob(root, 'MagnetR', 0.22, -0.12, 0.54, 0.22, 0.38, 0.2, blue);
-  applyToyCaster(root, false, false);
 }
 
 function sandRgb(rgb: readonly [number, number, number]): readonly [number, number, number] {

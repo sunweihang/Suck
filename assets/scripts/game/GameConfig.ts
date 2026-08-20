@@ -246,14 +246,12 @@ export function slotLocked(index: number): boolean {
   return col < side || col >= GAME.slotMax - side;
 }
 
-/** Rescue / chest / bomb / paint occupy this many cells on each side. */
+/** Rescue / chest occupy this many cells on each side. */
 export const SPECIAL_SPAN = 4;
 
 export type SpecialMark = {
   rescue?: unknown;
   chest?: unknown;
-  bomb?: boolean[];
-  paint?: boolean[];
 };
 
 export function specialCenterX(col: number, startX: number, step: number, span = SPECIAL_SPAN): number {
@@ -269,7 +267,7 @@ export function inSpecialFoot(col: number, row: number, x: number, y: number, sp
 }
 
 export function isSpecialOrigin(cell: SpecialMark | null | undefined): boolean {
-  return !!(cell?.rescue || cell?.chest || cell?.bomb?.[0] || cell?.paint?.[0]);
+  return !!(cell?.rescue || cell?.chest);
 }
 
 /** True when (x, y) sits in another special's 2×2 hole and is not the origin. */

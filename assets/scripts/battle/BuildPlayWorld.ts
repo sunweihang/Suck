@@ -37,11 +37,9 @@ import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
-import { applyBombs, preloadBombs } from './Bombs';
-import { applyMagnetLook, applyPaintLook, applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
+import { applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
-import { preloadPaintCan } from './PaintCan';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
 import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
@@ -130,29 +128,21 @@ function tokensNeeded(level: LevelDef): string[] {
 
 function levelNeeds(level: LevelDef): {
   nails: boolean;
-  bombs: boolean;
-  paint: boolean;
   raft: boolean;
   iron: boolean;
   chest: boolean;
 } {
   let nails = false;
-  let bombs = false;
-  let paint = false;
   let chest = false;
   if (!level.voxels.length) {
     for (const cell of level.cells) {
       if (!cell) continue;
       if (cell.chest) chest = true;
       if (cell.locked?.some(Boolean)) nails = true;
-      if (cell.bomb?.some(Boolean)) bombs = true;
-      if (cell.paint?.some(Boolean)) paint = true;
     }
   }
   return {
     nails,
-    bombs,
-    paint,
     raft: (level.raftW ?? 0) > 0,
     iron: (level.ironRows?.length ?? 0) > 0 || level.ironRow >= 0,
     chest,
@@ -311,8 +301,6 @@ export async function buildPlayWorld(
     Promise.all(tokens.map((t) => loadPrefab(blockPrefabPath(t), blockPrefabUuid(t), 'block:' + t))),
     Promise.all(tokens.map((t) => loadPrefab(unitPrefabPath(t), unitPrefabUuid(t), 'unit:' + t))),
     needs.nails ? preloadLockNails() : Promise.resolve(),
-    needs.bombs ? preloadBombs() : Promise.resolve(),
-    needs.paint ? preloadPaintCan() : Promise.resolve(),
     needs.raft ? preloadRaftBoard() : Promise.resolve(),
     preloadPowerDigits().then(() => null),
     preloadInkShot(),
@@ -382,12 +370,8 @@ export async function buildPlayWorld(
       for (let z = 0; z < cell.tokens.length; z++) {
         const token = cell.tokens[z];
         const locked = !!cell.locked?.[z];
-        const bombed = !!cell.bomb?.[z];
-        const paint = !!cell.paint?.[z];
-        const magnet = !!cell.magnet?.[z];
         const raft = onRaft(level, x, y);
-        const tag = locked ? '_L' : bombed ? '_B' : paint ? '_P' : magnet ? '_M' : raft ? '_F' : '';
-        const big = z === 0 && (bombed || paint);
+        const tag = locked ? '_L' : raft ? '_F' : '';
         const blockPf = blockPfs[token] || blockPfs['o'];
         if (!blockPf) throw new Error('no block prefab ' + token);
         const n = spawn(
@@ -395,18 +379,15 @@ export async function buildPlayWorld(
           wall,
           `Blk_${token}_${x}_${y}_${z}${tag}`,
           new Vec3(
-            big ? specialCenterX(x, startX, step) : startX + x * step,
-            (big ? specialCenterY(y, baseY, step) : baseY + y * step) + (raft ? step * 0.05 : 0),
-            frontZ - z * step + (big ? 0.06 : 0),
+            startX + x * step,
+            baseY + y * step + (raft ? step * 0.05 : 0),
+            frontZ - z * step,
           ),
         );
         const brick = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
         brick.syncFromName();
         if (isColorToken(token)) brick.voxelId = TOKEN_VOXEL_ID[token];
         if (locked && z === 0) applyLockNails(n);
-        if (bombed) applyBombs(n, token);
-        if (paint) applyPaintLook(n, token);
-        if (magnet) applyMagnetLook(n);
         if (level.sandCols?.includes(x)) applySandLook(n);
       }
     }
