@@ -83,7 +83,6 @@ export class VictoryPanel extends Component {
     this._ensureTree();
     this._bindEvents();
     this._fade(0);
-    this.node.active = true;
     const dim = this.node.getChildByName('Dim') ?? this.node;
     dim.off(Node.EventType.TOUCH_END);
     dim.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
@@ -92,6 +91,7 @@ export class VictoryPanel extends Component {
     this.layoutChrome();
     this._bakePctAtlas();
     this.node.pauseSystemEvents(true);
+    this.node.active = false;
   }
 
   /**
@@ -118,6 +118,7 @@ export class VictoryPanel extends Component {
     if (!this.node.isValid) return;
     this._fade(0);
     this.node.pauseSystemEvents(true);
+    this.node.active = false;
     this._open = false;
     this._gpuHot = true;
     this._gold = 0;
@@ -174,6 +175,7 @@ export class VictoryPanel extends Component {
     clearWinConfetti(this.node);
     this._fade(0);
     this.node.pauseSystemEvents(true);
+    this.node.active = false;
     this._locked = false;
   }
 

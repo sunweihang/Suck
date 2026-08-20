@@ -67,9 +67,9 @@ import { encodeUgcText, getUgcMap, listUgcMaps, newUgcMap, parseUgcText, saveUgc
 import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { ensureCoinFxRoot, playCoinFlyBurst, warmupCoinFlyers, worldToFxLocal } from './view/CoinFlyFx';
-import { playItemGrantFly } from './view/ItemFlyFx';
-import { artFrame, preloadUiArt } from './view/UiArt';
-import { loadGameBundles } from './boot/LoadBundles';
+import { playItemGrantFly, playItemUseFly } from './view/ItemFlyFx';
+import { artFrame, preloadHomeArt, preloadUiArt } from './view/UiArt';
+import { loadGameBundles, loadHomeBundles } from './boot/LoadBundles';
 import { attachBootLoad, type BootLoad } from './view/BootLoad';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
@@ -157,6 +157,10 @@ export class GameBootstrap extends Component {
   private _worldKey = '';
   private _guideLandGen = 0;
   private _worldTouched = false;
+  private _bootEpoch = 0;
+  private _bootJobEpoch = -1;
+  private _enteringPlay = false;
+  private _loadShown = false;
   private _load: BootLoad | null = null;
   private _playHud: PlayHud | null = null;
   private _victory: VictoryPanel | null = null;
@@ -220,6 +224,23 @@ export class GameBootstrap extends Component {
     initRewardedAd();
   }
 
+  private _warmAfterHome(artJob: Promise<void>): void {
+    const audio = this._ensureAudio();
+    void artJob.then(() => {
+      if (!this.isValid) return;
+      this._playHud?.applyArt();
+      this._gold?.applyArt();
+      this._settings?.applyArt();
+      this._chest?.applyArt();
+      this._itemShop?.applyArt();
+    });
+    void bootStep('win audio', audio.ensureWin());
+    if (this._canvas) warmupCoinFlyers(this._canvas);
+    if (this.node.scene && this._mainCam?.node) {
+      void bootStep('backdrop', spawnToyBackdrop(this.node.scene, this._mainCam.node));
+    }
+  }
+
   private async _bootUi(): Promise<void> {
     try {
       applyDesignResolution();
@@ -235,7 +256,8 @@ export class GameBootstrap extends Component {
       this._load = load;
       await afterDraws(2);
       notifyHostSplashHomeReady();
-      await loadGameBundles((p) => load.set(p));
+      await loadHomeBundles((p) => load.set(p));
+      void loadGameBundles();
       load.set(0.78);
       await ensureLevels();
       this._restoreProgress();
@@ -245,33 +267,20 @@ export class GameBootstrap extends Component {
       load.raise();
       this._home?.hide();
       load.set(0.86);
-      const audio = this._ensureAudio();
+      this._ensureAudio();
       const artJob = bootStep('ui art', preloadUiArt());
-      const winAudioJob = bootStep('win audio', audio.ensureWin());
-      const backdropJob =
-        this.node.scene && this._mainCam?.node
-          ? bootStep('backdrop', spawnToyBackdrop(this.node.scene, this._mainCam.node))
-          : Promise.resolve();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
-      await artJob;
-      load.set(0.94);
-      await winAudioJob;
-      await this._victory?.warmup();
-      if (this._canvas) warmupCoinFlyers(this._canvas);
-      await backdropJob;
+      await preloadHomeArt();
       this._home?.applyArt();
       this._ugcHud?.hide();
-      this._playHud?.applyArt();
-      this._gold?.applyArt();
-      this._settings?.applyArt();
-      this._chest?.applyArt();
-      this._itemShop?.applyArt();
       this._applyPortraitFrame();
       await load.finish();
-      load.hide();
       this._showHome();
       this._revealHomeAndLiftSplash();
+      await afterDraws(1);
+      load.hide();
+      this._warmAfterHome(artJob);
     } catch (err) {
       console.error('[Suck] boot ui failed', err);
       this._showHome();
@@ -335,13 +344,28 @@ export class GameBootstrap extends Component {
     n.destroy();
   }
 
-  /** Instantiates the current map. Splash skips this; Play runs it under BootLoad. */
+  private _invalidateWorldBoot(): void {
+    this._bootEpoch++;
+  }
+
+  private _abandonedBoot(epoch: number): boolean {
+    return epoch !== this._bootEpoch || !this.isValid;
+  }
+
+  /** Instantiates the current map. Home prefetches it so Play can skip a second BootLoad. */
   private _bootWorld(): Promise<void> {
-    if (this._bootJob) return this._bootJob;
-    this._bootJob = this._bootWorldInner().finally(() => {
-      this._bootJob = null;
+    if (this._bootJob && this._bootJobEpoch === this._bootEpoch) return this._bootJob;
+    const epoch = this._bootEpoch;
+    this._bootJobEpoch = epoch;
+    this._bootJob = this._bootWorldInner(epoch).finally(() => {
+      if (this._bootJobEpoch === epoch) this._bootJob = null;
     });
     return this._bootJob;
+  }
+
+  private _prefetchPlayWorld(): void {
+    if (!this.isValid || this._ugcPlay || this._ugcEditor) return;
+    void this._bootWorld();
   }
 
   private _playWorldKey(): string {
@@ -369,6 +393,9 @@ export class GameBootstrap extends Component {
       await work(() => undefined);
       return;
     }
+    this._loadShown = true;
+    load.show();
+    load.set(0.1);
     this._home?.hide();
     this._playHud?.hide();
     this._victory?.hide();
@@ -377,30 +404,41 @@ export class GameBootstrap extends Component {
     this._itemShop?.hide();
     this._settings?.hide();
     this._setGoldVisible(false);
-    load.show();
-    load.set(0.1);
     try {
       await work((p) => load.set(p));
       await load.finish();
     } finally {
+      this._loadShown = false;
       load.hide();
     }
   }
 
-  private async _bootWorldInner(): Promise<void> {
+  private async _bootWorldInner(epoch: number): Promise<void> {
     try {
       await loadGameBundles();
+      if (this._abandonedBoot(epoch) || this._ugcEditor) return;
       await ensureLevels();
-      if (!this.node.scene) return;
+      if (this._abandonedBoot(epoch) || this._ugcEditor || !this.node.scene) return;
       const key = this._playWorldKey();
       if (this._worldKey === key && this._battle?.isValid) return;
       this._disposeNamed('PlayWorld');
       this._disposeUgcEditor();
       if (!(this._ugcPlay && this._ugcLevel)) await ensureLevel(this._level);
+      if (this._abandonedBoot(epoch) || this._ugcEditor || !this.node.scene) return;
       const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
       const world = await buildPlayWorld(this.node.scene, level, {
-        onProgress: (p) => this._load?.set(0.22 + p * 0.7),
+        onProgress: (p) => {
+          if (this._loadShown) this._load?.set(0.22 + p * 0.7);
+        },
       });
+      if (this._abandonedBoot(epoch) || this._ugcEditor) {
+        if (world.root?.isValid) {
+          world.root.name = 'PlayWorld_abandoned';
+          world.root.removeFromParent();
+          this._disposeTree(world.root);
+        }
+        return;
+      }
       this._battle = world.battle;
       this._worldKey = key;
       this._builtLevel = this._ugcPlay ? 1 : this._level;
@@ -426,16 +464,20 @@ export class GameBootstrap extends Component {
       onGoldDenied: () => this._gold?.deny(),
       onChest: (chest) => this._onChestReady(chest),
       onUnlockSlot: (slot) => this._showSlotShop(slot),
+      onItemUseFx: (req) => this._playItemUseFx(req),
       wallet: this._wallet,
     });
     this._playHud?.setItems(this._battle.itemState());
     this._gold?.setCoins(this._wallet.coins);
   }
 
+  private _playWorldReady(): boolean {
+    return this._worldKey === this._playWorldKey() && !!this._battle?.isValid;
+  }
+
   private async _ensureWorld(): Promise<void> {
-    if (this._bootJob) await this._bootJob;
-    const key = this._playWorldKey();
-    if (this._worldKey === key && this._battle?.isValid) return;
+    if (this._bootJob && this._bootJobEpoch === this._bootEpoch) await this._bootJob;
+    if (this._playWorldReady()) return;
     await this._bootWorld();
   }
 
@@ -868,6 +910,32 @@ export class GameBootstrap extends Component {
         onLand: (id) => this._playHud?.pulseItem(id),
         onDone: () => resolve(),
       });
+    });
+  }
+
+  private _playItemUseFx(req: {
+    id: ItemId;
+    world: Vec3 | null;
+    onArrive: () => void;
+  }): void {
+    const canvas = this._canvas;
+    if (!canvas?.isValid) {
+      req.onArrive();
+      return;
+    }
+    const start = new Vec3();
+    if (!this._playHud?.itemIconWorldPos(req.id, start)) {
+      req.onArrive();
+      return;
+    }
+    this._playHud.pulseItem(req.id);
+    playItemUseFly({
+      canvas,
+      id: req.id,
+      startWorld: start,
+      endWorld: req.world,
+      worldCam: this._mainCam,
+      onArrive: req.onArrive,
     });
   }
 
@@ -1385,12 +1453,14 @@ export class GameBootstrap extends Component {
     this._battle?.setPlaying(false);
     if (this._worldTouched) {
       this._worldTouched = false;
+      this._invalidateWorldBoot();
       this._disposeNamed('PlayWorld');
       this._battle = null;
       this._worldKey = '';
       this._builtLevel = 0;
     }
     this._setWorldLive(false);
+    this._prefetchPlayWorld();
   }
 
   private _showSettings(): void {
@@ -1414,25 +1484,44 @@ export class GameBootstrap extends Component {
   }
 
   private _enterPlay(): void {
+    if (this._enteringPlay) return;
     void this._enterPlayAsync();
   }
 
   private async _enterPlayAsync(): Promise<void> {
-    this._settledBuilt = -1;
-    this._unlockAudio();
-    const key = this._playWorldKey();
-    if (this._worldKey === key && this._battle?.isValid) {
+    this._enteringPlay = true;
+    try {
+      this._settledBuilt = -1;
+      this._unlockAudio();
+      if (this._playWorldReady()) {
+        this._revealPlay();
+        return;
+      }
+      const fromHome = !this._ugcPlay && !!this._home?.node.active;
+      if (fromHome) {
+        await this._ensureWorld();
+      } else {
+        await this._runLevelLoad(async (set) => {
+          set(0.16);
+          await this._ensureWorld();
+          set(0.94);
+        });
+      }
+      if (!this.isValid || this._ugcEditor) return;
+      if (this._ugcHoldPlay && !this._ugcPlay) return;
+      if (!this._playWorldReady()) {
+        await this._runLevelLoad(async (set) => {
+          set(0.16);
+          await this._ensureWorld();
+          set(0.94);
+        });
+        if (!this.isValid || this._ugcEditor) return;
+        if (this._ugcHoldPlay && !this._ugcPlay) return;
+      }
       this._revealPlay();
-      return;
+    } finally {
+      this._enteringPlay = false;
     }
-    await this._runLevelLoad(async (set) => {
-      set(0.16);
-      await this._ensureWorld();
-      set(0.94);
-    });
-    if (!this.isValid || this._ugcEditor) return;
-    if (this._ugcHoldPlay && !this._ugcPlay) return;
-    this._revealPlay();
   }
 
   private _revealPlay(): void {
@@ -1452,10 +1541,10 @@ export class GameBootstrap extends Component {
     this._gm?.collapse();
     this._playHud?.setUgc(this._ugcPlay);
     this._gm?.setLevel(this._builtLevel);
-    const gifted = this._ugcPlay ? null : grantGuideItem(this._wallet, this._builtLevel);
+    const gifted = this._ugcPlay ? [] : grantGuideItem(this._wallet, this._builtLevel);
     const landGen = ++this._guideLandGen;
-    if (gifted) {
-      this._playHud?.holdUnlock(gifted);
+    if (gifted.length) {
+      this._playHud?.holdUnlock(gifted[0]);
       this._battle?.setItemsReady(false);
     } else {
       this._battle?.setItemsReady(true);
@@ -1468,10 +1557,10 @@ export class GameBootstrap extends Component {
     this._battle?.setPlaying(true);
     this._clearChest = null;
     this._grantLeftoverChest();
-    if (gifted) {
-      void this._flyChestItems([gifted]).then(() => {
+    if (gifted.length) {
+      void this._flyChestItems(gifted).then(() => {
         if (!this.isValid || landGen !== this._guideLandGen) return;
-        this._playHud?.releaseUnlock(gifted);
+        this._playHud?.releaseUnlock(gifted[0]);
         this.scheduleOnce(() => {
           if (!this.isValid || landGen !== this._guideLandGen) return;
           this._battle?.setItemsReady(true);
@@ -1573,8 +1662,10 @@ export class GameBootstrap extends Component {
   private async _enterUgcEditor(id?: string): Promise<void> {
     const map = id ? getUgcMap(id) : (listUgcMaps()[0] ?? newUgcMap());
     if (!map || !this.node.scene || !this._mainCam) return;
+    this._invalidateWorldBoot();
     this._unlockAudio();
     try {
+      await loadGameBundles();
       this._disposeNamed('PlayWorld');
       this._battle = null;
       this._worldKey = '';
@@ -1608,6 +1699,7 @@ export class GameBootstrap extends Component {
   private _enterUgcPlay(id: string): void {
     const map = getUgcMap(id);
     if (!map || map.bricks.length <= 0) return;
+    this._invalidateWorldBoot();
     this._ugcEditor?.persist();
     this._disposeUgcEditor();
     this._ugcPlay = true;

@@ -79,6 +79,12 @@ export type ItemHudState = {
   bombPick: boolean;
 };
 
+export type ItemUseFx = {
+  id: ItemId;
+  world: Vec3 | null;
+  onArrive: () => void;
+};
+
 const _ray = new geometry.Ray();
 const _world = new Vec3();
 const _tmp = new Vec3();
@@ -327,6 +333,8 @@ export class BattleDirector extends Component {
   private _chestBusy = false;
   private _onChest: ((chest: ChestActor) => void) | null = null;
   private _onUnlockSlot: ((slot: SlotPad) => void) | null = null;
+  private _onItemUseFx: ((req: ItemUseFx) => void) | null = null;
+  private _itemFxBusy = false;
   private _raft: Node | null = null;
   private _raftCarry: Node | null = null;
   private _raftShift = 0;
@@ -373,6 +381,7 @@ export class BattleDirector extends Component {
     onGoldDenied?: () => void;
     onChest?: (chest: ChestActor) => void;
     onUnlockSlot?: (slot: SlotPad) => void;
+    onItemUseFx?: (req: ItemUseFx) => void;
     wallet?: PlayerWallet;
   }): void {
     this._cam = opts.camera;
@@ -385,9 +394,11 @@ export class BattleDirector extends Component {
     this._guideKey = '*';
     this._lastGuide = null;
     this._itemsReady = true;
+    this._itemFxBusy = false;
     this._onGoldDenied = opts.onGoldDenied ?? null;
     this._onChest = opts.onChest ?? null;
     this._onUnlockSlot = opts.onUnlockSlot ?? null;
+    this._onItemUseFx = opts.onItemUseFx ?? null;
     this._wallet = opts.wallet ?? null;
     this._won = false;
     this._lost = false;
@@ -708,7 +719,7 @@ export class BattleDirector extends Component {
 
   useItem(id: ItemId): boolean {
     if (!this._playing || this._won || this._lost) return false;
-    if (!this._itemsReady) {
+    if (this._itemFxBusy || !this._itemsReady) {
       this._emitItems();
       return false;
     }
@@ -728,11 +739,13 @@ export class BattleDirector extends Component {
         this._emitItems();
         return false;
       }
-      if (!this._shuffleBench()) {
+      if (!this._canShuffle()) {
         this._emitItems();
         return false;
       }
-      this._spend('shuffle');
+      this._commitItemFx('shuffle', null, () => {
+        this._shuffleBench();
+      });
       return true;
     }
     if (id === 'hook') {
@@ -841,7 +854,7 @@ export class BattleDirector extends Component {
   }
 
   private _syncHint(dt: number): void {
-    if (!this._playing || this._won || this._lost) {
+    if (!this._playing || this._won || this._lost || this._itemFxBusy) {
       this._emitGuide(null);
       this._hint?.hide();
       return;
@@ -1292,13 +1305,18 @@ export class BattleDirector extends Component {
   }
 
   private _onTap(e: PointerEvt): void {
-    if (!this._playing || this._won || this._lost) return;
+    if (!this._playing || this._won || this._lost || this._itemFxBusy) return;
     if (this._overUi(e)) return;
     if (this._guideBlocksWorld()) return;
     if (this._hookPick) {
       const rear = this._pickAnyBench(e);
-      if (rear && !this._isColFront(rear) && this._deployHooked(rear)) this._spend('hook');
-      else if (!this._guideKeepPick()) {
+      if (rear && !this._isColFront(rear)) {
+        rear.node.getWorldPosition(_world);
+        _world.y += 0.22;
+        this._commitItemFx('hook', _world, () => {
+          this._deployHooked(rear);
+        });
+      } else if (!this._guideKeepPick()) {
         this._hookPick = false;
         this._emitItems();
       }
@@ -1306,8 +1324,13 @@ export class BattleDirector extends Component {
     }
     if (this._shovelPick) {
       const unit = this._pickSlotUnit(e);
-      if (unit && this._shovelToBench(unit)) this._spend('shovel');
-      else if (!this._guideKeepPick()) {
+      if (unit) {
+        unit.node.getWorldPosition(_world);
+        _world.y += 0.22;
+        this._commitItemFx('shovel', _world, () => {
+          this._shovelToBench(unit);
+        });
+      } else if (!this._guideKeepPick()) {
         this._shovelPick = false;
         this._emitItems();
       }
@@ -1315,8 +1338,11 @@ export class BattleDirector extends Component {
     }
     if (this._bombPick) {
       const block = this._pickBrick(e);
-      if (block && this._blastColorGroup(block)) this._spend('bomb');
-      else if (!this._guideKeepPick()) {
+      if (block) {
+        this._commitItemFx('bomb', null, () => {
+          this._blastColorGroup(block);
+        });
+      } else if (!this._guideKeepPick()) {
         this._bombPick = false;
         this._emitItems();
       }
@@ -2797,6 +2823,7 @@ export class BattleDirector extends Component {
   }
 
   private _resetItems(): void {
+    this._itemFxBusy = false;
     this._clearPicks();
     this._emitItems();
   }
@@ -2812,15 +2839,37 @@ export class BattleDirector extends Component {
     this._bombPick = false;
   }
 
-  private _spend(id: ItemId): void {
+  private _spend(id: ItemId, autoPlace = true): void {
     if (!this._wallet?.consumeItem(id)) {
       this._emitItems();
       return;
     }
+    const teaching = guideIdForLevel(PLAY.levelId) === id && !isGuideDone(id);
     completeGuide(id);
+    if (teaching && this._wallet.itemCount(id) <= 0) this._wallet.addItem(id, 1);
     this._clearPicks();
     this._emitItems();
-    this._maybeAutoPlace();
+    if (autoPlace) this._maybeAutoPlace();
+  }
+
+  private _commitItemFx(id: ItemId, world: Vec3 | null, apply: () => void): void {
+    if (this._itemFxBusy || !this._afford(id)) return;
+    this._itemFxBusy = true;
+    this._spend(id, false);
+    const land = world ? new Vec3(world.x, world.y, world.z) : null;
+    const finish = (): void => {
+      if (!this.isValid || !this._itemFxBusy) return;
+      this.unschedule(finish);
+      this._itemFxBusy = false;
+      apply();
+      this._maybeAutoPlace();
+    };
+    this.scheduleOnce(finish, 1.8);
+    if (!this._onItemUseFx) {
+      finish();
+      return;
+    }
+    this._onItemUseFx({ id, world: land, onArrive: finish });
   }
 
   private _emitItems(): void {

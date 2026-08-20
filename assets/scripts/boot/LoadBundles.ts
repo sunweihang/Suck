@@ -1,7 +1,5 @@
 import { AssetManager, assetManager, Prefab } from 'cc';
 
-let _job: Promise<void> | null = null;
-
 function loadOne(name: string): Promise<AssetManager.Bundle> {
   return new Promise((resolve, reject) => {
     const existing = assetManager.getBundle(name);
@@ -30,39 +28,58 @@ function loadDir(bundle: AssetManager.Bundle, dir = ''): Promise<void> {
 
 export type PackProgress = (progress: number, tip: string) => void;
 
-export function openResourcesBundle(): Promise<AssetManager.Bundle> {
-  return loadOne('resources');
+let _homeJob: Promise<void> | null = null;
+let _playJob: Promise<void> | null = null;
+
+/** Open subpackages and pull home UI. Play meshes stay on `loadGameBundles`. */
+export function loadHomeBundles(onProgress?: PackProgress): Promise<void> {
+  if (_homeJob) return _homeJob;
+  _homeJob = (async () => {
+    const report = (p: number, tip: string) => onProgress?.(p, tip);
+    report(0.2, '');
+    await loadOne('resources');
+    report(0.4, '');
+    await loadOne('prefabs');
+    report(0.55, '');
+    const resources = assetManager.getBundle('resources');
+    if (resources) await loadDir(resources, 'ui');
+    report(0.7, '');
+  })().catch((err) => {
+    _homeJob = null;
+    throw err;
+  });
+  return _homeJob;
 }
 
-/** Load WeChat subpackages, then pull every prefab + mesh in `prefabs`. */
+/** Prefab meshes + combat audio/fx. Safe to start after home; Play awaits it. */
 export function loadGameBundles(onProgress?: PackProgress): Promise<void> {
-  if (_job) return _job;
-  _job = (async () => {
+  if (_playJob) return _playJob;
+  _playJob = (async () => {
+    await loadHomeBundles(onProgress);
     const report = (p: number, tip: string) => onProgress?.(p, tip);
-    report(0.2);
-    await loadOne('resources');
-    await loadOne('prefabs');
     const prefabs = assetManager.getBundle('prefabs');
     if (prefabs) {
       const dirs = ['models', 'materials', 'blocks', 'units', 'board', 'fx', 'ui'];
       for (let i = 0; i < dirs.length; i++) {
-        report(0.32 + (i / dirs.length) * 0.28);
+        report(0.32 + (i / dirs.length) * 0.28, '');
         await loadDir(prefabs, dirs[i]);
       }
     }
     const resources = assetManager.getBundle('resources');
     if (resources) {
-      report(0.64);
-      // Levels are sharded and pulled on demand in LevelCatalog. loadDir('')
-      // would JSON.parse all 43 shards (~10MB) and undo that split.
-      await Promise.all(['ui', 'audio', 'toys', 'meshes', 'fx'].map((dir) => loadDir(resources, dir)));
+      report(0.64, '');
+      await Promise.all(['audio', 'toys', 'meshes', 'fx'].map((dir) => loadDir(resources, dir)));
     }
-    report(0.7);
+    report(0.7, '');
   })().catch((err) => {
-    _job = null;
+    _playJob = null;
     throw err;
   });
-  return _job;
+  return _playJob;
+}
+
+export function openResourcesBundle(): Promise<AssetManager.Bundle> {
+  return loadOne('resources');
 }
 
 export function prefabBundle(): AssetManager.Bundle | null {

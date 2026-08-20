@@ -1,4 +1,5 @@
 import {
+  Camera,
   Color,
   Graphics,
   Layers,
@@ -35,8 +36,19 @@ const _tmp = new Vec3();
 const SCALE_IN = new Vec3(0.72, 0.72, 1);
 const SCALE_HOLD = new Vec3(1.08, 1.08, 1);
 const SCALE_END = new Vec3(END_SCALE, END_SCALE, 1);
+const USE_START = 168 / START_SIZE;
+const USE_FLY_SEC = 0.4;
+const USE_ARC = 110;
+const USE_CENTER_Y = 200;
+const SCALE_USE_START = new Vec3(USE_START, USE_START, 1);
+const SCALE_USE_MID = new Vec3(1.02, 1.02, 1);
 const ITEM_FALLBACK = new Color(255, 214, 96, 240);
+const RING_SHUFFLE = new Color(120, 210, 255, 220);
+const RING_BOMB = new Color(255, 120, 64, 230);
+const RING_HOOK = new Color(255, 214, 96, 220);
+const RING_SHOVEL = new Color(255, 186, 74, 220);
 const _pool: Node[] = [];
+const _useEnd = new Vec3();
 
 export function clearItemFlyers(fxRoot: Node | null): void {
   if (!fxRoot?.isValid) return;
@@ -70,7 +82,10 @@ function takeItemFlyer(fxRoot: Node): Node {
 
 function recycleItemFlyer(n: Node): void {
   Tween.stopAllByTarget(n);
-  if (n.isValid) n.active = false;
+  if (!n.isValid) return;
+  n.angle = 0;
+  n.setScale(1, 1, 1);
+  n.active = false;
 }
 
 export function playItemGrantFly(opts: {
@@ -117,22 +132,49 @@ export function playItemGrantFly(opts: {
   }
 }
 
-function spawnItemFlyer(
-  fxRoot: Node,
-  sx: number,
-  sy: number,
-  ex: number,
-  ey: number,
-  frame: SpriteFrame | null,
-  delay: number,
-  onLand: () => void,
-): void {
-  const n = takeItemFlyer(fxRoot);
-  n.setSiblingIndex(fxRoot.children.length - 1);
-  n.setPosition(sx, sy, 0);
-  n.setScale(SCALE_IN);
+export function playItemUseFly(opts: {
+  canvas: Node;
+  id: ItemId;
+  startWorld: Vec3;
+  endWorld?: Vec3 | null;
+  worldCam?: Camera | null;
+  onArrive?: () => void;
+  onDone?: () => void;
+}): void {
+  const canvas = opts.canvas;
+  if (!canvas?.isValid) {
+    opts.onArrive?.();
+    opts.onDone?.();
+    return;
+  }
+  const fx = ensureCoinFxRoot(canvas);
+  fx.setSiblingIndex(canvas.children.length - 1);
+  worldToFxLocal(fx, opts.startWorld, _tmp);
+  const sx = _tmp.x;
+  const sy = _tmp.y;
+  if (opts.endWorld && opts.worldCam) {
+    try {
+      opts.worldCam.convertToUINode(opts.endWorld, fx, _useEnd);
+    } catch {
+      _useEnd.set(0, USE_CENTER_Y, 0);
+    }
+    if (!Number.isFinite(_useEnd.x) || !Number.isFinite(_useEnd.y)) {
+      _useEnd.set(0, USE_CENTER_Y, 0);
+    }
+  } else {
+    _useEnd.set(0, USE_CENTER_Y, 0);
+  }
+  spawnItemUseFlyer(fx, opts.id, sx, sy, _useEnd.x, _useEnd.y, () => {
+    opts.onArrive?.();
+  }, () => {
+    opts.onDone?.();
+  });
+}
+
+function dressFlyer(n: Node, frame: SpriteFrame | null): void {
   const op = n.getComponent(UIOpacity);
   if (op) op.opacity = 255;
+  n.angle = 0;
   const sp = n.getComponent(Sprite);
   const g = n.getComponent(Graphics);
   if (frame && sp) {
@@ -157,6 +199,23 @@ function spawnItemFlyer(
       g.fill();
     }
   }
+}
+
+function spawnItemFlyer(
+  fxRoot: Node,
+  sx: number,
+  sy: number,
+  ex: number,
+  ey: number,
+  frame: SpriteFrame | null,
+  delay: number,
+  onLand: () => void,
+): void {
+  const n = takeItemFlyer(fxRoot);
+  n.setSiblingIndex(fxRoot.children.length - 1);
+  n.setPosition(sx, sy, 0);
+  n.setScale(SCALE_IN);
+  dressFlyer(n, frame);
   tween(n)
     .delay(delay)
     .to(HOLD, { scale: SCALE_HOLD }, { easing: 'sineOut' })
@@ -177,4 +236,130 @@ function spawnItemFlyer(
       onLand();
     })
     .start();
+}
+
+function ringColor(id: ItemId): Color {
+  if (id === 'bomb') return RING_BOMB;
+  if (id === 'hook') return RING_HOOK;
+  if (id === 'shovel') return RING_SHOVEL;
+  return RING_SHUFFLE;
+}
+
+function paintUseRing(n: Node, id: ItemId, radius: number): void {
+  const g = n.getComponent(Graphics);
+  if (!g) return;
+  g.enabled = true;
+  g.clear();
+  g.strokeColor = ringColor(id);
+  g.lineWidth = 14;
+  g.circle(0, 0, radius);
+  g.stroke();
+}
+
+function spawnItemUseFlyer(
+  fxRoot: Node,
+  id: ItemId,
+  sx: number,
+  sy: number,
+  ex: number,
+  ey: number,
+  onArrive: () => void,
+  onDone: () => void,
+): void {
+  const n = takeItemFlyer(fxRoot);
+  n.setSiblingIndex(fxRoot.children.length - 1);
+  n.setPosition(sx, sy, 0);
+  n.setScale(SCALE_USE_START);
+  n.angle = 0;
+  dressFlyer(n, artFrame(ITEM_ART[id]));
+  let arrived = false;
+  const arrive = (): void => {
+    if (arrived) return;
+    arrived = true;
+    onArrive();
+  };
+  const finish = (): void => {
+    arrive();
+    recycleItemFlyer(n);
+    onDone();
+  };
+  const fly = tween(n)
+    .to(USE_FLY_SEC, { scale: SCALE_USE_MID }, {
+      easing: 'cubicOut',
+      onUpdate: (_t, ratio) => {
+        if (!n.isValid) return;
+        const r = ratio ?? 0;
+        n.setPosition(
+          sx + (ex - sx) * r,
+          sy + (ey - sy) * r + Math.sin(r * Math.PI) * USE_ARC,
+          0,
+        );
+      },
+    })
+    .call(() => {
+      if (!n.isValid) {
+        finish();
+        return;
+      }
+      useImpactTween(n, id, ex, ey, arrive).call(finish).start();
+    });
+  fly.start();
+}
+
+function useImpactTween(n: Node, id: ItemId, x: number, y: number, onArrive: () => void): Tween<Node> {
+  paintUseRing(n, id, 96);
+  if (id === 'shuffle') {
+    return tween(n)
+      .to(0.2, { scale: new Vec3(1.28, 1.28, 1) }, {
+        easing: 'sineOut',
+        onUpdate: (_t, ratio) => {
+          if (!n.isValid) return;
+          n.angle = (ratio ?? 0) * 360;
+        },
+      })
+      .call(() => {
+        paintUseRing(n, id, 132);
+        onArrive();
+      })
+      .to(0.16, { scale: new Vec3(1.55, 1.55, 1) }, {
+        easing: 'quadOut',
+        onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
+      });
+  }
+  if (id === 'bomb') {
+    return tween(n)
+      .to(0.12, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'backOut' })
+      .call(() => {
+        paintUseRing(n, id, 148);
+        onArrive();
+      })
+      .to(0.2, { scale: new Vec3(1.85, 1.85, 1) }, {
+        easing: 'quadOut',
+        onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
+      });
+  }
+  if (id === 'hook') {
+    return tween(n)
+      .to(0.1, { scale: new Vec3(1.18, 1.18, 1), position: new Vec3(x, y + 18, 0) }, { easing: 'sineOut' })
+      .to(0.12, { angle: -18, position: new Vec3(x, y - 26, 0), scale: new Vec3(1.08, 1.22, 1) }, { easing: 'quadIn' })
+      .call(onArrive)
+      .to(0.14, { scale: new Vec3(0.35, 0.35, 1), angle: -8 }, {
+        easing: 'quadIn',
+        onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
+      });
+  }
+  return tween(n)
+    .to(0.08, { angle: -42, position: new Vec3(x, y + 22, 0), scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineOut' })
+    .to(0.12, { angle: 16, position: new Vec3(x, y - 30, 0), scale: new Vec3(1.05, 1.2, 1) }, { easing: 'quadIn' })
+    .call(onArrive)
+    .to(0.14, { scale: new Vec3(0.3, 0.3, 1), angle: 8 }, {
+      easing: 'quadIn',
+      onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
+    });
+}
+
+function fadeFlyer(n: Node, alpha: number): void {
+  if (!n.isValid) return;
+  const op = n.getComponent(UIOpacity);
+  if (op) op.opacity = Math.round(255 * Math.max(0, Math.min(1, alpha)));
 }

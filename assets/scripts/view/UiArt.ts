@@ -289,6 +289,13 @@ export function ensureHomeLevelArt(): Promise<void> {
   return homeArt;
 }
 
+const HOME_KEYS: ArtKey[] = ['winDouble', 'play', 'home', 'settingsGear', 'ugcBtn', 'shareBtn', 'clubBtn'];
+
+export async function preloadHomeArt(): Promise<void> {
+  await ensureHomeLevelArt();
+  await Promise.all(HOME_KEYS.map((key) => loadArtRetry(key)));
+}
+
 export function preloadUiArt(): Promise<void> {
   if (boot) return boot;
   boot = (async () => {

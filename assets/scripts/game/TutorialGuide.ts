@@ -106,12 +106,15 @@ export function shouldSkipItemShop(id: ItemId, level: number): boolean {
 export function grantGuideItem(
   wallet: { itemCount(id: ItemId): number; addItem(id: ItemId, n?: number): number },
   level: number,
-): ItemId | null {
+): ItemId[] {
   const id = guideIdForLevel(level);
-  if (!isItemGuide(id) || isGuideDone(id)) return null;
-  if (wallet.itemCount(id) > 0) return null;
-  wallet.addItem(id, 1);
-  return id;
+  if (!isItemGuide(id) || isGuideDone(id)) return [];
+  const need = 2 - wallet.itemCount(id);
+  if (need <= 0) return [];
+  wallet.addItem(id, need);
+  const ids: ItemId[] = [];
+  for (let i = 0; i < need; i++) ids.push(id);
+  return ids;
 }
 
 export function activeGuide(level: number, ctx: GuideContext): GuideView | null {
