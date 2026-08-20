@@ -12,6 +12,7 @@ import {
   utils,
 } from 'cc';
 import { GAME } from '../game/GameConfig';
+import { makeInstancedLit } from './ToyBlockMesh';
 
 let _ball: Mesh | null = null;
 let _floor: Mesh | null = null;
@@ -35,13 +36,7 @@ export const SLOT_UNIT_FWD = 0.12;
 function glossy(key: string, color: Color, roughness: number, emit: number): Material {
   let mat = _mats.get(key);
   if (mat) return mat;
-  mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', roughness);
-  mat.setProperty('metallic', 0);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+  mat = makeInstancedLit(color, roughness, 0, emit);
   _mats.set(key, mat);
   return mat;
 }

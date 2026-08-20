@@ -1,8 +1,8 @@
-import { Color, Material, MeshRenderer, Node, Vec3 } from 'cc';
+import { Color, Material, MeshRenderer, Node } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, makeInstancedLit, preloadInstancedLit } from './ToyBlockMesh';
+import { applyToyCaster, makeInstancedLit, makeInstancedUnlit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -30,12 +30,12 @@ function colorOf(rgb: readonly [number, number, number]): Color {
   return c;
 }
 
-/** Official M_Pixel albedo. Emit 0.04 matches ColorLibrary 0.078 gray, not candy wash. */
+/** Official M_Pixel albedo on the one-pass brick light model. */
 function brickMat(rgb: readonly [number, number, number]): Material {
-  const key = `brick-s-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+  const key = `brick-u-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
   const hit = _mats.get(key);
   if (usable(hit)) return hit;
-  const mat = makeInstancedLit(colorOf(rgb), 0.34, 0.04, 0.04);
+  const mat = makeInstancedUnlit(colorOf(rgb));
   _mats.set(key, mat);
   return mat;
 }
@@ -115,7 +115,7 @@ export function paintMeshRenderers(mrs: MeshRenderer[], token: ColorToken): void
 }
 
 export function preloadVoxelLook(): Promise<void> {
-  return preloadInstancedLit();
+  return Promise.all([preloadInstancedLit(), preloadBrickLit()]).then(() => undefined);
 }
 
 /** Recolor without material instances so same-color debris stay batched. */
@@ -196,15 +196,25 @@ export function applyMagnetLook(root: Node): void {
   applyToyCaster(root, false, false);
 }
 
+function sandRgb(rgb: readonly [number, number, number]): readonly [number, number, number] {
+  return [
+    Math.min(255, Math.round(rgb[0] * 0.92 + 210 * 0.08)),
+    Math.min(255, Math.round(rgb[1] * 0.88 + 150 * 0.08)),
+    Math.min(255, Math.round(rgb[2] * 0.82 + 70 * 0.08)),
+  ];
+}
+
 export function applySandLook(root: Node): void {
-  for (const mr of root.getComponentsInChildren(MeshRenderer)) {
+  const mrs = root.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) {
+    const mr = mrs[i];
     if (skipPaint(mr.node.name)) continue;
-    const inst = mr.getMaterialInstance(0);
-    if (!inst) continue;
-    inst.setProperty('roughness', 0.78);
-    inst.setProperty('metallic', 0);
-    inst.setProperty('emissive', new Color(210, 150, 70, 255));
-    inst.setProperty('emissiveScale', new Vec3(0.08, 0.05, 0.02));
+    const rgb = rgbFromMat(mr);
+    if (!rgb) continue;
+    const on = mr.enabled;
+    mr.enabled = false;
+    mr.setSharedMaterial(brickMat(sandRgb(rgb)), 0);
+    mr.enabled = on;
   }
 }
 
@@ -221,9 +231,6 @@ export function applyGhostLook(root: Node): void {
       Math.min(255, c.b + 90),
       255,
     );
-    inst.setProperty('mainColor', washed);
-    inst.setProperty('emissive', new Color(220, 240, 255, 255));
-    inst.setProperty('emissiveScale', new Vec3(0.28, 0.32, 0.36));
-    inst.setProperty('roughness', 0.12);
+    tintLitInstance(inst, washed, 0.12, 0, 0.3);
   }
 }

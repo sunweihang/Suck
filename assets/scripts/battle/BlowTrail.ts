@@ -1,4 +1,5 @@
 import { Color, Material, Mesh, MeshRenderer, Node, Quat, Vec3 } from 'cc';
+import { makeInstancedLit } from './ToyBlockMesh';
 
 const BITS = 2;
 const HIST = 6;
@@ -35,14 +36,7 @@ function chipMat(rgb: readonly [number, number, number]): Material {
   const key = `${rgb[0]},${rgb[1]},${rgb[2]}`;
   let mat = _mats.get(key);
   if (mat) return mat;
-  const color = new Color(rgb[0], rgb[1], rgb[2], 255);
-  mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', 0.34);
-  mat.setProperty('metallic', 0.04);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(0.08, 0.08, 0.08));
+  mat = makeInstancedLit(new Color(rgb[0], rgb[1], rgb[2], 255), 0.34, 0.04, 0.08);
   _mats.set(key, mat);
   return mat;
 }

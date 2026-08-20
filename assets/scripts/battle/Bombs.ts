@@ -1,6 +1,6 @@
 import { Color, JsonAsset, Material, Mesh, MeshRenderer, Node, Vec3, resources, utils } from 'cc';
 import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
-import { applyToyCaster } from './ToyBlockMesh';
+import { applyToyCaster, makeInstancedLit } from './ToyBlockMesh';
 
 type MeshPack = {
   p: number[];
@@ -33,27 +33,13 @@ function meshFrom(pack: MeshPack): Mesh | null {
 
 function paintBody(mr: MeshRenderer, token: ColorToken): void {
   const rgb = CANDY[token] ?? CANDY.y;
-  const color = new Color(rgb[0], rgb[1], rgb[2], 255);
-  const inst = mr.getMaterialInstance(0);
-  if (!inst) return;
-  inst.setProperty('mainColor', color);
-  inst.setProperty('roughness', 0.22);
-  inst.setProperty('metallic', 0.04);
-  inst.setProperty('emissive', color);
-  inst.setProperty('emissiveScale', new Vec3(0.14, 0.14, 0.14));
+  mr.setSharedMaterial(makeInstancedLit(new Color(rgb[0], rgb[1], rgb[2], 255), 0.22, 0.04, 0.14), 0);
 }
 
 function goldMat(): Material {
   if (_gold) return _gold;
-  const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', new Color(255, 224, 96, 255));
-  mat.setProperty('roughness', 0.16);
-  mat.setProperty('metallic', 0.48);
-  mat.setProperty('emissive', new Color(255, 214, 80, 255));
-  mat.setProperty('emissiveScale', new Vec3(0.26, 0.26, 0.26));
-  _gold = mat;
-  return mat;
+  _gold = makeInstancedLit(new Color(255, 224, 96, 255), 0.16, 0.48, 0.26);
+  return _gold;
 }
 
 function loadJson(path: string): Promise<MeshPack | null> {

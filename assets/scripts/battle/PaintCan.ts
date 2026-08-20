@@ -1,5 +1,6 @@
 import { Color, Material, Mesh, MeshRenderer, Node, Vec3, utils } from 'cc';
 import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
+import { makeInstancedLit } from './ToyBlockMesh';
 
 type Pack = { p: number[]; n: number[]; u: number[]; i: number[] };
 
@@ -214,27 +215,13 @@ function clayColor(token: ColorToken, shade: number): Color {
 }
 
 function paintMesh(mr: MeshRenderer, token: ColorToken, shade: number, emit: number): void {
-  const color = clayColor(token, shade);
-  const inst = mr.getMaterialInstance(0);
-  if (!inst) return;
-  inst.setProperty('mainColor', color);
-  inst.setProperty('roughness', 0.2);
-  inst.setProperty('metallic', 0.04);
-  inst.setProperty('emissive', color);
-  inst.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+  mr.setSharedMaterial(makeInstancedLit(clayColor(token, shade), 0.2, 0.04, emit), 0);
 }
 
 function goldMat(): Material {
   if (_gold) return _gold;
-  const mat = new Material();
-  mat.initialize({ effectName: 'builtin-standard' });
-  mat.setProperty('mainColor', new Color(255, 220, 88, 255));
-  mat.setProperty('roughness', 0.16);
-  mat.setProperty('metallic', 0.42);
-  mat.setProperty('emissive', new Color(255, 210, 72, 255));
-  mat.setProperty('emissiveScale', new Vec3(0.28, 0.28, 0.28));
-  _gold = mat;
-  return mat;
+  _gold = makeInstancedLit(new Color(255, 220, 88, 255), 0.16, 0.42, 0.28);
+  return _gold;
 }
 
 function dress(root: Node, name: string, mesh: Mesh | null, mat: Material | null, token?: ColorToken, shade = 1, emit = 0.16): void {

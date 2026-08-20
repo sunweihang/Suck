@@ -1,8 +1,7 @@
-import { Color, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3, assetManager } from 'cc';
+import { Color, EffectAsset, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3, assetManager, resources } from 'cc';
 
 const GRAY_DIM = 0.76;
 const GRAY_SPRITE = new Color(168, 168, 168, 255);
-const EMIT_OFF = new Vec3(0.02, 0.02, 0.02);
 const _readC = new Color();
 
 /** Editor MatOrange — builtin-standard with USE_INSTANCING on all 3 passes. */
@@ -29,8 +28,23 @@ export function preloadInstancedLit(): Promise<void> {
   return _instancedBoot;
 }
 
-/** Same look as MatOrange, tinted. Clone the editor asset so all 3 passes keep instancing. */
-export function makeInstancedLit(
+function bindLitProps(
+  mat: Material,
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+  brickLit: boolean,
+): void {
+  mat.setProperty('mainColor', color);
+  mat.setProperty('emissive', color);
+  mat.setProperty('roughness', roughness);
+  mat.setProperty('metallic', metallic);
+  if (brickLit) mat.setProperty('emit', emit);
+  else mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+}
+
+function makeStandardLit(
   color: Color,
   roughness: number,
   metallic: number,
@@ -44,12 +58,68 @@ export function makeInstancedLit(
       defines: INSTANCING_DEFINES,
     });
   }
-  mat.setProperty('mainColor', color);
-  mat.setProperty('roughness', roughness);
-  mat.setProperty('metallic', metallic);
-  mat.setProperty('emissive', color);
-  mat.setProperty('emissiveScale', new Vec3(emit, emit, emit));
+  bindLitProps(mat, color, roughness, metallic, emit, false);
   return mat;
+}
+
+/** One-pass key-light / ambient / GGX. Turrets, bricks, and props share this. */
+export function makeInstancedLit(
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): Material {
+  if (_brickFx) {
+    const mat = new Material();
+    try {
+      mat.initialize({
+        effectAsset: _brickFx,
+        techniqueIndex: 0,
+        defines: [{ USE_INSTANCING: true }],
+      });
+    } catch {
+      return makeStandardLit(color, roughness, metallic, emit);
+    }
+    if (mat.passes?.length) {
+      bindLitProps(mat, color, roughness, metallic, emit, true);
+      return mat;
+    }
+  }
+  return makeStandardLit(color, roughness, metallic, emit);
+}
+
+const BRICK_LIT = 'fx/brick-lit';
+let _brickFx: EffectAsset | null = null;
+let _brickBoot: Promise<void> | null = null;
+
+export function preloadBrickLit(): Promise<void> {
+  if (_brickFx) return Promise.resolve();
+  if (_brickBoot) return _brickBoot;
+  _brickBoot = new Promise((resolve) => {
+    const done = (err: Error | null, asset: EffectAsset): void => {
+      if (!err && asset) _brickFx = asset;
+      resolve();
+    };
+    const bundle = assetManager.getBundle('resources');
+    if (bundle) bundle.load(BRICK_LIT, EffectAsset, done);
+    else resources.load(BRICK_LIT, EffectAsset, done);
+  });
+  return _brickBoot;
+}
+
+export function makeInstancedUnlit(color: Color): Material {
+  return makeInstancedLit(color, 0.34, 0.04, 0.04);
+}
+
+/** Tint a live instance. Ghost still pokes roughness and emit. */
+export function tintLitInstance(
+  mat: Material,
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): void {
+  bindLitProps(mat, color, roughness, metallic, emit, mat.effectAsset === _brickFx);
 }
 
 function readColor(v: unknown, out: Color): Color | null {
@@ -102,21 +172,7 @@ function grayMat(src: Material): Material {
     ? Math.round(((main.r * 299 + main.g * 587 + main.b * 114) / 1000) * GRAY_DIM)
     : 168;
   const a = main?.a ?? 255;
-  const gray = new Color(y, y, y, a);
-  const rough = src.getProperty('roughness');
-  const metal = src.getProperty('metallic');
-  g = makeInstancedLit(
-    gray,
-    typeof rough === 'number' ? rough : 0.34,
-    typeof metal === 'number' ? metal : 0.04,
-    0.02,
-  );
-  const emit = readColor(src.getProperty('emissive'), _readC);
-  if (emit) {
-    const ey = Math.round(((emit.r * 299 + emit.g * 587 + emit.b * 114) / 1000) * GRAY_DIM);
-    g.setProperty('emissive', new Color(ey, ey, ey, emit.a));
-  }
-  g.setProperty('emissiveScale', EMIT_OFF);
+  g = makeInstancedUnlit(new Color(y, y, y, a));
   _grayMats.set(src, g);
   return g;
 }
