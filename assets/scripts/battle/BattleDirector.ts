@@ -132,11 +132,12 @@ const FACE = [
 const LOCK_WALK = [[-1, 0], [1, 0], [0, 1], [0, -1]] as const;
 const HOLD_SIDES = [[-1, 0], [1, 0], [0, 1]] as const;
 /** Renderers built per frame for bricks still waiting inside the sculpture. */
-const MESH_WARM_PER_FRAME = 6;
+const MESH_WARM_PER_FRAME = 8;
 /** Cap the walk too, or a mostly-warmed backlog costs a long scan for nothing. */
 const MESH_WARM_SCAN = 96;
 const EMPTY_BLOCKS: readonly BlockCell[] = [];
-const VIS_SKIP_SPIN = 5;
+/** Drag spin changes the vis bucket every frame; aim can lag without players noticing. */
+const VIS_SKIP_SPIN = 10;
 const VIS_SKIP_REST = 8;
 
 const COLOR_WALK = [
@@ -205,10 +206,6 @@ function rayHitAabbAt(o: Vec3, d: Vec3, min: Vec3, max: Vec3, out: Vec3): boolea
 
 type PointerEvt = EventTouch | EventMouse;
 
-function cellKey(col: number, row: number, layer: number): number {
-  return (col + 512) * 1000000 + (row + 512) * 1000 + (layer + 256);
-}
-
 function setBrickDrawn(cell: BlockCell, on: boolean): void {
   cell.buried = !on;
   if (on && cell.meshless && attachBrickRenderer(cell.node, cell.voxelId)) {
@@ -253,7 +250,15 @@ export class BattleDirector extends Component {
   private _fromTouch = false;
   private readonly _byCol: BlockCell[][] = [];
   private readonly _byRow: BlockCell[][] = [];
-  private readonly _at = new Map<number, BlockCell>();
+  /** Dense occupancy: layer * layerStride + row * cols + col. */
+  private _grid: (BlockCell | null)[] = [];
+  private _gCols = 0;
+  private _gRows = 0;
+  private _gLayers = 0;
+  private _gRowStride = 0;
+  private _gLayerStride = 0;
+  /** Unburied bricks. Spin rebuilds scan this instead of the whole sculpture. */
+  private readonly _shell: BlockCell[] = [];
   private readonly _vis = new Set<BlockCell>();
   private readonly _visList: BlockCell[] = [];
   private readonly _visByRgb = new Map<number, BlockCell[]>();
@@ -285,14 +290,6 @@ export class BattleDirector extends Component {
   private readonly _onShotLand = (shot: InkShot): void => {
     this._landShot(shot);
   };
-  private readonly _depthList: BlockCell[] = [];
-  private readonly _visPx: number[] = [];
-  private readonly _visPy: number[] = [];
-  private readonly _visPz: number[] = [];
-  private readonly _visSz: number[] = [];
-  private readonly _visOrd: number[] = [];
-  private readonly _visSurf: boolean[] = [];
-  private readonly _visOcc = new Map<number, number>();
   private _stuckT = 0;
   private _sw = 1;
   private _sh = 1;
@@ -474,6 +471,7 @@ export class BattleDirector extends Component {
     }
     this._tickShots(dt);
     BlockCell.tickMotion(dt);
+    DebrisBit.tick(dt);
     this._fireUnits(dt);
     this._tickField(dt);
     tickHiddenPattern(dt);
@@ -1153,15 +1151,17 @@ export class BattleDirector extends Component {
   private _indexBlocks(): void {
     let cols = PLAY.wallCols;
     let rows = PLAY.wallRows;
+    let layers = PLAY.wallDepth + 2;
     for (const b of this._blocks) {
       cols = Math.max(cols, b.col + 1);
       rows = Math.max(rows, b.row + 1);
+      layers = Math.max(layers, b.layer + 1);
     }
     this._cols = Math.max(1, cols);
     this._byCol.length = 0;
     this._byRow.length = 0;
-    this._at.clear();
     this._raftBricks.length = 0;
+    this._allocGrid(this._cols, Math.max(1, rows), layers);
     for (let i = 0; i < this._cols; i++) this._byCol.push([]);
     for (let i = 0; i < Math.max(1, rows); i++) this._byRow.push([]);
     this._remain = 0;
@@ -1170,7 +1170,7 @@ export class BattleDirector extends Component {
       if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
       this._rowList(b.row).push(b);
-      this._at.set(cellKey(b.col, b.row, b.layer), b);
+      this._setCell(b);
       this._remain += 1;
     }
     this._hideBuried();
@@ -1184,9 +1184,10 @@ export class BattleDirector extends Component {
   }
 
   private _unindex(block: BlockCell): void {
+    this._clearCell(block);
     pullFrom(this._byCol[block.col], block);
     pullFrom(this._byRow[block.row], block);
-    this._at.delete(cellKey(block.col, block.row, block.layer));
+    pullFrom(this._shell, block);
     this._removeVis(block);
     if (block.raft) pullFrom(this._raftBricks, block);
     this._needHoldRefresh = true;
@@ -1283,7 +1284,12 @@ export class BattleDirector extends Component {
     this._ptrDown = false;
     this._dragSpin = false;
     this._spinning = false;
-    if (!spun) this._onTap(e);
+    if (spun) {
+      this._visKey = 0x7fffffff;
+      this._visSkip = VIS_SKIP_REST;
+    } else {
+      this._onTap(e);
+    }
   }
 
   private _canSpinAt(e: PointerEvt): boolean {
@@ -2101,10 +2107,9 @@ export class BattleDirector extends Component {
       list.length = 0;
     });
     this._syncCamLocal();
-    for (let i = 0; i < this._blocks.length; i++) {
-      const b = this._blocks[i];
-      // Boxed-in bricks fail _camExposed by definition; skipping them here
-      // keeps the six face probes off the inside of solid sculptures.
+    const shell = this._shell.length ? this._shell : this._blocks;
+    for (let i = 0; i < shell.length; i++) {
+      const b = shell[i];
       if (b.buried || !b.suckable || this._plateBlocks(b.row, b.col)) continue;
       if (this._camExposed(b, ghost)) this._addVis(b);
     }
@@ -2156,9 +2161,9 @@ export class BattleDirector extends Component {
     let c = block.col + dc;
     let r = block.row + dr;
     let l = block.layer + dl;
-    const maxC = this._cols;
-    const maxR = this._byRow.length;
-    const maxL = PLAY.wallDepth + 2;
+    const maxC = this._gCols;
+    const maxR = this._gRows;
+    const maxL = this._gLayers;
     for (let s = 0; s < 32; s++) {
       if (c < 0 || r < 0 || l < 0 || c >= maxC || r >= maxR || l >= maxL) return;
       consider(this._aliveAt(c, r, l));
@@ -2178,7 +2183,7 @@ export class BattleDirector extends Component {
       const f = FACE[i];
       const d = dx * f[3] + dy * f[4] + dz * f[5];
       if (d <= 0.08) continue;
-      if (this._aliveAt(block.col + f[0], block.row + f[1], block.layer + f[2])) continue;
+      if (this._blockedAt(block.col + f[0], block.row + f[1], block.layer + f[2])) continue;
       open = true;
       break;
     }
@@ -2202,12 +2207,15 @@ export class BattleDirector extends Component {
     let c = block.col + dc;
     let r = block.row + dr;
     let l = block.layer + dl;
-    const maxC = this._cols;
-    const maxR = this._byRow.length;
-    const maxL = PLAY.wallDepth + 2;
+    const maxC = this._gCols;
+    const maxR = this._gRows;
+    const maxL = this._gLayers;
+    const grid = this._grid;
+    const rowStride = this._gRowStride;
+    const layerStride = this._gLayerStride;
     for (let s = 0; s < 32; s++) {
       if (c < 0 || r < 0 || l < 0 || c >= maxC || r >= maxR || l >= maxL) return false;
-      if (this._aliveAt(c, r, l)) return true;
+      if (grid[l * layerStride + r * rowStride + c]) return true;
       c += dc;
       r += dr;
       l += dl;
@@ -2308,9 +2316,83 @@ export class BattleDirector extends Component {
     }
   }
 
+  private _allocGrid(cols: number, rows: number, layers: number): void {
+    this._gCols = Math.max(1, cols);
+    this._gRows = Math.max(1, rows);
+    this._gLayers = Math.max(1, layers);
+    this._gRowStride = this._gCols;
+    this._gLayerStride = this._gCols * this._gRows;
+    const n = this._gLayerStride * this._gLayers;
+    const grid = this._grid;
+    if (grid.length !== n) this._grid = new Array<BlockCell | null>(n).fill(null);
+    else for (let i = 0; i < n; i++) grid[i] = null;
+  }
+
+  private _growGrid(cols: number, rows: number, layers: number): void {
+    const oc = this._gCols;
+    const or = this._gRows;
+    const ol = this._gLayers;
+    if (cols <= oc && rows <= or && layers <= ol) return;
+    const old = this._grid;
+    const osr = this._gRowStride;
+    const osl = this._gLayerStride;
+    this._allocGrid(Math.max(oc, cols), Math.max(or, rows), Math.max(ol, layers));
+    const grid = this._grid;
+    const sr = this._gRowStride;
+    const sl = this._gLayerStride;
+    for (let l = 0; l < ol; l++) {
+      for (let r = 0; r < or; r++) {
+        for (let c = 0; c < oc; c++) {
+          grid[l * sl + r * sr + c] = old[l * osl + r * osr + c];
+        }
+      }
+    }
+  }
+
+  private _setCell(block: BlockCell): void {
+    const c = block.col;
+    const r = block.row;
+    const l = block.layer;
+    if (c < 0 || r < 0 || l < 0) return;
+    if (c >= this._gCols || r >= this._gRows || l >= this._gLayers) this._growGrid(c + 1, r + 1, l + 1);
+    this._grid[l * this._gLayerStride + r * this._gRowStride + c] = block;
+  }
+
+  private _clearCell(block: BlockCell): void {
+    const c = block.col;
+    const r = block.row;
+    const l = block.layer;
+    if (c < 0 || r < 0 || l < 0 || c >= this._gCols || r >= this._gRows || l >= this._gLayers) return;
+    const i = l * this._gLayerStride + r * this._gRowStride + c;
+    if (this._grid[i] === block) this._grid[i] = null;
+  }
+
+  private _blockedAt(col: number, row: number, layer: number): boolean {
+    if (col < 0 || row < 0 || layer < 0 || col >= this._gCols || row >= this._gRows || layer >= this._gLayers) {
+      return false;
+    }
+    return this._grid[layer * this._gLayerStride + row * this._gRowStride + col] !== null;
+  }
+
   private _aliveAt(col: number, row: number, layer: number): BlockCell | null {
-    const b = this._at.get(cellKey(col, row, layer));
+    if (col < 0 || row < 0 || layer < 0 || col >= this._gCols || row >= this._gRows || layer >= this._gLayers) {
+      return null;
+    }
+    const b = this._grid[layer * this._gLayerStride + row * this._gRowStride + col];
     return b?.alive ? b : null;
+  }
+
+  private _relocate(block: BlockCell, col: number, row: number): void {
+    if (block.col === col && block.row === row) return;
+    this._clearCell(block);
+    pullFrom(this._byCol[block.col], block);
+    pullFrom(this._byRow[block.row], block);
+    block.col = col;
+    block.row = row;
+    if (col < 0 || col >= this._cols) return;
+    this._byCol[col].push(block);
+    this._rowList(row).push(block);
+    this._setCell(block);
   }
 
   /** Fully boxed-in cubes never show; hiding them does not punch hollow models. */
@@ -2325,19 +2407,36 @@ export class BattleDirector extends Component {
 
   private _hideBuried(): void {
     this._meshless.length = 0;
+    this._shell.length = 0;
     this._meshCursor = 0;
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.alive) continue;
-      this._touchBuried(b);
+      setBrickDrawn(b, !this._isBuried(b));
+      if (!b.buried) this._shell.push(b);
       if (b.meshless) this._meshless.push(b);
     }
-    this._meshless.sort((a, b) => a.layer - b.layer || a.row - b.row);
+    this._meshless.sort((a, b) => {
+      const sa = this._nextToShell(a) ? 0 : 1;
+      const sb = this._nextToShell(b) ? 0 : 1;
+      return sa - sb || a.layer - b.layer || a.row - b.row;
+    });
     dirtyBrickSkin();
+  }
+
+  private _nextToShell(block: BlockCell): boolean {
+    for (let i = 0; i < COLOR_WALK.length; i++) {
+      const d = COLOR_WALK[i];
+      const n = this._aliveAt(block.col + d[0], block.row + d[1], block.layer + d[2]);
+      if (n && !n.buried) return true;
+    }
+    return false;
   }
 
   private _touchBuried(block: BlockCell): void {
     setBrickDrawn(block, !this._isBuried(block));
+    if (!block.alive || block.buried) pullFrom(this._shell, block);
+    else if (this._shell.indexOf(block) < 0) this._shell.push(block);
   }
 
   private _hideBuriedInCols(cols: ReadonlySet<number>): void {
@@ -2364,9 +2463,9 @@ export class BattleDirector extends Component {
   private _revealAround(block: BlockCell): void {
     for (let i = 0; i < COLOR_WALK.length; i++) {
       const d = COLOR_WALK[i];
-      const n = this._at.get(cellKey(block.col + d[0], block.row + d[1], block.layer + d[2]));
-      if (!n?.alive) continue;
-      setBrickDrawn(n, !this._isBuried(n));
+      const n = this._aliveAt(block.col + d[0], block.row + d[1], block.layer + d[2]);
+      if (!n) continue;
+      this._touchBuried(n);
     }
   }
 
@@ -2710,14 +2809,17 @@ export class BattleDirector extends Component {
 
   private _settleSand(col: number, layer: number): void {
     const list: BlockCell[] = [];
-    for (let i = 0; i < this._blocks.length; i++) {
-      const b = this._blocks[i];
-      if (b.alive && !b.raft && b.col === col && b.layer === layer) list.push(b);
+    const src = this._byCol[col];
+    if (src) {
+      for (let i = 0; i < src.length; i++) {
+        const b = src[i];
+        if (b.alive && !b.raft && b.layer === layer) list.push(b);
+      }
     }
     list.sort((a, b) => a.row - b.row);
     for (let i = 0; i < list.length; i++) {
       if (list[i].row === i) continue;
-      list[i].row = i;
+      this._relocate(list[i], col, i);
       list[i].beginMove(list[i].node.position.x, PLAY.wallBaseY + i * PLAY.blockStep, 0.38);
     }
     this._reindexCols(new Set([col]));
@@ -2726,20 +2828,22 @@ export class BattleDirector extends Component {
   private _reindexSpatial(): void {
     for (let i = 0; i < this._byCol.length; i++) this._byCol[i].length = 0;
     for (let i = 0; i < this._byRow.length; i++) this._byRow[i].length = 0;
-    this._at.clear();
+    this._allocGrid(this._gCols || this._cols, Math.max(1, this._gRows, this._byRow.length), this._gLayers || PLAY.wallDepth + 2);
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.alive || b.col < 0 || b.col >= this._cols) continue;
       this._byCol[b.col].push(b);
       this._rowList(b.row).push(b);
-      this._at.set(cellKey(b.col, b.row, b.layer), b);
+      this._setCell(b);
     }
   }
 
   private _reindexCols(dirtyCols?: ReadonlySet<number>): void {
-    this._reindexSpatial();
     if (dirtyCols && dirtyCols.size) this._hideBuriedInCols(dirtyCols);
-    else this._hideBuried();
+    else {
+      this._reindexSpatial();
+      this._hideBuried();
+    }
     this._bumpVis();
     this._flushSkin();
   }
@@ -3030,7 +3134,7 @@ export class BattleDirector extends Component {
       if (col === b.col) continue;
       dirty.add(b.col);
       dirty.add(col);
-      b.col = col;
+      this._relocate(b, col, b.row);
     }
     if (dirty.size) this._reindexCols(dirty);
   }
@@ -3178,8 +3282,8 @@ export class BattleDirector extends Component {
   }
 
   private _colorAt(col: number, row: number, layer: number, colorId: number): BlockCell | null {
-    const b = this._at.get(cellKey(col, row, layer));
-    if (!b?.node?.isValid || !b.node.active || b.hp <= 0 || b.inFlight) return null;
+    const b = this._aliveAt(col, row, layer);
+    if (!b?.node?.isValid || b.inFlight) return null;
     return this._idsMatch(b.colorId, colorId) ? b : null;
   }
 

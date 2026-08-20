@@ -59,6 +59,7 @@ function bindSpinProps(mat: Material): void {
 }
 
 export function setFieldSpin(q: Quat, pivot: Vec3): void {
+  if (Quat.equals(_q, q) && Vec3.equals(_p, pivot)) return;
   _q.set(q);
   _p.set(pivot);
   Quat.invert(_inv, _q);

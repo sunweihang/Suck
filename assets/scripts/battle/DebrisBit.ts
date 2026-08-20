@@ -18,6 +18,7 @@ const { ccclass } = _decorator;
 
 const POOL_MAX = 22;
 const CHIP_PRI = 36;
+const _live: DebrisBit[] = [];
 const STREAK_PRI = 38;
 const GRAVITY = 16;
 const _pos = new Vec3();
@@ -151,6 +152,11 @@ export class DebrisBit extends Component {
   private _size = 0.14;
   private _rgbKey = '';
   private _streak: Node | null = null;
+  private _live = false;
+
+  static tick(dt: number): void {
+    for (let i = _live.length - 1; i >= 0; i--) _live[i].advance(dt);
+  }
 
   onLoad(): void {
     this.enabled = false;
@@ -180,12 +186,23 @@ export class DebrisBit extends Component {
     this._lifeMax = 0.62 + Math.random() * 0.34;
     this._life = this._lifeMax;
     this.node.active = true;
-    this.enabled = true;
+    this.enabled = false;
+    if (!this._live) {
+      this._live = true;
+      _live.push(this);
+    }
     if (this._streak) this._streak.active = true;
   }
 
   update(dt: number): void {
-    if (!this.node.active || this._life <= 0) return;
+    this.advance(dt);
+  }
+
+  advance(dt: number): void {
+    if (!this.node.active || this._life <= 0) {
+      this._restLive();
+      return;
+    }
     this._life -= dt;
     this._vel.y -= GRAVITY * dt;
     this.node.getPosition(_pos);
@@ -203,6 +220,17 @@ export class DebrisBit extends Component {
     if (this._streak) this._streak.active = false;
     this.node.active = false;
     this.enabled = false;
+    this._restLive();
+  }
+
+  private _restLive(): void {
+    if (!this._live) return;
+    this._live = false;
+    const i = _live.indexOf(this);
+    if (i >= 0) {
+      _live[i] = _live[_live.length - 1];
+      _live.pop();
+    }
   }
 
   private _ensureParts(): void {
