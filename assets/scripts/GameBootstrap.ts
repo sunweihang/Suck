@@ -68,7 +68,7 @@ import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
 import { ensureCoinFxRoot, playCoinFlyBurst, warmupCoinFlyers, worldToFxLocal } from './view/CoinFlyFx';
 import { playItemGrantFly } from './view/ItemFlyFx';
-import { artFrame, ensureHomeLevelArt, preloadUiArt } from './view/UiArt';
+import { artFrame, preloadUiArt } from './view/UiArt';
 import { loadGameBundles } from './boot/LoadBundles';
 import { attachBootLoad, type BootLoad } from './view/BootLoad';
 
@@ -108,6 +108,16 @@ function afterDraws(n: number): Promise<void> {
     };
     director.on(Director.EVENT_AFTER_DRAW, step);
   });
+}
+
+/** Keeps a boot job that runs alongside others from taking the whole boot down with it. */
+function bootStep(tag: string, job: Promise<unknown>): Promise<void> {
+  return job.then(
+    () => undefined,
+    (err) => {
+      console.error(`[Suck] boot ${tag} failed`, err);
+    },
+  );
 }
 
 /** Host splash (WeChat first-screen / web #SplashOverlay) waits on this before hiding. */
@@ -234,19 +244,22 @@ export class GameBootstrap extends Component {
       load.raise();
       this._home?.hide();
       load.set(0.86);
+      const audio = this._ensureAudio();
+      const artJob = bootStep('ui art', preloadUiArt());
+      const winAudioJob = bootStep('win audio', audio.ensureWin());
+      const backdropJob =
+        this.node.scene && this._mainCam?.node
+          ? bootStep('backdrop', spawnToyBackdrop(this.node.scene, this._mainCam.node))
+          : Promise.resolve();
       await this._bootWorld();
-      this._ensureAudio();
       this._applyPortraitFrame();
       view.on('canvas-resize', this._applyPortraitFrame, this);
-      await preloadUiArt();
+      await artJob;
       load.set(0.94);
-      await this._audio?.ensureWin();
+      await winAudioJob;
       await this._victory?.warmup();
       if (this._canvas) warmupCoinFlyers(this._canvas);
-      await ensureHomeLevelArt();
-      if (this.node.scene && this._mainCam?.node) {
-        await spawnToyBackdrop(this.node.scene, this._mainCam.node);
-      }
+      await backdropJob;
       this._home?.applyArt();
       this._ugcHud?.hide();
       this._playHud?.applyArt();
