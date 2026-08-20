@@ -121,19 +121,37 @@ function parseMap(raw: RawMap): UgcMap | null {
   };
 }
 
-function readAll(): UgcMap[] {
+/** This module is the only writer of SAVE_KEY, so the parse survives writes. */
+let _cache: UgcMap[] | null = null;
+
+function cloneMap(map: UgcMap): UgcMap {
+  return { ...map, bricks: map.bricks.slice() };
+}
+
+function loadAll(): UgcMap[] {
+  if (_cache) return _cache;
   try {
     const raw = sys.localStorage.getItem(SAVE_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      _cache = [];
+      return _cache;
+    }
     const pack = JSON.parse(raw) as { maps?: RawMap[] };
-    if (!Array.isArray(pack?.maps)) return [];
-    return pack.maps.map(parseMap).filter((m): m is UgcMap => !!m);
+    _cache = Array.isArray(pack?.maps)
+      ? pack.maps.map(parseMap).filter((m): m is UgcMap => !!m)
+      : [];
   } catch {
-    return [];
+    _cache = [];
   }
+  return _cache;
+}
+
+function readAll(): UgcMap[] {
+  return loadAll().map(cloneMap);
 }
 
 function writeAll(maps: UgcMap[]): void {
+  _cache = maps.map(cloneMap);
   try {
     sys.localStorage.setItem(SAVE_KEY, JSON.stringify({ maps }));
   } catch (e) {

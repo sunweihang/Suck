@@ -84,7 +84,14 @@ type RawLevel = {
 const SAVE_KEY = 'suck.level';
 const CATALOG_PATH = 'levels/catalog';
 
-let LEVELS: LevelDef[] = [];
+/**
+ * Raw levels stay packed; a level is only decoded when it is played.
+ * Decoding all of them up front turns ~1M voxel entries into JS objects
+ * and stalls boot for seconds on phones.
+ */
+let RAW_LEVELS: RawLevel[] = [];
+const DECODED = new Map<number, LevelDef>();
+const DECODE_KEEP = 4;
 let loadJob: Promise<void> | null = null;
 
 export function loadLevelIndex(): number {
@@ -163,7 +170,7 @@ function occupiedVoxelRows(def: LevelDef): { min: number; max: number } {
 }
 
 export function ensureLevels(): Promise<void> {
-  if (LEVELS.length) return Promise.resolve();
+  if (RAW_LEVELS.length) return Promise.resolve();
   if (loadJob) return loadJob;
   loadJob = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -176,8 +183,9 @@ export function ensureLevels(): Promise<void> {
         reject(err ?? new Error('levels/catalog missing'));
         return;
       }
-      LEVELS = pack.levels.map(decodeLevel);
-      LEVEL_COUNT = LEVELS.length;
+      RAW_LEVELS = pack.levels;
+      DECODED.clear();
+      LEVEL_COUNT = RAW_LEVELS.length;
       resolve();
     });
   });
@@ -185,9 +193,23 @@ export function ensureLevels(): Promise<void> {
 }
 
 export function getLevel(id: number): LevelDef {
-  if (!LEVELS.length) throw new Error('level catalog not loaded');
-  const n = Math.max(1, Math.min(LEVELS.length, id | 0));
-  return LEVELS[n - 1];
+  if (!RAW_LEVELS.length) throw new Error('level catalog not loaded');
+  const n = Math.max(1, Math.min(RAW_LEVELS.length, id | 0));
+  const hit = DECODED.get(n);
+  if (hit) {
+    // Refresh recency so the levels around the player stay warm.
+    DECODED.delete(n);
+    DECODED.set(n, hit);
+    return hit;
+  }
+  const def = decodeLevel(RAW_LEVELS[n - 1]);
+  DECODED.set(n, def);
+  while (DECODED.size > DECODE_KEEP) {
+    const oldest = DECODED.keys().next();
+    if (oldest.done) break;
+    DECODED.delete(oldest.value);
+  }
+  return def;
 }
 
 export type ItemId = 'shuffle' | 'hook' | 'shovel' | 'bomb';

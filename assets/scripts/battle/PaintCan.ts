@@ -1,6 +1,6 @@
 import { Color, Material, Mesh, MeshRenderer, Node, Vec3, utils } from 'cc';
 import { ColorToken, TOKEN_RGB } from '../game/GameConfig';
-import { makeFieldLit } from './ToyBlockMesh';
+import { cachedFieldLit, makeFieldLit } from './ToyBlockMesh';
 
 type Pack = { p: number[]; n: number[]; u: number[]; i: number[] };
 
@@ -204,18 +204,21 @@ function toArgs(pack: Pack): [number[], number[], number[], number[]] {
   return [pack.p, pack.n, pack.u, pack.i];
 }
 
+const _clay = new Color();
+
 function clayColor(token: ColorToken, shade: number): Color {
   const rgb = TOKEN_RGB[token] ?? TOKEN_RGB.p;
-  return new Color(
+  _clay.set(
     Math.min(255, Math.round(rgb[0] * shade)),
     Math.min(255, Math.round(rgb[1] * shade)),
     Math.min(255, Math.round(rgb[2] * shade)),
     255,
   );
+  return _clay;
 }
 
 function paintMesh(mr: MeshRenderer, token: ColorToken, shade: number, emit: number): void {
-  mr.setSharedMaterial(makeFieldLit(clayColor(token, shade), 0.2, 0.04, emit), 0);
+  mr.setSharedMaterial(cachedFieldLit(clayColor(token, shade), 0.2, 0.04, emit), 0);
 }
 
 function goldMat(): Material {

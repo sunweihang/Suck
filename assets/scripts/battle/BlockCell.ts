@@ -37,6 +37,8 @@ export class BlockCell extends Component {
   magnet = false;
   raft = false;
   raftHomeCol = 0;
+  /** Boxed in on all six sides, so no camera can ever see or target it. */
+  buried = false;
 
   private readonly _baseScale = new Vec3();
   private readonly _from = new Vec3();

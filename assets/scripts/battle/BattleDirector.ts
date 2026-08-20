@@ -50,7 +50,7 @@ import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
-import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideView } from '../game/TutorialGuide';
+import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit, DEBRIS_POOL_MAX, makeDebrisBit } from './DebrisBit';
@@ -196,6 +196,7 @@ function cellKey(col: number, row: number, layer: number): number {
 }
 
 function setBrickDrawn(cell: BlockCell, on: boolean): void {
+  cell.buried = !on;
   setBrickMeshEnabled(cell.node, on);
 }
 
@@ -283,6 +284,15 @@ export class BattleDirector extends Component {
   private _onItems: ((state: ItemHudState) => void) | null = null;
   private _onGuide: ((guide: GuideView | null) => void) | null = null;
   private _guideKey = '';
+  private readonly _guideCtx: GuideContext = {
+    hookPick: false,
+    shovelPick: false,
+    bombPick: false,
+    canShuffle: false,
+    hasRear: false,
+    canShovel: false,
+    canBomb: false,
+  };
   private _onGoldDenied: (() => void) | null = null;
   private _wallet: PlayerWallet | null = null;
   private _hookPick = false;
@@ -426,7 +436,6 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint(dt);
-    this._flushSkin();
   }
 
   private _tickShots(dt: number): void {
@@ -773,19 +782,21 @@ export class BattleDirector extends Component {
     }
     this._hintT += dt;
     const moving = this._spinning || this._spinVel !== 0 || this._pitchVel !== 0;
-    if (!moving && this._hintT < 0.08 && this._guideKey) {
+    // The four can* probes each walk the bench or the wall, so keep them off
+    // every frame even while the field is turning.
+    if (this._hintT < (moving ? 0.03 : 0.08) && this._guideKey) {
       return;
     }
     this._hintT = 0;
-    const guide = activeGuide(PLAY.levelId, {
-      hookPick: this._hookPick,
-      shovelPick: this._shovelPick,
-      bombPick: this._bombPick,
-      canShuffle: this._canShuffle(),
-      hasRear: this._hasRearBench(),
-      canShovel: this._canShovel(),
-      canBomb: this._canBomb(),
-    });
+    const ctx = this._guideCtx;
+    ctx.hookPick = this._hookPick;
+    ctx.shovelPick = this._shovelPick;
+    ctx.bombPick = this._bombPick;
+    ctx.canShuffle = this._canShuffle();
+    ctx.hasRear = this._hasRearBench();
+    ctx.canShovel = this._canShovel();
+    ctx.canBomb = this._canBomb();
+    const guide = activeGuide(PLAY.levelId, ctx);
     this._emitGuide(guide);
     const hint = this._hint;
     if (!hint || !guide || guide.phase === 'icon') {
@@ -1813,9 +1824,11 @@ export class BattleDirector extends Component {
   private _visibleSet(ghost: boolean): Set<BlockCell> {
     const key = this._visBucket() ^ (ghost ? 0x20000000 : 0) ^ (this._visGen << 1);
     if (key === this._visKey && !this._visDirty && this._visList.length > 0) return this._vis;
-    if (!this._visDirty && !this._spinning && this._visList.length > 0) {
+    if (!this._visDirty && this._visList.length > 0) {
+      // A drag spin changes the bucket every frame; aim may lag a couple of
+      // frames behind the wall without the player noticing.
       this._visSkip += 1;
-      if (this._visSkip < 8) return this._vis;
+      if (this._visSkip < (this._spinning ? 3 : 8)) return this._vis;
       this._visSkip = 0;
     } else {
       this._visSkip = 0;
@@ -1842,7 +1855,9 @@ export class BattleDirector extends Component {
     else _camLocal.set(_camP);
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
-      if (!b.suckable || this._plateBlocks(b.row, b.col)) continue;
+      // Boxed-in bricks fail _camExposed by definition; skipping them here
+      // keeps the six face probes off the inside of solid sculptures.
+      if (b.buried || !b.suckable || this._plateBlocks(b.row, b.col)) continue;
       if (this._camExposed(b, ghost)) {
         this._vis.add(b);
         this._visList.push(b);
@@ -2347,7 +2362,6 @@ export class BattleDirector extends Component {
       b.voxelId = nearestVoxelId(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.o);
       paintNodeColor(b.node, token);
     });
-    dirtyBrickSkin();
   }
 
   private _settleSand(col: number, layer: number): void {

@@ -126,55 +126,24 @@ export function makeFieldUnlit(color: Color): Material {
   return makeFieldLit(color, 0.34, 0.04, 0.04);
 }
 
-/** Merged wall skins are one mesh each — instancing leaves them undrawn. */
-export function makeFieldLitStatic(
+const _fieldLitCache = new Map<string, Material>();
+
+/**
+ * Field material reused across props with the same look. Every distinct field
+ * material is re-uniformed twice per frame while the wall spins and sits in its
+ * own draw batch, so props must never mint one per instance.
+ */
+export function cachedFieldLit(
   color: Color,
   roughness: number,
   metallic: number,
   emit: number,
 ): Material {
-  if (_brickFx) {
-    const mat = new Material();
-    try {
-      mat.initialize({
-        effectAsset: _brickFx,
-        techniqueIndex: 0,
-      });
-    } catch {
-      const fallback = new Material();
-      fallback.initialize({ effectName: 'builtin-standard' });
-      bindLitProps(fallback, color, roughness, metallic, emit, false);
-      return registerFieldMat(fallback);
-    }
-    if (mat.passes?.length) {
-      bindLitProps(mat, color, roughness, metallic, emit, true);
-      return registerFieldMat(mat);
-    }
-  }
-  const fallback = new Material();
-  fallback.initialize({ effectName: 'builtin-standard' });
-  bindLitProps(fallback, color, roughness, metallic, emit, false);
-  return registerFieldMat(fallback);
-}
-
-const _skinOf = new WeakMap<Material, Material>();
-
-/** Same albedo / field spin as `src`, without USE_INSTANCING. */
-export function fieldSkinMat(src: Material): Material {
-  let mat = _skinOf.get(src);
-  if (mat?.passes?.length) return mat;
-  const main = readColor(src.getProperty('mainColor'), _readC);
-  const color = main ?? new Color(255, 255, 255, 255);
-  const rough = src.getProperty('roughness');
-  const metal = src.getProperty('metallic');
-  const emit = src.getProperty('emit');
-  mat = makeFieldLitStatic(
-    color,
-    typeof rough === 'number' ? rough : 0.34,
-    typeof metal === 'number' ? metal : 0.04,
-    typeof emit === 'number' ? emit : 0.04,
-  );
-  _skinOf.set(src, mat);
+  const key = `${color.r}|${color.g}|${color.b}|${color.a}|${roughness}|${metallic}|${emit}`;
+  const hit = _fieldLitCache.get(key);
+  if (hit?.passes?.length && hit.passes[0].descriptorSet) return hit;
+  const mat = makeFieldLit(new Color(color.r, color.g, color.b, color.a), roughness, metallic, emit);
+  _fieldLitCache.set(key, mat);
   return mat;
 }
 
