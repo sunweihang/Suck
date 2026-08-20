@@ -99,10 +99,12 @@ export class PlayerWallet {
     this._onChange?.(this._coins, animate);
   }
 
-  add(n: number): number {
+  add(n: number, animate = true, persist = true): number {
     const gain = Math.max(0, Math.floor(n));
     if (gain <= 0) return this._coins;
-    this.setCoins(this._coins + gain, true);
+    this._coins += gain;
+    if (persist) this.save();
+    this._onChange?.(this._coins, animate);
     return this._coins;
   }
 

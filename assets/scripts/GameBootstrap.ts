@@ -66,11 +66,11 @@ import { UgcEditor } from './ugc/UgcEditor';
 import { encodeUgcText, getUgcMap, listUgcMaps, newUgcMap, parseUgcText, saveUgcMap, ugcToLevelDef } from './ugc/UgcStore';
 import { PREFAB_UUID } from './battle/PrefabCatalog';
 import { layoutWorldBg, spawnToyBackdrop } from './battle/ToyBackdrop';
-import { ensureCoinFxRoot, playCoinFlyBurst, worldToFxLocal } from './view/CoinFlyFx';
+import { ensureCoinFxRoot, playCoinFlyBurst, warmupCoinFlyers, worldToFxLocal } from './view/CoinFlyFx';
 import { playItemGrantFly } from './view/ItemFlyFx';
 import { artFrame, ensureHomeLevelArt, preloadUiArt } from './view/UiArt';
 import { loadGameBundles } from './boot/LoadBundles';
-import { attachBootLoad } from './view/BootLoad';
+import { attachBootLoad, type BootLoad } from './view/BootLoad';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
   return new Promise((resolve, reject) => {
@@ -146,7 +146,7 @@ export class GameBootstrap extends Component {
   private _ugcLevel: ReturnType<typeof ugcToLevelDef> | null = null;
   private _worldKey = '';
   private _worldTouched = false;
-  private _standby: { root: Node; battle: BattleDirector; key: string } | null = null;
+  private _load: BootLoad | null = null;
   private _playHud: PlayHud | null = null;
   private _victory: VictoryPanel | null = null;
   private _fail: FailPanel | null = null;
@@ -221,6 +221,7 @@ export class GameBootstrap extends Component {
         this._uiCam.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
       }
       const load = await attachBootLoad(canvas);
+      this._load = load;
       await afterDraws(2);
       notifyHostSplashHomeReady();
       await loadGameBundles((p) => load.set(p));
@@ -241,6 +242,7 @@ export class GameBootstrap extends Component {
       load.set(0.94);
       await this._audio?.ensureWin();
       await this._victory?.warmup();
+      if (this._canvas) warmupCoinFlyers(this._canvas);
       await ensureHomeLevelArt();
       if (this.node.scene && this._mainCam?.node) {
         await spawnToyBackdrop(this.node.scene, this._mainCam.node);
@@ -275,7 +277,6 @@ export class GameBootstrap extends Component {
     destroyGameClubButton();
     setGameAudio(null);
     this._audio = null;
-    this._dropStandby();
     this._disposeUgcEditor();
   }
 
@@ -334,60 +335,42 @@ export class GameBootstrap extends Component {
     return this._ugcPlay ? `ugc:${this._ugcMapId}` : `lv:${this._level}`;
   }
 
-  private _dropStandby(): void {
-    const s = this._standby;
-    this._standby = null;
-    if (!s?.root?.isValid) return;
-    s.root.name = 'PlayWorld_standby_disposed';
-    s.root.removeFromParent();
-    this._disposeTree(s.root);
-    resetPlayFx();
+  /** Dim covers the field; stop drawing it so the settle panel and confetti keep the frame. */
+  private _sleepPlayWorld(): void {
+    const world = this._ugcEditor?.node ?? this._battle?.node;
+    if (world?.isValid) world.active = false;
+    const cam = this._mainCam;
+    if (!cam?.isValid) return;
+    cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+    cam.clearColor = Theme.sky;
   }
 
-  private _adoptStandby(key: string): boolean {
-    const s = this._standby;
-    if (!s || s.key !== key || !s.root?.isValid || !s.battle?.isValid) return false;
-    this._standby = null;
-    this._disposeNamed('PlayWorld');
-    this._disposeUgcEditor();
-    s.root.name = 'PlayWorld';
-    this._battle = s.battle;
-    this._worldKey = key;
-    this._builtLevel = this._ugcPlay ? 1 : this._level;
-    this._frameMainCamera();
-    this._home?.setLevel(this._level, LEVEL_COUNT);
-    this._playHud?.setLevel(this._builtLevel);
-    this._setWorldLive(false);
-    return true;
+  private _openSettle(): void {
+    this._sleepPlayWorld();
+    this._playHud?.hide();
   }
 
-  private _queueStandby(): void {
-    if (this._ugcPlay || this._bootJob) return;
-    const key = this._playWorldKey();
-    if (this._standby?.key === key && this._standby.battle?.isValid) return;
-    this._bootJob = this._fillStandby(key).finally(() => {
-      this._bootJob = null;
-    });
-  }
-
-  private async _fillStandby(key: string): Promise<void> {
+  private async _runLevelLoad(work: (set: (p: number) => void) => Promise<void>): Promise<void> {
+    const load = this._load;
+    if (!load) {
+      await work(() => undefined);
+      return;
+    }
+    this._home?.hide();
+    this._playHud?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._chest?.hide();
+    this._itemShop?.hide();
+    this._settings?.hide();
+    this._setGoldVisible(false);
+    load.show();
+    load.set(0.1);
     try {
-      if (!this.node.scene) return;
-      this._dropStandby();
-      const level = getLevel(this._level);
-      const world = await buildPlayWorld(this.node.scene, level, {
-        name: 'PlayWorldStandby',
-        active: false,
-      });
-      if (!this.isValid) {
-        world.root.name = 'PlayWorld_standby_disposed';
-        world.root.removeFromParent();
-        this._disposeTree(world.root);
-        return;
-      }
-      this._standby = { root: world.root, battle: world.battle, key };
-    } catch (err) {
-      console.error('[Suck] standby world failed', err);
+      await work((p) => load.set(p));
+      await load.finish();
+    } finally {
+      load.hide();
     }
   }
 
@@ -398,11 +381,12 @@ export class GameBootstrap extends Component {
       if (!this.node.scene) return;
       const key = this._playWorldKey();
       if (this._worldKey === key && this._battle?.isValid) return;
-      if (this._adoptStandby(key)) return;
       this._disposeNamed('PlayWorld');
       this._disposeUgcEditor();
       const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
-      const world = await buildPlayWorld(this.node.scene, level);
+      const world = await buildPlayWorld(this.node.scene, level, {
+        onProgress: (p) => this._load?.set(0.22 + p * 0.7),
+      });
       this._battle = world.battle;
       this._worldKey = key;
       this._builtLevel = this._ugcPlay ? 1 : this._level;
@@ -438,7 +422,6 @@ export class GameBootstrap extends Component {
     if (this._bootJob) await this._bootJob;
     const key = this._playWorldKey();
     if (this._worldKey === key && this._battle?.isValid) return;
-    if (this._adoptStandby(key)) return;
     await this._bootWorld();
   }
 
@@ -457,6 +440,7 @@ export class GameBootstrap extends Component {
       this._gm?.collapse();
       this._battle?.setPlaying(false);
       this._setGoldVisible(false);
+      this._openSettle();
       this._victory?.show({
         hasNext: true,
         gold: 0,
@@ -471,7 +455,6 @@ export class GameBootstrap extends Component {
     saveLevelIndex(this._level);
     this._clearGold = GOLD.win;
     completeGuide(guideIdForLevel(cleared));
-    this._playHud?.showCleared(cleared, this._level > cleared);
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.hide();
     this._settings?.hide();
@@ -483,6 +466,7 @@ export class GameBootstrap extends Component {
     this._setGoldVisible(true);
     markChestPending(cleared);
     this._clearChest = peekPendingChest() ? rollChestReward(cleared) : null;
+    this._openSettle();
     this._victory?.show({
       hasNext: this._level > cleared && cleared < WIN_DOUBLE_ONLY_FROM,
       gold: GOLD.win,
@@ -493,7 +477,6 @@ export class GameBootstrap extends Component {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
-    this._queueStandby();
   }
 
   private _claimNext(): void {
@@ -504,8 +487,14 @@ export class GameBootstrap extends Component {
     this._claimSettle('fail');
   }
 
+  private _beginSettleClaim(kind: 'win' | 'fail'): void {
+    this._lockSettle(kind);
+    if (kind === 'win') this._victory?.releaseFx();
+  }
+
   private _claimSettle(kind: 'win' | 'fail'): void {
     if (this._doubleBusy) return;
+    this._beginSettleClaim(kind);
     const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
     const amount = this._clearGold > 0 ? this._clearGold : fallback;
     this._clearGold = 0;
@@ -524,7 +513,7 @@ export class GameBootstrap extends Component {
   private async _claimSettleDouble(kind: 'win' | 'fail'): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
-    this._lockSettle(kind);
+    this._beginSettleClaim(kind);
     const result = await showRewardedVideoAd();
     const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
     const base = this._clearGold > 0 ? this._clearGold : fallback;
@@ -543,7 +532,7 @@ export class GameBootstrap extends Component {
   private async _flyGoldThen(amount: number, kind: 'win' | 'fail', items: readonly ItemId[] = []): Promise<void> {
     if (this._doubleBusy) return;
     this._doubleBusy = true;
-    this._lockSettle(kind);
+    this._beginSettleClaim(kind);
     const after = () => {
       this._doubleBusy = false;
       if (kind === 'fail') this._retryPlay();
@@ -553,6 +542,11 @@ export class GameBootstrap extends Component {
     if (!canvas?.isValid || amount <= 0) {
       if (amount > 0) this._wallet.add(amount);
       if (kind === 'win' && items.length) await this._flyChestItems(items);
+      after();
+      return;
+    }
+    await afterDraws(1);
+    if (!this.isValid || !canvas.isValid) {
       after();
       return;
     }
@@ -574,10 +568,11 @@ export class GameBootstrap extends Component {
         end,
         amount,
         frame: panel?.goldIconFrame() ?? artFrame('goldIcon'),
-        onCredit: (n) => this._wallet.add(n),
+        onCredit: (n) => this._wallet.add(n, true, false),
         onDone: () => resolve(),
       });
     });
+    this._wallet.save();
     if (kind === 'win' && items.length) await this._flyChestItems(items);
     after();
   }
@@ -596,6 +591,7 @@ export class GameBootstrap extends Component {
       this._gm?.collapse();
       this._battle?.setPlaying(false);
       this._setGoldVisible(false);
+      this._openSettle();
       this._fail?.show({ gold: 0, canDouble: false });
       return;
     }
@@ -609,6 +605,7 @@ export class GameBootstrap extends Component {
     this._gm?.collapse();
     this._battle?.setPlaying(false);
     this._setGoldVisible(true);
+    this._openSettle();
     this._fail?.show({
       gold: GOLD.fail,
       canDouble: true,
@@ -617,7 +614,6 @@ export class GameBootstrap extends Component {
       this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
-    this._queueStandby();
   }
 
   private _onChestReady(chest: ChestActor): void {
@@ -875,7 +871,6 @@ export class GameBootstrap extends Component {
   private _gmSkip(n: number): void {
     this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
     saveLevelIndex(this._level);
-    this._dropStandby();
     this._builtLevel = 0;
     this._gm?.setLevel(this._level);
     this._home?.setLevel(this._level, LEVEL_COUNT);
@@ -890,7 +885,6 @@ export class GameBootstrap extends Component {
   private _gmReset(): void {
     this._worldKey = '';
     this._builtLevel = 0;
-    this._dropStandby();
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
@@ -1205,7 +1199,8 @@ export class GameBootstrap extends Component {
     this._setGoldVisible(false);
     this._wallet.watch((coins, animate) => {
       this._gold?.setCoins(coins, animate);
-      this._playHud?.setItems(this._battle?.itemState() ?? {
+      if (!this._playHud?.node.active) return;
+      this._playHud.setItems(this._battle?.itemState() ?? {
         coins,
         shuffle: this._wallet.itemCount('shuffle'),
         hook: this._wallet.itemCount('hook'),
@@ -1371,13 +1366,10 @@ export class GameBootstrap extends Component {
     this._battle?.setPlaying(false);
     if (this._worldTouched) {
       this._worldTouched = false;
-      this._dropStandby();
       this._disposeNamed('PlayWorld');
       this._battle = null;
       this._worldKey = '';
       this._builtLevel = 0;
-      void this._bootWorld();
-      return;
     }
     this._setWorldLive(false);
   }
@@ -1403,6 +1395,10 @@ export class GameBootstrap extends Component {
   }
 
   private _enterPlay(): void {
+    void this._enterPlayAsync();
+  }
+
+  private async _enterPlayAsync(): Promise<void> {
     this._settledBuilt = -1;
     this._unlockAudio();
     const key = this._playWorldKey();
@@ -1410,11 +1406,14 @@ export class GameBootstrap extends Component {
       this._revealPlay();
       return;
     }
-    void this._ensureWorld().then(() => {
-      if (!this.isValid || this._ugcEditor) return;
-      if (this._ugcHoldPlay && !this._ugcPlay) return;
-      this._revealPlay();
+    await this._runLevelLoad(async (set) => {
+      set(0.16);
+      await this._ensureWorld();
+      set(0.94);
     });
+    if (!this.isValid || this._ugcEditor) return;
+    if (this._ugcHoldPlay && !this._ugcPlay) return;
+    this._revealPlay();
   }
 
   private _revealPlay(): void {
@@ -1422,10 +1421,6 @@ export class GameBootstrap extends Component {
     applyLevel(level);
     this._frameMainCamera();
     this._setWorldLive(true);
-    if (this._battle?.isValid) {
-      this._battle.enabled = false;
-      this._battle.enabled = true;
-    }
     this._bindBattle();
     this._battle?.reposeView();
     this._home?.hide();
@@ -1462,14 +1457,11 @@ export class GameBootstrap extends Component {
       this._returnToEditor();
       return;
     }
-    if (this._bootJob) await this._bootJob;
-    this._dropStandby();
+    resetPlayFx();
     this._worldKey = '';
     this._builtLevel = 0;
     this._disposeNamed('PlayWorld');
     this._battle = null;
-    resetPlayFx();
-    await this._bootWorld();
     this._enterPlay();
   }
 
@@ -1536,7 +1528,6 @@ export class GameBootstrap extends Component {
     if (this._ugcPlay) {
       this._ugcPlay = false;
       this._ugcLevel = null;
-      this._dropStandby();
       this._disposeNamed('PlayWorld');
       this._battle = null;
       this._worldKey = '';
@@ -1549,7 +1540,6 @@ export class GameBootstrap extends Component {
     if (!map || !this.node.scene || !this._mainCam) return;
     this._unlockAudio();
     try {
-      this._dropStandby();
       this._disposeNamed('PlayWorld');
       this._battle = null;
       this._worldKey = '';
@@ -1588,7 +1578,6 @@ export class GameBootstrap extends Component {
     this._ugcPlay = true;
     this._ugcMapId = id;
     this._ugcLevel = ugcToLevelDef(map);
-    this._dropStandby();
     this._worldKey = '';
     this._builtLevel = 0;
     this._ugcHud?.hide();

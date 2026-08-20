@@ -30,6 +30,15 @@ const SCALE_FLY = new Vec3(0.75, 0.75, 1);
 const COIN_FALLBACK = new Color(255, 196, 44, 255);
 const _pool: Node[] = [];
 
+export function warmupCoinFlyers(canvas: Node | null, count = MAX_FLYERS): void {
+  if (!canvas?.isValid) return;
+  const fx = ensureCoinFxRoot(canvas);
+  for (let i = 0; i < count; i++) {
+    const n = takeFlyer(fx);
+    n.active = false;
+  }
+}
+
 export function ensureCoinFxRoot(canvas: Node): Node {
   let fx = canvas.getChildByName('CoinFx');
   if (!fx?.isValid) {

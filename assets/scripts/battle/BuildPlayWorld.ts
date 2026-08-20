@@ -226,11 +226,19 @@ function spawnChest(
   return n;
 }
 
+function waitTick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 export async function buildPlayWorld(
   scene: Node,
   level?: LevelDef,
-  opts?: { name?: string; active?: boolean },
+  opts?: { name?: string; active?: boolean; onProgress?: (p: number) => void },
 ): Promise<{ root: Node; battle: BattleDirector }> {
+  const note = (p: number): void => {
+    opts?.onProgress?.(Math.max(0, Math.min(1, p)));
+  };
+  note(0.08);
   await ensureLevels();
   level = level ?? getLevel(1);
   applyLevel(level);
@@ -240,7 +248,9 @@ export async function buildPlayWorld(
     if (tokens.indexOf(extra[i]) < 0) tokens.push(extra[i]);
   }
   const needs = levelNeeds(level);
+  note(0.18);
   await preloadPlayMeshes();
+  note(0.32);
   const blockPfs: Record<string, Prefab> = Object.create(null);
   const unitPfs: Record<string, Prefab> = Object.create(null);
   const [groundPf, slotPf, ironPf, chestPf, blockLoaded, unitLoaded] = await Promise.all([
@@ -264,6 +274,8 @@ export async function buildPlayWorld(
     blockPfs[tokens[i]] = blockLoaded[i];
     unitPfs[tokens[i]] = unitLoaded[i];
   }
+  note(0.48);
+  await waitTick();
 
   const root = new Node(opts?.name ?? 'PlayWorld');
   scene.addChild(root);
@@ -282,7 +294,9 @@ export async function buildPlayWorld(
     const depth = PLAY.wallDepth;
     const originX = -((cols - 1) * step) / 2;
     const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
-    for (const v of level.voxels) {
+    const voxels = level.voxels;
+    for (let i = 0; i < voxels.length; i++) {
+      const v = voxels[i];
       const token = v.token;
       const blockPf = blockPfs[isColorToken(token) ? token : 'o'] || blockPfs['o'];
       if (!blockPf) throw new Error('no block prefab ' + token);
@@ -297,6 +311,10 @@ export async function buildPlayWorld(
       if (isColorToken(token)) cell.colorId = parseColorToken(token);
       cell.voxelId = v.colorId;
       paintVoxelId(n, v.colorId);
+      if ((i & 63) === 63) {
+        note(0.48 + 0.4 * ((i + 1) / voxels.length));
+        await waitTick();
+      }
     }
   } else
   for (let y = 0; y < rows; y++) {
@@ -427,5 +445,6 @@ export async function buildPlayWorld(
   battle.armSpawn(unitPfs, reserve);
   // Build while active so Cocos schedules update; hide only after onLoad/onEnable.
   if (opts?.active === false) root.active = false;
+  note(1);
   return { root, battle };
 }

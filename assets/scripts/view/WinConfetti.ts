@@ -40,11 +40,15 @@ const ART = [
   ...PIECES,
 ];
 
+type Shot = { ps: ParticleSystem2D | null; burst: number; loop: number };
+
 const _frames = new Map<string, SpriteFrame>();
 let _boot: Promise<void> | null = null;
 let _live = 0;
 const _rateJobs: { ps: ParticleSystem2D; rate: number; wait: number }[] = [];
 let _rateTick = false;
+let _shots: Shot[] | null = null;
+let _shotsRoot: Node | null = null;
 
 function frameOk(sf: SpriteFrame | null | undefined): sf is SpriteFrame {
   return !!(sf && sf.texture);
@@ -167,6 +171,7 @@ type PsSpec = {
   dirRot?: boolean;
   spin?: number;
   endA?: number;
+  add?: boolean;
 };
 
 function ensurePs(root: Node, spec: PsSpec): ParticleSystem2D | null {
@@ -184,7 +189,12 @@ function ensurePs(root: Node, spec: PsSpec): ParticleSystem2D | null {
   n.setPosition(0, spec.y ?? CHEST_Y, 0);
   const ps = n.getComponent(ParticleSystem2D);
   if (!ps) return null;
-  if (ps.custom && ps.spriteFrame === sf) return ps;
+  const add = !!spec.add;
+  const dst = add ? gfx.BlendFactor.ONE : gfx.BlendFactor.ONE_MINUS_SRC_ALPHA;
+  if (ps.custom && ps.spriteFrame === sf) {
+    ps.dstBlendFactor = dst;
+    return ps;
+  }
   const burst = spec.burst ?? 0;
   const loopRate = spec.loop ? Math.max(1, spec.rate ?? 2) : 0;
   ps.custom = true;
@@ -194,7 +204,7 @@ function ensurePs(root: Node, spec: PsSpec): ParticleSystem2D | null {
   ps.emitterMode = ParticleSystem2D.EmitterMode.GRAVITY;
   ps.positionType = ParticleSystem2D.PositionType.RELATIVE;
   ps.srcBlendFactor = gfx.BlendFactor.SRC_ALPHA;
-  ps.dstBlendFactor = gfx.BlendFactor.ONE;
+  ps.dstBlendFactor = dst;
   ps.duration = spec.loop ? ParticleSystem2D.DURATION_INFINITY : 0.12;
   ps.emissionRate = spec.loop ? loopRate : Math.max(burst / 0.12, burst || 1);
   ps.totalParticles = spec.loop
@@ -259,8 +269,6 @@ function playBurst(ps: ParticleSystem2D | null, burst: number, loopRate = 0): vo
   ps.resetSystem();
 }
 
-type Shot = { ps: ParticleSystem2D | null; burst: number; loop: number };
-
 function makeShots(root: Node): Shot[] {
   const shots: Shot[] = [
     { ps: ensurePs(root, {
@@ -278,6 +286,7 @@ function makeShots(root: Node): Shot[] {
       color: new Color(255, 248, 85, 220),
       spin: 0,
       endA: 0,
+      add: true,
     }), burst: 2, loop: 0 },
   ];
   for (let i = 0; i < PIECES.length; i++) {
@@ -325,6 +334,7 @@ function makeShots(root: Node): Shot[] {
         angleVar: 160,
         color: GOLD_HI,
         dirRot: true,
+        add: true,
       }),
       burst: 14,
       loop: 3,
@@ -346,6 +356,7 @@ function makeShots(root: Node): Shot[] {
         angle: 90,
         angleVar: 160,
         color: GOLD_HI,
+        add: true,
       }),
       burst: 14,
       loop: 3,
@@ -370,6 +381,7 @@ function makeShots(root: Node): Shot[] {
         posY: 40,
         color: GOLD_HI,
         dirRot: true,
+        add: true,
       }),
       burst: 0,
       loop: 16,
@@ -384,10 +396,17 @@ function paintGlows(root: Node): void {
   paintGlow(root, 'GlowRays', 'glow-rays', 1400, 140, 28);
 }
 
+function shotsOf(root: Node): Shot[] {
+  if (_shots && _shotsRoot === root) return _shots;
+  _shots = makeShots(root);
+  _shotsRoot = root;
+  return _shots;
+}
+
 function buildArt(host: Node): void {
   const root = rootOf(host);
   paintGlows(root);
-  const shots = makeShots(root);
+  const shots = shotsOf(root);
   for (const shot of shots) {
     if (!shot.ps) continue;
     shot.ps.resetSystem();
@@ -407,7 +426,7 @@ function fireShot(shot: Shot): void {
 
 function playNow(root: Node): void {
   paintGlows(root);
-  for (const shot of makeShots(root)) fireShot(shot);
+  for (const shot of shotsOf(root)) fireShot(shot);
 }
 
 export function playWinConfetti(host: Node): void {

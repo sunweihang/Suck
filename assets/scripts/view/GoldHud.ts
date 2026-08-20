@@ -54,6 +54,7 @@ export class GoldHud extends Component {
   private _amount: Label | null = null;
   private _icon: Node | null = null;
   private _onPlus: (() => void) | null = null;
+  private _pulseAt = 0;
 
   setup(opts?: { onPlus?: () => void }): void {
     this._onPlus = opts?.onPlus ?? null;
@@ -76,7 +77,13 @@ export class GoldHud extends Component {
     const gained = next > this._coins;
     this._coins = next;
     if (this._amount) this._amount.string = String(this._coins);
-    if (animate && gained) this._pulse();
+    if (animate && gained) {
+      const now = Date.now();
+      if (now - this._pulseAt > 90) {
+        this._pulseAt = now;
+        this._pulse();
+      }
+    }
   }
 
   iconWorldPos(out: Vec3): Vec3 {
@@ -137,6 +144,10 @@ export class GoldHud extends Component {
     this._amount.overflow = Label.Overflow.NONE;
     this._amount.useSystemFont = true;
     this._amount.fontFamily = 'PingFang SC';
+    this._amount.cacheMode = Label.CacheMode.CHAR;
+    this._amount.string = '0123456789';
+    this._amount.updateRenderData?.(true);
+    this._amount.string = '0';
     this._placeParts();
   }
 

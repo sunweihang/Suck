@@ -145,7 +145,8 @@ export class VictoryPanel extends Component {
     this._syncDouble();
     this._syncGold();
     this._syncChest();
-    this._paintBtns();
+    if (!this._gpuHot) this._paintBtns();
+    else this._syncBtnLabels();
     const vis = uiVisibleSize();
     this._placeStage(vis.w, vis.h);
     this._popIn();
@@ -162,6 +163,10 @@ export class VictoryPanel extends Component {
 
   lock(): void {
     this._locked = true;
+  }
+
+  releaseFx(): void {
+    clearWinConfetti(this.node);
   }
 
   hide(): void {
@@ -445,14 +450,7 @@ export class VictoryPanel extends Component {
       this._bareBtn(next);
       ensureBtnChrome(next, BTN_W, BTN_H, NEXT_FILL, NEXT_OUTLINE, 'winAction');
     }
-    const dLab = double?.getChildByName('Content')?.getChildByName('Label');
-    const nLab = next?.getChildByName('Label');
-    const dComp = dLab?.getComponent(Label);
-    if (dComp) dComp.string = '双倍领取';
-    else if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
-    const nComp = nLab?.getComponent(Label);
-    if (nComp) nComp.string = this._nextLabel;
-    else if (nLab) this._styleLabel(nLab, this._nextLabel, NEXT_OUTLINE);
+    this._syncBtnLabels();
     if (!double?.getChildByName('Content')?.getChildByName('AdIcon')?.getComponent(Sprite)?.spriteFrame) {
       applyArtSpriteSoon(
         double?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
@@ -462,6 +460,18 @@ export class VictoryPanel extends Component {
       );
     }
     this._syncGold();
+  }
+
+  private _syncBtnLabels(): void {
+    const stage = this._stage();
+    const dLab = stage?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('Label');
+    const nLab = stage?.getChildByName('NextBtn')?.getChildByName('Label');
+    const dComp = dLab?.getComponent(Label);
+    if (dComp) dComp.string = '双倍领取';
+    else if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
+    const nComp = nLab?.getComponent(Label);
+    if (nComp) nComp.string = this._nextLabel;
+    else if (nLab) this._styleLabel(nLab, this._nextLabel, NEXT_OUTLINE);
   }
 
   private _ensureGold(): void {
@@ -603,7 +613,6 @@ export class VictoryPanel extends Component {
 
   private _setFill(t: number): void {
     this._fill = Math.max(0, Math.min(1, t));
-    this._tintChest();
     this._applyFill(this._fill);
   }
 
@@ -613,6 +622,10 @@ export class VictoryPanel extends Component {
     if (!clip || !art) return;
     const k = Math.max(0, Math.min(1, t));
     const px = Math.max(0, Math.round(CHEST * k));
+    if (px === this._fillPx) {
+      const filled = art.getComponent(Sprite);
+      if (filled && Math.abs(filled.fillRange - k) < 0.002) return;
+    }
     this._fillPx = px;
     clip.active = true;
     clip.getComponent(UITransform)?.setContentSize(CHEST, CHEST);
@@ -679,7 +692,7 @@ export class VictoryPanel extends Component {
     const lab = node.getComponent(Label) ?? this._stylePct(node, text);
     lab.enabled = true;
     lab.string = text;
-    if (n !== this._pctShown && this._pctShown >= 0) {
+    if (n !== this._pctShown && this._pctShown >= 0 && (n % 4 === 0 || n === 100)) {
       Tween.stopAllByTarget(node);
       node.setScale(1.16, 1.16, 1);
       tween(node).to(0.14, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
@@ -734,7 +747,12 @@ export class VictoryPanel extends Component {
 
   private _bindTap(node: Node | null | undefined, onTap: () => void): void {
     if (!node) return;
+    node.off(Node.EventType.TOUCH_START);
     node.off(Node.EventType.TOUCH_END);
+    node.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this.releaseFx();
+    }, this);
     node.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();

@@ -15,6 +15,7 @@ import { coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 export type BootLoad = {
   set: (progress: number, tip?: string) => void;
   raise: () => void;
+  show: () => void;
   finish: () => Promise<void>;
   hide: () => void;
 };
@@ -97,26 +98,44 @@ export async function attachBootLoad(host: Node): Promise<BootLoad> {
     pump();
   };
 
+  const raise = (): void => {
+    if (root.parent) root.setSiblingIndex(root.parent.children.length - 1);
+  };
+
+  const relayout = (): void => {
+    const vis = portraitVisibleSize();
+    const cover = coverBackgroundSize(vis.width, vis.height);
+    root.getComponent(UITransform)?.setContentSize(vis.width, vis.height);
+    root.getComponent(Widget)?.updateAlignment();
+    paint(bg, art.home, cover.w, cover.h, false);
+  };
+
   return {
     set(progress: number) {
       aim(progress);
     },
-    raise() {
-      if (root.parent) root.setSiblingIndex(root.parent.children.length - 1);
+    raise,
+    show() {
+      if (!root.isValid) return;
+      if (tick) clearTimeout(tick);
+      tick = 0;
+      shown = 0.08;
+      goal = 0.08;
+      paintBar(0.08);
+      relayout();
+      root.active = true;
+      raise();
     },
     async finish() {
       aim(1);
-      while (root.isValid && shown < 0.999) await wait(16);
-      paintBar(1);
-      await wait(200);
+      while (root.isValid && root.active && shown < 0.999) await wait(16);
+      if (root.isValid) paintBar(1);
+      await wait(180);
     },
     hide() {
       if (tick) clearTimeout(tick);
       tick = 0;
-      if (root.isValid) {
-        root.removeFromParent();
-        root.destroy();
-      }
+      if (root.isValid) root.active = false;
     },
   };
 }

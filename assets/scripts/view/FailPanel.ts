@@ -50,6 +50,9 @@ export class FailPanel extends Component {
   private _gold = 0;
   private _canDouble = true;
   private _locked = false;
+  private _dimW = 0;
+  private _dimH = 0;
+  private _chromeReady = false;
 
   setup(opts: { onRetry: () => void; onDouble?: () => void }): void {
     this._onRetry = opts.onRetry;
@@ -116,10 +119,17 @@ export class FailPanel extends Component {
     const dim = this.node.getChildByName('Dim');
     dim?.getComponent(UITransform)?.setContentSize(vis.w, vis.h);
     dim?.getComponent(Widget)?.updateAlignment();
-    this._fillDim(dim, vis.w, vis.h);
+    if (this._dimW !== vis.w || this._dimH !== vis.h) {
+      this._dimW = vis.w;
+      this._dimH = vis.h;
+      this._fillDim(dim, vis.w, vis.h);
+    }
     this._placeRow();
-    this._paintBtns();
-    this._paintFrame();
+    if (!this._chromeReady) {
+      this._paintBtns();
+      this._paintFrame();
+      this._chromeReady = true;
+    }
   }
 
   private _card(): Node | null {
@@ -272,10 +282,14 @@ export class FailPanel extends Component {
     const card = this._card();
     const double = card?.getChildByName('DoubleBtn') ?? null;
     const retry = card?.getChildByName('RetryBtn') ?? null;
-    this._bareBtn(double);
-    this._bareBtn(retry);
-    ensureBtnChrome(double, BTN_W, BTN_H, DOUBLE_FILL, DOUBLE_OUTLINE, 'winDouble');
-    ensureBtnChrome(retry, BTN_W, BTN_H, RETRY_FILL, RETRY_OUTLINE, 'winAction');
+    if (!double?.getChildByName('Skin')) {
+      this._bareBtn(double);
+      ensureBtnChrome(double, BTN_W, BTN_H, DOUBLE_FILL, DOUBLE_OUTLINE, 'winDouble');
+    }
+    if (!retry?.getChildByName('Skin')) {
+      this._bareBtn(retry);
+      ensureBtnChrome(retry, BTN_W, BTN_H, RETRY_FILL, RETRY_OUTLINE, 'winAction');
+    }
     const dLab = card?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('Label');
     const rLab = card?.getChildByName('RetryBtn')?.getChildByName('Label');
     if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
