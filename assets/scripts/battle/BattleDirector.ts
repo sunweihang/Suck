@@ -426,6 +426,7 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint(dt);
+    this._flushSkin();
   }
 
   private _tickShots(dt: number): void {
@@ -2346,6 +2347,7 @@ export class BattleDirector extends Component {
       b.voxelId = nearestVoxelId(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.o);
       paintNodeColor(b.node, token);
     });
+    dirtyBrickSkin();
   }
 
   private _settleSand(col: number, layer: number): void {
