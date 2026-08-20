@@ -352,7 +352,7 @@ const BURIED_LAYER = 1 << 19;
 
 function setDrawnLayer(node: Node, layer: number): void {
   if (SKIP_BRICK_DRAW.test(node.name)) return;
-  node.layer = layer;
+  if (node.layer !== layer) node.layer = layer;
   const kids = node.children;
   for (let i = 0; i < kids.length; i++) setDrawnLayer(kids[i], layer);
 }

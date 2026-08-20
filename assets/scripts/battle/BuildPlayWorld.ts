@@ -37,7 +37,7 @@ import { IronPlate } from './IronPlate';
 import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
-import { applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
+import { applySandLook, attachBrickRenderer, hangBrickRenderer, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
@@ -170,8 +170,8 @@ function spawn(prefab: Prefab, parent: Node, name: string, pos: Vec3): Node {
   return n;
 }
 
-/** Bare stand-in for a brick nobody can see: same node and BlockCell, no model in the scene. */
-function spawnHidden(parent: Node, name: string, pos: Vec3): Node {
+/** Bare brick: shared cube is hung later so we never instantiate a color prefab. */
+function spawnBrick(parent: Node, name: string, pos: Vec3): Node {
   const n = new Node(name);
   n.layer = Layers.Enum.DEFAULT;
   parent.addChild(n);
@@ -179,10 +179,43 @@ function spawnHidden(parent: Node, name: string, pos: Vec3): Node {
   return n;
 }
 
+function placeBrick(
+  parent: Node,
+  name: string,
+  pos: Vec3,
+  token: string,
+  voxelId: number,
+  hidden: boolean,
+  readyMesh: boolean,
+  nearShell: boolean,
+  prefab: Prefab | null,
+): BlockCell {
+  const n = readyMesh || !prefab ? spawnBrick(parent, name, pos) : spawn(prefab, parent, name, pos);
+  const cell = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
+  cell.syncFromName();
+  if (isColorToken(token)) cell.colorId = parseColorToken(token);
+  cell.voxelId = voxelId;
+  if (readyMesh) {
+    if (hidden && !nearShell) {
+      hangBrickRenderer(n);
+      cell.meshless = true;
+    } else {
+      attachBrickRenderer(n, voxelId);
+      cell.meshless = false;
+    }
+  } else {
+    cell.meshless = hidden;
+    if (!hidden) paintVoxelId(n, voxelId);
+  }
+  return cell;
+}
+
 /** All block prefabs point at the same cube, so any loaded one hands over the shared mesh. */
 function brickCubeMesh(pfs: Record<string, Prefab>): Mesh | null {
   for (const key in pfs) {
-    const mesh = pfs[key]?.data?.getComponent(MeshRenderer)?.mesh;
+    const root = pfs[key]?.data;
+    const mesh = root?.getComponent(MeshRenderer)?.mesh
+      ?? root?.getComponentInChildren(MeshRenderer)?.mesh;
     if (mesh) return mesh;
   }
   return null;
@@ -193,9 +226,9 @@ function voxelKey(x: number, y: number, z: number): number {
 }
 
 /**
- * Solid sculptures hide well over half their bricks inside. Spotting them here keeps
- * their models out of the scene; BattleDirector re-checks with `_isBuried` right after
- * the build, so a wrong guess costs a renderer, never correctness.
+ * Solid sculptures hide well over half their bricks inside. Those get an empty
+ * renderer (mesh filled later). BattleDirector re-checks with `_isBuried` after
+ * the build, so a wrong guess only assigns a mesh, never skips a visible brick.
  */
 function boxedInVoxels(voxels: LevelDef['voxels']): Set<number> {
   const solid = new Set<number>();
@@ -218,6 +251,19 @@ function boxedInVoxels(voxels: LevelDef['voxels']): Set<number> {
     }
   }
   return out;
+}
+
+const NEAR_SHELL: ReadonlyArray<readonly [number, number, number]> = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+];
+
+/** Boxed-in brick that touches the camera shell — mesh it now so the first peel is free. */
+function nearShellVoxel(x: number, y: number, z: number, boxedIn: Set<number>): boolean {
+  for (let i = 0; i < NEAR_SHELL.length; i++) {
+    const d = NEAR_SHELL[i];
+    if (!boxedIn.has(voxelKey(x + d[0], y + d[1], z + d[2]))) return true;
+  }
+  return false;
 }
 
 function loadChestPrefab(): Promise<Prefab | null> {
@@ -293,12 +339,12 @@ export async function buildPlayWorld(
   note(0.32);
   const blockPfs: Record<string, Prefab> = Object.create(null);
   const unitPfs: Record<string, Prefab> = Object.create(null);
-  const [groundPf, slotPf, ironPf, chestPf, blockLoaded, unitLoaded] = await Promise.all([
+  const [groundPf, slotPf, ironPf, chestPf, blockO, unitLoaded] = await Promise.all([
     loadPrefab(prefabPath('Ground'), prefabUuid('Ground'), 'Ground'),
     loadPrefab(prefabPath('Slot'), prefabUuid('Slot'), 'Slot'),
     needs.iron ? loadPrefab(prefabPath('IronPlate'), prefabUuid('IronPlate'), 'IronPlate') : Promise.resolve(null),
     needs.chest ? loadChestPrefab() : Promise.resolve(null),
-    Promise.all(tokens.map((t) => loadPrefab(blockPrefabPath(t), blockPrefabUuid(t), 'block:' + t))),
+    loadPrefab(blockPrefabPath('o'), blockPrefabUuid('o'), 'block:o'),
     Promise.all(tokens.map((t) => loadPrefab(unitPrefabPath(t), unitPrefabUuid(t), 'unit:' + t))),
     needs.nails ? preloadLockNails() : Promise.resolve(),
     needs.raft ? preloadRaftBoard() : Promise.resolve(),
@@ -308,8 +354,16 @@ export async function buildPlayWorld(
     preloadToySlots(),
     preloadVoxelLook(),
   ]);
+  blockPfs.o = blockO;
+  const readyMesh = rememberBrickMesh(brickCubeMesh(blockPfs));
+  if (!readyMesh) {
+    const rest = tokens.filter((t) => t !== 'o');
+    const blockLoaded = await Promise.all(
+      rest.map((t) => loadPrefab(blockPrefabPath(t), blockPrefabUuid(t), 'block:' + t)),
+    );
+    for (let i = 0; i < rest.length; i++) blockPfs[rest[i]] = blockLoaded[i];
+  }
   for (let i = 0; i < tokens.length; i++) {
-    blockPfs[tokens[i]] = blockLoaded[i];
     unitPfs[tokens[i]] = unitLoaded[i];
   }
   note(0.48);
@@ -333,23 +387,24 @@ export async function buildPlayWorld(
     const originX = -((cols - 1) * step) / 2;
     const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
     const voxels = level.voxels;
-    const canSkip = rememberBrickMesh(brickCubeMesh(blockPfs));
-    const boxedIn = canSkip ? boxedInVoxels(voxels) : null;
+    const boxedIn = readyMesh ? boxedInVoxels(voxels) : null;
     for (let i = 0; i < voxels.length; i++) {
       const v = voxels[i];
       const token = v.token;
-      const blockPf = blockPfs[isColorToken(token) ? token : 'o'] || blockPfs['o'];
-      if (!blockPf) throw new Error('no block prefab ' + token);
-      const name = `Blk_${token}_${v.x}_${v.y}_${v.z}`;
-      const pos = new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step);
       const hidden = !!boxedIn?.has(voxelKey(v.x, v.y, v.z));
-      const n = hidden ? spawnHidden(wall, name, pos) : spawn(blockPf, wall, name, pos);
-      const cell = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
-      cell.syncFromName();
-      if (isColorToken(token)) cell.colorId = parseColorToken(token);
-      cell.voxelId = v.colorId;
-      cell.meshless = hidden;
-      if (!hidden) paintVoxelId(n, v.colorId);
+      const blockPf = readyMesh ? null : (blockPfs[isColorToken(token) ? token : 'o'] || blockPfs['o']);
+      if (!readyMesh && !blockPf) throw new Error('no block prefab ' + token);
+      placeBrick(
+        wall,
+        `Blk_${token}_${v.x}_${v.y}_${v.z}`,
+        new Vec3(originX + v.x * step, baseY + v.y * step, originZ - v.z * step),
+        token,
+        v.colorId,
+        hidden,
+        readyMesh,
+        hidden && boxedIn ? nearShellVoxel(v.x, v.y, v.z, boxedIn) : false,
+        blockPf,
+      );
       if ((i & 63) === 63) {
         note(0.48 + 0.4 * ((i + 1) / voxels.length));
         await waitTick();
@@ -372,10 +427,9 @@ export async function buildPlayWorld(
         const locked = !!cell.locked?.[z];
         const raft = onRaft(level, x, y);
         const tag = locked ? '_L' : raft ? '_F' : '';
-        const blockPf = blockPfs[token] || blockPfs['o'];
-        if (!blockPf) throw new Error('no block prefab ' + token);
-        const n = spawn(
-          blockPf,
+        const blockPf = readyMesh ? null : (blockPfs[token] || blockPfs['o']);
+        if (!readyMesh && !blockPf) throw new Error('no block prefab ' + token);
+        const brick = placeBrick(
           wall,
           `Blk_${token}_${x}_${y}_${z}${tag}`,
           new Vec3(
@@ -383,12 +437,15 @@ export async function buildPlayWorld(
             baseY + y * step + (raft ? step * 0.05 : 0),
             frontZ - z * step,
           ),
+          token,
+          isColorToken(token) ? TOKEN_VOXEL_ID[token] : TOKEN_VOXEL_ID.o,
+          false,
+          readyMesh,
+          false,
+          blockPf,
         );
-        const brick = n.getComponent(BlockCell) ?? n.addComponent(BlockCell);
-        brick.syncFromName();
-        if (isColorToken(token)) brick.voxelId = TOKEN_VOXEL_ID[token];
-        if (locked && z === 0) applyLockNails(n);
-        if (level.sandCols?.includes(x)) applySandLook(n);
+        if (locked && z === 0) applyLockNails(brick.node);
+        if (level.sandCols?.includes(x)) applySandLook(brick.node);
       }
     }
   }

@@ -53,7 +53,7 @@ import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
-import { DebrisBit, DEBRIS_POOL_MAX, makeDebrisBit } from './DebrisBit';
+import { clearDestroyBurst, destroyBurstBusy, playDestroyBurst, tickDestroyBurst } from './DestroyBurst';
 import { createInkShot, InkShot, playHitFlash, playMuzzleFlash, warmInkShots } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
@@ -244,7 +244,6 @@ export class BattleDirector extends Component {
   private readonly _blocks: BlockCell[] = [];
   private readonly _units: UnitActor[] = [];
   private readonly _slots: SlotPad[] = [];
-  private readonly _debris: DebrisBit[] = [];
   private readonly _shots: InkShot[] = [];
   private _flyRoot: Node | null = null;
   private _fromTouch = false;
@@ -451,6 +450,7 @@ export class BattleDirector extends Component {
     this._unbindTouch();
     bindFieldActors(null);
     clearBrickSkin();
+    clearDestroyBurst();
   }
 
   /** Tray stays at the origin; the field owns spin. */
@@ -471,7 +471,7 @@ export class BattleDirector extends Component {
     }
     this._tickShots(dt);
     BlockCell.tickMotion(dt);
-    DebrisBit.tick(dt);
+    tickDestroyBurst(dt);
     this._fireUnits(dt);
     this._tickField(dt);
     tickHiddenPattern(dt);
@@ -484,9 +484,8 @@ export class BattleDirector extends Component {
   }
 
   /**
-   * Interior bricks ship without a renderer. Building one the moment a brick is dug
-   * out bunches the cost into whichever frame cleared the layer, so walk the backlog
-   * a few at a time and have them ready before the player gets there.
+   * Deep interiors hang an empty renderer at build. Assign the shared cube a few
+   * at a time so peeling a layer does not rebuild a pile of models in one frame.
    */
   private _warmBuriedMeshes(): void {
     const list = this._meshless;
@@ -567,7 +566,6 @@ export class BattleDirector extends Component {
     this._frontDirty = true;
     this._frontByCol.length = 0;
     this._slots.length = 0;
-    this._debris.length = 0;
     this._shots.length = 0;
     this._plates.length = 0;
     this._ironRows = (PLAY.ironRows ?? []).slice().sort((a, b) => a - b);
@@ -596,7 +594,8 @@ export class BattleDirector extends Component {
     const wall = this._wall;
     const bench = this.node.getChildByName('Bench');
     const slots = this.node.getChildByName('Slots');
-    const pool = this.node.getChildByName('DebrisPool');
+    const leftoverPool = this.node.getChildByName('DebrisPool');
+    if (leftoverPool) leftoverPool.active = false;
     wall?.children.forEach((n) => {
       if (n.name === 'BrickSkins' || n.name === 'RaftCarry') return;
       if (n.name.startsWith('Chest_')) {
@@ -638,21 +637,6 @@ export class BattleDirector extends Component {
       const c = n.getComponent(SlotPad) ?? n.addComponent(SlotPad);
       this._slots.push(c);
     });
-    pool?.children.forEach((n) => {
-      const c = n.getComponent(DebrisBit) ?? n.addComponent(DebrisBit);
-      n.active = false;
-      this._debris.push(c);
-    });
-    if (this._debris.length < 8) {
-      let host = pool;
-      if (!host) {
-        host = new Node('DebrisPool');
-        this.node.addChild(host);
-      }
-      while (this._debris.length < 8) {
-        this._debris.push(makeDebrisBit(host, `Debris_${this._debris.length}`));
-      }
-    }
     this._platesRoot?.children.forEach((n) => {
       const p = n.getComponent(IronPlate) ?? n.addComponent(IronPlate);
       p.syncFromName();
@@ -1636,7 +1620,7 @@ export class BattleDirector extends Component {
     }
   }
 
-  /** Shots, incoming bricks, or debris still on the field. */
+  /** Shots, incoming bricks, or budgeted destroy chips still on the field. */
   private _stillClearing(): boolean {
     for (let i = 0; i < this._shots.length; i++) {
       if (this._shots[i].busy) return true;
@@ -1644,9 +1628,7 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._blocks.length; i++) {
       if (this._blocks[i].node.active) return true;
     }
-    for (let i = 0; i < this._debris.length; i++) {
-      if (this._debris[i].busy) return true;
-    }
+    if (destroyBurstBusy()) return true;
     const units = this._units;
     if (units) {
       for (let i = 0; i < units.length; i++) {
@@ -1791,7 +1773,7 @@ export class BattleDirector extends Component {
     if (block.node.parent !== host) block.node.setParent(host, true);
     const rgb = this._brickRgb(block);
     block.blowOff(kick);
-    this._burstDebris(_world, rgb);
+    playDestroyBurst(this._flyRoot ?? this.node, _world, rgb);
     if (counted) this._remain = Math.max(0, this._remain - 1);
     this._lookDirty = true;
     return counted;
@@ -1800,36 +1782,6 @@ export class BattleDirector extends Component {
   private _brickRgb(block: BlockCell): readonly [number, number, number] {
     return readPaintRgb(block.node)
       ?? (block.voxelId >= 0 ? rgbOfVoxel(block.voxelId) : this._tintOf(block.colorId));
-  }
-
-  private _burstDebris(from: Vec3, rgb: readonly [number, number, number], count = 6): void {
-    let busy = 0;
-    for (let i = 0; i < this._debris.length; i++) {
-      if (this._debris[i].busy) busy += 1;
-    }
-    const n = busy > 18 ? 1 : busy > 12 ? 3 : count;
-    for (let i = 0; i < n; i++) {
-      const bit = this._nextDebris();
-      if (!bit) break;
-      bit.burst(from, rgb);
-    }
-  }
-
-  private _nextDebris(): DebrisBit | null {
-    for (let i = 0; i < this._debris.length; i++) {
-      if (!this._debris[i].busy) return this._debris[i];
-    }
-    if (this._debris.length >= DEBRIS_POOL_MAX) {
-      return this._debris[this._debris.length - 1];
-    }
-    let pool = this.node.getChildByName('DebrisPool');
-    if (!pool) {
-      pool = new Node('DebrisPool');
-      this.node.addChild(pool);
-    }
-    const bit = makeDebrisBit(pool, `Debris_${this._debris.length}`);
-    this._debris.push(bit);
-    return bit;
   }
 
   private _nextShot(): InkShot {

@@ -37,7 +37,7 @@ export class BlockCell extends Component {
   raftHomeCol = 0;
   /** Boxed in on all six sides, so no camera can ever see or target it. */
   buried = false;
-  /** Built without a renderer because it was boxed in; one is attached the first time it shows. */
+  /** Renderer is hung, but the shared cube is not assigned yet. */
   meshless = false;
 
   private readonly _baseScale = new Vec3();
@@ -363,7 +363,11 @@ export class BlockCell extends Component {
     Quat.multiply(_qOut, _dq, this._q);
     this._q.set(_qOut);
     this.node.setWorldRotation(this._q);
-    const keep = u < 0.72 ? 1 : Math.max(0.06, 1 - (u - 0.72) / 0.28);
+    // Original VoxelDestroyScale: brief peak, then hold size, then shrink to 0.
+    let keep = 1;
+    if (u < 0.09) keep = 1 + 0.2 * (u / 0.09);
+    else if (u < 0.72) keep = 1.2;
+    else keep = Math.max(0.06, 1.2 * (1 - (u - 0.72) / 0.28));
     this.node.setScale(this._baseScale.x * keep, this._baseScale.y * keep, this._baseScale.z * keep);
     if (u < 1) return;
     this._blown = false;

@@ -102,20 +102,35 @@ export function rememberBrickMesh(mesh: Mesh | null | undefined): boolean {
   return !!_brickMesh;
 }
 
-/**
- * Boxed-in bricks are built as bare nodes — no renderer, no model in the render
- * scene. Digging one out is the first time it needs to draw.
- */
-export function attachBrickRenderer(node: Node, colorId: number): boolean {
-  if (!node?.isValid || !_brickMesh) return false;
-  if (node.getComponent(MeshRenderer)) return true;
-  const mat = brickMat(lookOfVoxel(colorId).rgb);
-  inflateFieldCull(_brickMesh);
-  // Assigning mesh tears down and rebuilds the model, so settle everything else first
-  // and pay for exactly one rebuild.
-  const mr = node.addComponent(MeshRenderer);
+function hangRenderer(node: Node): MeshRenderer | null {
+  if (!node?.isValid) return null;
+  let mr = node.getComponent(MeshRenderer);
+  if (mr) return mr;
+  mr = node.addComponent(MeshRenderer);
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  forgetBrickParts(node);
+  return mr;
+}
+
+/** Empty MeshRenderer so a later mesh assign does not also pay addComponent. */
+export function hangBrickRenderer(node: Node): boolean {
+  return !!hangRenderer(node);
+}
+
+/**
+ * Shared cube + voxel material. Interior bricks hang the component at build
+ * and get the mesh here the first time they need to draw.
+ */
+export function attachBrickRenderer(node: Node, colorId: number): boolean {
+  if (!_brickMesh) return false;
+  const mr = hangRenderer(node);
+  if (!mr) return false;
+  if (mr.mesh) return true;
+  const mat = brickMat(lookOfVoxel(colorId).rgb);
+  inflateFieldCull(_brickMesh);
+  // Assigning mesh rebuilds the model — hang the component first so reveal
+  // only pays this once, and preferably not on the frame that dug the brick out.
   mr.setSharedMaterial(mat, 0);
   mr.mesh = _brickMesh;
   forgetBrickParts(node);
