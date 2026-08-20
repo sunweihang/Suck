@@ -85,6 +85,7 @@ export class PlayHud extends Component {
   };
   private _guide: GuideView | null = null;
   private _ugc = false;
+  private readonly _heldUnlock = new Set<ItemId>();
 
   setup(opts: {
     onHome: () => void;
@@ -134,6 +135,7 @@ export class PlayHud extends Component {
 
   hide(): void {
     this._guide = null;
+    this._heldUnlock.clear();
     this.hintHand?.hide();
     this.node.active = false;
   }
@@ -435,6 +437,21 @@ export class PlayHud extends Component {
     this._paintItems();
   }
 
+  holdUnlock(id: ItemId): void {
+    this._heldUnlock.add(id);
+    this._paintItems();
+  }
+
+  releaseUnlock(id: ItemId): void {
+    if (!this._heldUnlock.delete(id)) return;
+    this._paintItems();
+  }
+
+  private _itemOpen(id: ItemId): boolean {
+    if (this._heldUnlock.has(id)) return false;
+    return itemUnlocked(id, this._level);
+  }
+
   itemIconWorldPos(id: ItemId, out: Vec3): boolean {
     const n = this.node.getChildByName('Powers')?.getChildByName(`Item_${id}`);
     if (!n?.isValid || !n.active) return false;
@@ -448,6 +465,7 @@ export class PlayHud extends Component {
   }
 
   pulseItem(id: ItemId): void {
+    if (this._heldUnlock.has(id)) return;
     const n = this.node.getChildByName('Powers')?.getChildByName(`Item_${id}`);
     if (!n?.isValid) return;
     Tween.stopAllByTarget(n);
@@ -534,7 +552,13 @@ export class PlayHud extends Component {
     }, this);
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
-      if (!itemUnlocked(id, this._level)) return;
+      if (!this._itemOpen(id)) return;
+      if (this._guide) {
+        const want = this._guide.phase === 'icon' || this._guide.phase === 'target'
+          ? this._guide.item
+          : null;
+        if (want !== id) return;
+      }
       gameAudio()?.playUiClick();
       this._onItem?.(id);
     }, this);
@@ -574,7 +598,7 @@ export class PlayHud extends Component {
       this._syncItemBtn(n, i);
       const iconNode = n.getChildByName('Icon');
       applyArtSpriteSoon(iconNode, ITEM_ICON_KEY[id], ITEM_ICON, ITEM_ICON);
-      const unlocked = itemUnlocked(id, this._level);
+      const unlocked = this._itemOpen(id);
       const charges = this._items[id] ?? 0;
       const on = unlocked && charges > 0;
       const armed = unlocked && (

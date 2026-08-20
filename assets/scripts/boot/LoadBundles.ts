@@ -53,7 +53,9 @@ export function loadGameBundles(onProgress?: PackProgress): Promise<void> {
     const resources = assetManager.getBundle('resources');
     if (resources) {
       report(0.64);
-      await loadDir(resources);
+      // Levels are sharded and pulled on demand in LevelCatalog. loadDir('')
+      // would JSON.parse all 43 shards (~10MB) and undo that split.
+      await Promise.all(['ui', 'audio', 'toys', 'meshes', 'fx'].map((dir) => loadDir(resources, dir)));
     }
     report(0.7);
   })().catch((err) => {

@@ -2,7 +2,7 @@ import { Color, Material, Mesh, MeshRenderer, Node } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit, tintLitInstance } from './ToyBlockMesh';
+import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -258,19 +258,27 @@ export function applySandLook(root: Node): void {
   }
 }
 
+function ghostMat(rgb: readonly [number, number, number]): Material {
+  const key = `ghost-${rgb[0]}-${rgb[1]}-${rgb[2]}`;
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const mat = makeInstancedLit(colorOf(rgb), 0.12, 0, 0.3);
+  _mats.set(key, mat);
+  return mat;
+}
+
 export function applyGhostLook(root: Node): void {
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (skipPaint(mr.node.name)) continue;
-    const inst = mr.getMaterialInstance(0);
-    if (!inst) continue;
-    const cur = inst.getProperty('mainColor');
-    const c = cur instanceof Color ? cur : new Color(220, 230, 240, 255);
-    const washed = new Color(
-      Math.min(255, c.r + 70),
-      Math.min(255, c.g + 80),
-      Math.min(255, c.b + 90),
-      255,
-    );
-    tintLitInstance(inst, washed, 0.12, 0, 0.3);
+    const rgb = rgbFromMat(mr) ?? [220, 230, 240];
+    const washed: readonly [number, number, number] = [
+      Math.min(255, rgb[0] + 70),
+      Math.min(255, rgb[1] + 80),
+      Math.min(255, rgb[2] + 90),
+    ];
+    const on = mr.enabled;
+    mr.enabled = false;
+    mr.setSharedMaterial(ghostMat(washed), 0);
+    mr.enabled = on;
   }
 }

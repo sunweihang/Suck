@@ -54,7 +54,7 @@ import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideCon
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { DebrisBit, DEBRIS_POOL_MAX, makeDebrisBit } from './DebrisBit';
-import { createInkShot, InkShot, playHitFlash, playMuzzleFlash } from './InkShot';
+import { createInkShot, InkShot, playHitFlash, playMuzzleFlash, warmInkShots } from './InkShot';
 import { HintHand } from './HintHand';
 import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
@@ -294,6 +294,8 @@ export class BattleDirector extends Component {
   private _onItems: ((state: ItemHudState) => void) | null = null;
   private _onGuide: ((guide: GuideView | null) => void) | null = null;
   private _guideKey = '';
+  private _lastGuide: GuideView | null = null;
+  private _itemsReady = true;
   private readonly _guideCtx: GuideContext = {
     hookPick: false,
     shovelPick: false,
@@ -302,6 +304,7 @@ export class BattleDirector extends Component {
     hasRear: false,
     canShovel: false,
     canBomb: false,
+    itemsReady: true,
   };
   private _onGoldDenied: (() => void) | null = null;
   private _wallet: PlayerWallet | null = null;
@@ -376,6 +379,8 @@ export class BattleDirector extends Component {
     this._onItems = opts.onItems ?? null;
     this._onGuide = opts.onGuide ?? null;
     this._guideKey = '*';
+    this._lastGuide = null;
+    this._itemsReady = true;
     this._onGoldDenied = opts.onGoldDenied ?? null;
     this._onChest = opts.onChest ?? null;
     this._onUnlockSlot = opts.onUnlockSlot ?? null;
@@ -389,6 +394,13 @@ export class BattleDirector extends Component {
     void preloadMergeBurst();
     void preloadShuaxinBurst();
     void preloadBaozhaBurst();
+  }
+
+  setItemsReady(on: boolean): void {
+    if (this._itemsReady === on) return;
+    this._itemsReady = on;
+    this._guideKey = '*';
+    this._hintT = 1;
   }
 
   setPlaying(on: boolean): void {
@@ -627,6 +639,12 @@ export class BattleDirector extends Component {
       n.active = false;
       this._shots.push(s);
     });
+    const fly = this._flyRoot;
+    const need = 4 - this._shots.length;
+    if (fly && need > 0) {
+      const extra = warmInkShots(fly, need);
+      for (let i = 0; i < extra.length; i++) this._shots.push(extra[i]);
+    }
     this._canvas?.getChildByName('PlayHud')?.getChildByName('HintHand')?.getComponent(HintHand)?.hide();
     this._hint = this._ensureWorldHint();
     this._emitGuide(null);
@@ -681,6 +699,14 @@ export class BattleDirector extends Component {
 
   useItem(id: ItemId): boolean {
     if (!this._playing || this._won || this._lost) return false;
+    if (!this._itemsReady) {
+      this._emitItems();
+      return false;
+    }
+    if (this._lastGuide?.phase === 'icon' && this._lastGuide.item && this._lastGuide.item !== id) {
+      this._emitItems();
+      return false;
+    }
     if (!itemUnlocked(id, PLAY.levelId)) {
       this._emitItems();
       return false;
@@ -831,6 +857,7 @@ export class BattleDirector extends Component {
     ctx.hasRear = this._hasRearBench();
     ctx.canShovel = this._canShovel();
     ctx.canBomb = this._canBomb();
+    ctx.itemsReady = this._itemsReady;
     const guide = activeGuide(PLAY.levelId, ctx);
     this._emitGuide(guide);
     const hint = this._hint;
@@ -867,10 +894,20 @@ export class BattleDirector extends Component {
   }
 
   private _emitGuide(guide: GuideView | null): void {
+    this._lastGuide = guide;
     const key = guide ? `${guide.id}:${guide.phase}:${guide.tip}` : '';
     if (key === this._guideKey) return;
     this._guideKey = key;
     this._onGuide?.(guide);
+  }
+
+  private _guideBlocksWorld(): boolean {
+    if (!this._itemsReady) return true;
+    return this._lastGuide?.phase === 'icon';
+  }
+
+  private _guideKeepPick(): boolean {
+    return this._lastGuide?.phase === 'target';
   }
 
   private _placeTapHint(hint: HintHand, node: Node, liftY: number, liftZ: number): void {
@@ -1067,9 +1104,10 @@ export class BattleDirector extends Component {
   private _beginPointer(e: PointerEvt): void {
     if (!this._playing || this._won || this._lost) return;
     if (this._overUi(e)) return;
+    if (this._guideBlocksWorld()) return;
     const loc = e.getLocation();
     this._ptrDown = true;
-    this._dragSpin = this._canSpinAt(e);
+    this._dragSpin = this._lastGuide?.phase === 'target' ? false : this._canSpinAt(e);
     this._spinning = false;
     this._dragStartX = loc.x;
     this._dragStartY = loc.y;
@@ -1245,10 +1283,11 @@ export class BattleDirector extends Component {
   private _onTap(e: PointerEvt): void {
     if (!this._playing || this._won || this._lost) return;
     if (this._overUi(e)) return;
+    if (this._guideBlocksWorld()) return;
     if (this._hookPick) {
       const rear = this._pickAnyBench(e);
       if (rear && !this._isColFront(rear) && this._deployHooked(rear)) this._spend('hook');
-      else {
+      else if (!this._guideKeepPick()) {
         this._hookPick = false;
         this._emitItems();
       }
@@ -1257,7 +1296,7 @@ export class BattleDirector extends Component {
     if (this._shovelPick) {
       const unit = this._pickSlotUnit(e);
       if (unit && this._shovelToBench(unit)) this._spend('shovel');
-      else {
+      else if (!this._guideKeepPick()) {
         this._shovelPick = false;
         this._emitItems();
       }
@@ -1266,7 +1305,7 @@ export class BattleDirector extends Component {
     if (this._bombPick) {
       const block = this._pickBrick(e);
       if (block && this._blastColorGroup(block)) this._spend('bomb');
-      else {
+      else if (!this._guideKeepPick()) {
         this._bombPick = false;
         this._emitItems();
       }
@@ -1302,6 +1341,7 @@ export class BattleDirector extends Component {
   /** Last empty pits == leftover octopuses → seat them without a tap. */
   private _maybeAutoPlace(): void {
     if (this._autoPlacing || !this._playing || this._won || this._lost) return;
+    if (!this._itemsReady || this._lastGuide) return;
     if (this._hookPick || this._shovelPick || this._bombPick) return;
     const pits = this._countOpenEmptySlots();
     if (pits <= 0 || pits !== this._countAwaitingUnits()) return;
@@ -1408,7 +1448,7 @@ export class BattleDirector extends Component {
         this._ensureVis();
         seated = true;
       }
-      u.suckWait -= dt;
+      u.suckWait = Math.max(0, u.suckWait - dt);
       u.state = 'attack';
       const block = this._bestBlock(u);
       if (block) u.aimAt(block.worldPos(_world));
@@ -1424,7 +1464,7 @@ export class BattleDirector extends Component {
       }
       this._shootBrick(u, block);
       flying += 1;
-      u.suckWait += this._suckInterval(u);
+      u.suckWait = this._suckInterval(u);
     }
   }
 

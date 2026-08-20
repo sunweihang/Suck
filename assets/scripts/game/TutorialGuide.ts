@@ -19,6 +19,7 @@ export type GuideContext = {
   hasRear: boolean;
   canShovel: boolean;
   canBomb: boolean;
+  itemsReady: boolean;
 };
 
 const SAVE_KEY = 'suck.guide.v1';
@@ -118,6 +119,7 @@ export function activeGuide(level: number, ctx: GuideContext): GuideView | null 
   if (!id || isGuideDone(id)) return null;
   if (id === 'tap') return { id, phase: 'world', tip: TIPS.tap };
   if (id === 'spin') return { id, phase: 'world', tip: TIPS.spin };
+  if (!ctx.itemsReady) return null;
   if (id === 'shuffle') {
     if (!ctx.canShuffle) return null;
     return { id, phase: 'icon', tip: TIPS.shuffle, item: id };

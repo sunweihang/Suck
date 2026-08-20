@@ -37,7 +37,7 @@ import { resetPlayFx } from './battle/InkShot';
 import { GAME, playCamLookAtY } from './game/GameConfig';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
 import { applyLevel, ensureLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
-import { completeGuide, grantGuideItem, guideIdForLevel, resetGuideProgress, shouldSkipItemShop } from './game/TutorialGuide';
+import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, resetGuideProgress, shouldSkipItemShop } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -155,6 +155,7 @@ export class GameBootstrap extends Component {
   private _ugcMapId: string | null = null;
   private _ugcLevel: ReturnType<typeof ugcToLevelDef> | null = null;
   private _worldKey = '';
+  private _guideLandGen = 0;
   private _worldTouched = false;
   private _load: BootLoad | null = null;
   private _playHud: PlayHud | null = null;
@@ -468,7 +469,8 @@ export class GameBootstrap extends Component {
     if (this._level < LEVEL_COUNT) this._level += 1;
     saveLevelIndex(this._level);
     this._clearGold = GOLD.win;
-    completeGuide(guideIdForLevel(cleared));
+    const gid = guideIdForLevel(cleared);
+    if (gid === 'tap' || gid === 'spin') completeGuide(gid);
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.hide();
     this._settings?.hide();
@@ -682,6 +684,10 @@ export class GameBootstrap extends Component {
   private _onPlayItem(id: ItemId): void {
     const level = this._builtLevel || this._level;
     if (!itemUnlocked(id, level)) return;
+    const gid = guideIdForLevel(level);
+    if (gid && !isGuideDone(gid)) {
+      if (gid === 'tap' || gid === 'spin' || id !== gid) return;
+    }
     if (shouldSkipItemShop(id, level) && this._wallet.itemCount(id) > 0) {
       this._battle?.useItem(id);
       return;
@@ -1446,17 +1452,33 @@ export class GameBootstrap extends Component {
     this._itemShop?.hide();
     this._gm?.collapse();
     this._playHud?.setUgc(this._ugcPlay);
-    this._playHud?.setLevel(this._builtLevel);
     this._gm?.setLevel(this._builtLevel);
+    const gifted = this._ugcPlay ? null : grantGuideItem(this._wallet, this._builtLevel);
+    const landGen = ++this._guideLandGen;
+    if (gifted) {
+      this._playHud?.holdUnlock(gifted);
+      this._battle?.setItemsReady(false);
+    } else {
+      this._battle?.setItemsReady(true);
+    }
+    this._playHud?.setLevel(this._builtLevel);
     this._playHud?.show();
     this._setGoldVisible(!this._ugcPlay);
-    const gifted = this._ugcPlay ? null : grantGuideItem(this._wallet, this._builtLevel);
     this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
-    if (gifted) this._flyGrantedItems([gifted]);
     this._worldTouched = true;
     this._battle?.setPlaying(true);
     this._clearChest = null;
     this._grantLeftoverChest();
+    if (gifted) {
+      void this._flyChestItems([gifted]).then(() => {
+        if (!this.isValid || landGen !== this._guideLandGen) return;
+        this._playHud?.releaseUnlock(gifted);
+        this.scheduleOnce(() => {
+          if (!this.isValid || landGen !== this._guideLandGen) return;
+          this._battle?.setItemsReady(true);
+        }, 0.22);
+      });
+    }
   }
 
   private _retryPlay(): void {
