@@ -38,7 +38,7 @@ import { SlotPad } from './SlotPad';
 import { applyToyGround } from './ToyBackdrop';
 import { preloadToySlots } from './ToySlotMesh';
 import { applyBombs, preloadBombs } from './Bombs';
-import { applyMagnetLook, applyPaintLook, applySandLook, paintUnitColor, paintVoxelId, preloadVoxelLook, rememberBrickMesh } from './BrickSpecials';
+import { applyMagnetLook, applyPaintLook, applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
 import { preloadPaintCan } from './PaintCan';
@@ -451,6 +451,7 @@ export async function buildPlayWorld(
   const seats = BENCH.cols * BENCH.rows;
   const shown = level.units.slice(0, seats);
   const reserve = level.units.slice(seats);
+  const benchUnits: UnitActor[] = [];
   shown.forEach((pair, i) => {
     const [token, power, extra] = pair;
     const cx = i % BENCH.cols;
@@ -470,10 +471,11 @@ export async function buildPlayWorld(
     unit.syncFromName();
     if (isColorToken(token)) {
       unit.colorId = parseColorToken(token);
-      paintUnitColor(n, token);
       unit.syncVoxelId();
     }
+    benchUnits.push(unit);
   });
+  rollHiddenQueue(benchUnits);
 
   const slots = new Node('Slots');
   root.addChild(slots);

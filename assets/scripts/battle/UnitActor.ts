@@ -1,7 +1,7 @@
 import { _decorator, Component, Node, Vec3 } from 'cc';
 import { benchColOf, benchRankOf, ColorId, PLAY, SPECIAL_SPAN, TOKEN_RGB, parseColorToken, tokenOfColorId } from '../game/GameConfig';
 import { nearestVoxelId } from '../game/VoxelPalette';
-import { applyGhostLook, paintUnitColor } from './BrickSpecials';
+import { applyGhostLook, hideQueueColors, paintUnitColor } from './BrickSpecials';
 import { TurretAnim } from './TurretAnim';
 import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from './PowerMark';
 import { applyToyCaster } from './ToyBlockMesh';
@@ -21,6 +21,8 @@ export class UnitActor extends Component {
   ghost = false;
   /** Shoveled back: sit as a queue cube with no power number until the front row. */
   asBlock = false;
+  /** This cube rolled the hidden pattern for the current level. */
+  colorHidden = false;
   magnet = false;
   trapped = false;
   freeing = false;
@@ -63,6 +65,7 @@ export class UnitActor extends Component {
   private _lookKind = '';
   private _lookColor = -1;
   private _lookOutline = false;
+  private _lookHidden = false;
   private _aimX = NaN;
   private _aimY = NaN;
   private _aimZ = NaN;
@@ -82,6 +85,7 @@ export class UnitActor extends Component {
     this._lookKind = '';
     this._lookColor = -1;
     this._lookOutline = false;
+    this._lookHidden = false;
     this._aimX = NaN;
     this._aimY = NaN;
     this._aimZ = NaN;
@@ -163,6 +167,7 @@ export class UnitActor extends Component {
   reuse(name: string): void {
     this.magnet = false;
     this.asBlock = false;
+    this.colorHidden = false;
     this.trapped = false;
     this.freeing = false;
     this.lockedCol = -1;
@@ -179,6 +184,7 @@ export class UnitActor extends Component {
     this._lookKind = '';
     this._lookColor = -1;
     this._lookOutline = false;
+    this._lookHidden = false;
     this._aimX = NaN;
     this._aimY = NaN;
     this._aimZ = NaN;
@@ -247,14 +253,20 @@ export class UnitActor extends Component {
   }
 
   /** Arc from the current pose to a world seat (bench → pit). */
-  flyToWorld(world: Vec3, delay = 0): void {
+  flyToWorld(world: Vec3, delay = 0, keepScale = false): void {
     if (this.node.parent) this.node.parent.inverseTransformPoint(this.targetPos, world);
     else this.targetPos.set(world);
     const dx = this.targetPos.x - this.node.position.x;
     const dz = this.targetPos.z - this.node.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
     this._flyDone = null;
-    this._beginFly(this.targetPos, 0.28 + Math.min(0.34, dist * 0.14), 0.32 + Math.min(0.55, dist * 0.24), false);
+    this._beginFly(
+      this.targetPos,
+      0.28 + Math.min(0.34, dist * 0.14),
+      0.32 + Math.min(0.55, dist * 0.24),
+      keepScale,
+      keepScale,
+    );
     this._flyWait = Math.max(0, delay);
     if (this._flyWait <= 0) this._q.punchPick();
   }
@@ -418,19 +430,27 @@ export class UnitActor extends Component {
     this._activateFrontSeat();
     const kind = this._queued() ? 'queue' : 'turret';
     const outline = this._wantsOutline();
-    if (kind !== this._lookKind || this.colorId !== this._lookColor || outline !== this._lookOutline) {
+    const hidden = kind === 'queue' && this.colorHidden && hideQueueColors();
+    if (
+      kind !== this._lookKind
+      || this.colorId !== this._lookColor
+      || outline !== this._lookOutline
+      || hidden !== this._lookHidden
+    ) {
       this._lookKind = kind;
       this._lookColor = this.colorId;
       this._lookOutline = outline;
+      this._lookHidden = hidden;
       if (kind === 'queue') {
         this._q.rest();
-        applyQueueBlockLook(this.node, this.colorId);
+        applyQueueBlockLook(this.node, this.colorId, hidden);
         this._queuePosed = true;
       } else {
+        this.colorHidden = false;
         applyTurretLook(this.node, this.colorId, outline);
         this._queuePosed = false;
+        paintUnitColor(this.node, tokenOfColorId(this.colorId));
       }
-      paintUnitColor(this.node, tokenOfColorId(this.colorId));
       this.syncVoxelId();
     }
     if (this._powerTag?.isValid) posePowerMark(this.node, this._powerTag);

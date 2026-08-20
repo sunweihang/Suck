@@ -1,4 +1,4 @@
-import { Color, EffectAsset, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Vec3, assetManager, resources } from 'cc';
+import { Color, EffectAsset, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Texture2D, Vec3, Vec4, assetManager, resources } from 'cc';
 import { isFieldMat, registerFieldMat, releaseFieldNode } from './FieldSpin';
 
 const GRAY_DIM = 0.76;
@@ -89,6 +89,67 @@ export function makeInstancedLit(
   return makeStandardLit(color, roughness, metallic, emit);
 }
 
+const ALBEDO_INSTANCING = [
+  { USE_INSTANCING: true, USE_ALBEDO_MAP: true },
+  { USE_INSTANCING: true, USE_ALBEDO_MAP: true },
+  { USE_INSTANCING: true, USE_ALBEDO_MAP: true },
+];
+
+function makeStandardTextured(
+  tex: Texture2D,
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): Material {
+  const mat = new Material();
+  mat.initialize({
+    effectName: 'builtin-standard',
+    defines: ALBEDO_INSTANCING,
+  });
+  bindLitProps(mat, color, roughness, metallic, emit, false);
+  mat.setProperty('mainTexture', tex);
+  try {
+    mat.setProperty('tilingOffset', new Vec4(1, 1, 0, 0));
+  } catch {
+    /* */
+  }
+  return mat;
+}
+
+/** Same brick light model, with an albedo map (queued hidden cubes). */
+export function makeInstancedTextured(
+  tex: Texture2D,
+  color: Color,
+  roughness: number,
+  metallic: number,
+  emit: number,
+): Material {
+  if (_brickFx) {
+    const mat = new Material();
+    try {
+      mat.initialize({
+        effectAsset: _brickFx,
+        techniqueIndex: 0,
+        defines: [{ USE_INSTANCING: true, USE_ALBEDO_MAP: true }],
+      });
+    } catch {
+      return makeStandardTextured(tex, color, roughness, metallic, emit);
+    }
+    if (mat.passes?.length) {
+      bindLitProps(mat, color, roughness, metallic, emit, true);
+      mat.setProperty('mainTexture', tex);
+      try {
+        mat.setProperty('tilingOffset', new Vec4(1, 1, 0, 0));
+      } catch {
+        /* */
+      }
+      return mat;
+    }
+  }
+  return makeStandardTextured(tex, color, roughness, metallic, emit);
+}
+
 const BRICK_LIT = 'fx/brick-lit';
 let _brickFx: EffectAsset | null = null;
 let _brickBoot: Promise<void> | null = null;
@@ -109,7 +170,7 @@ export function preloadBrickLit(): Promise<void> {
 }
 
 export function makeInstancedUnlit(color: Color): Material {
-  return makeInstancedLit(color, 0.34, 0.04, 0.04);
+  return makeInstancedLit(color, 0.62, 0.04, 0);
 }
 
 /** Same look as makeInstancedLit, but the GPU applies field spin. */
@@ -123,7 +184,7 @@ export function makeFieldLit(
 }
 
 export function makeFieldUnlit(color: Color): Material {
-  return makeFieldLit(color, 0.34, 0.04, 0.04);
+  return makeFieldLit(color, 0.62, 0.04, 0);
 }
 
 const _fieldLitCache = new Map<string, Material>();

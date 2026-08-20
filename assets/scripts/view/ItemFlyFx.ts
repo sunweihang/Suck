@@ -11,6 +11,7 @@ import {
   UITransform,
   Vec3,
   tween,
+  view,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
 import type { ItemId } from '../game/LevelCatalog';
@@ -33,6 +34,8 @@ const ITEM_ART = {
 } as const;
 
 const _tmp = new Vec3();
+const _screen = new Vec3();
+const _uiLocal = new Vec3();
 const SCALE_IN = new Vec3(0.72, 0.72, 1);
 const SCALE_HOLD = new Vec3(1.08, 1.08, 1);
 const SCALE_END = new Vec3(END_SCALE, END_SCALE, 1);
@@ -152,16 +155,7 @@ export function playItemUseFly(opts: {
   worldToFxLocal(fx, opts.startWorld, _tmp);
   const sx = _tmp.x;
   const sy = _tmp.y;
-  if (opts.endWorld && opts.worldCam) {
-    try {
-      opts.worldCam.convertToUINode(opts.endWorld, fx, _useEnd);
-    } catch {
-      _useEnd.set(0, USE_CENTER_Y, 0);
-    }
-    if (!Number.isFinite(_useEnd.x) || !Number.isFinite(_useEnd.y)) {
-      _useEnd.set(0, USE_CENTER_Y, 0);
-    }
-  } else {
+  if (!opts.endWorld || !opts.worldCam || !world3dToFxLocal(opts.worldCam, fx, opts.endWorld, _useEnd)) {
     _useEnd.set(0, USE_CENTER_Y, 0);
   }
   spawnItemUseFlyer(fx, opts.id, sx, sy, _useEnd.x, _useEnd.y, () => {
@@ -169,6 +163,35 @@ export function playItemUseFly(opts: {
   }, () => {
     opts.onDone?.();
   });
+}
+
+/**
+ * 3D world → CoinFx local. `Camera.convertToUINode` assumes a bottom-left UI
+ * origin; this canvas is centered (`alignCanvasWithScreen = false`), so that
+ * API lands a half-screen off to the side.
+ */
+function world3dToFxLocal(cam: Camera, fxRoot: Node, world: Vec3, out: Vec3): boolean {
+  try {
+    cam.worldToScreen(world, _screen);
+  } catch {
+    return false;
+  }
+  if (!Number.isFinite(_screen.x) || !Number.isFinite(_screen.y)) return false;
+  const vp = view.getViewportRect();
+  const vw = Math.max(1, vp.width);
+  const vh = Math.max(1, vp.height);
+  const canvas = fxRoot.parent;
+  const cut = canvas?.getComponent(UITransform);
+  const visW = cut && cut.width > 1 ? cut.width : view.getVisibleSize().width;
+  const visH = cut && cut.height > 1 ? cut.height : view.getVisibleSize().height;
+  _uiLocal.set(
+    ((_screen.x - vp.x) / vw - 0.5) * visW,
+    ((_screen.y - vp.y) / vh - 0.5) * visH,
+    0,
+  );
+  if (cut) cut.convertToWorldSpaceAR(_uiLocal, _uiLocal);
+  worldToFxLocal(fxRoot, _uiLocal, out);
+  return Number.isFinite(out.x) && Number.isFinite(out.y);
 }
 
 function dressFlyer(n: Node, frame: SpriteFrame | null): void {
@@ -283,8 +306,9 @@ function spawnItemUseFlyer(
     recycleItemFlyer(n);
     onDone();
   };
+  const keepSize = id === 'hook' || id === 'shovel';
   const fly = tween(n)
-    .to(USE_FLY_SEC, { scale: SCALE_USE_MID }, {
+    .to(USE_FLY_SEC, { scale: keepSize ? SCALE_USE_START : SCALE_USE_MID }, {
       easing: 'cubicOut',
       onUpdate: (_t, ratio) => {
         if (!n.isValid) return;
@@ -339,11 +363,23 @@ function useImpactTween(n: Node, id: ItemId, x: number, y: number, onArrive: () 
       });
   }
   if (id === 'hook') {
+    const s = USE_START;
     return tween(n)
-      .to(0.1, { scale: new Vec3(1.18, 1.18, 1), position: new Vec3(x, y + 18, 0) }, { easing: 'sineOut' })
-      .to(0.12, { angle: -18, position: new Vec3(x, y - 26, 0), scale: new Vec3(1.08, 1.22, 1) }, { easing: 'quadIn' })
+      .to(0.1, { scale: new Vec3(s * 1.16, s * 1.16, 1), position: new Vec3(x, y + 18, 0) }, { easing: 'sineOut' })
+      .to(0.12, { angle: -18, position: new Vec3(x, y - 26, 0), scale: new Vec3(s * 1.06, s * 1.2, 1) }, { easing: 'quadIn' })
       .call(onArrive)
-      .to(0.14, { scale: new Vec3(0.35, 0.35, 1), angle: -8 }, {
+      .to(0.14, { scale: new Vec3(s * 0.45, s * 0.45, 1), angle: -8 }, {
+        easing: 'quadIn',
+        onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
+      });
+  }
+  if (id === 'shovel') {
+    const s = USE_START;
+    return tween(n)
+      .to(0.08, { angle: -42, position: new Vec3(x, y + 22, 0), scale: new Vec3(s * 1.12, s * 1.12, 1) }, { easing: 'sineOut' })
+      .to(0.12, { angle: 16, position: new Vec3(x, y - 30, 0), scale: new Vec3(s * 1.05, s * 1.18, 1) }, { easing: 'quadIn' })
+      .call(onArrive)
+      .to(0.14, { scale: new Vec3(s * 0.42, s * 0.42, 1), angle: 8 }, {
         easing: 'quadIn',
         onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
       });

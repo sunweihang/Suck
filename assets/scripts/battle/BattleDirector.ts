@@ -47,7 +47,7 @@ import {
   slotY,
 } from '../game/GameConfig';
 import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
-import { attachBrickRenderer, paintNodeColor, paintUnitColor, readPaintRgb } from './BrickSpecials';
+import { attachBrickRenderer, paintNodeColor, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
@@ -468,6 +468,7 @@ export class BattleDirector extends Component {
     this._tickShots(dt);
     this._fireUnits(dt);
     this._tickField(dt);
+    tickHiddenPattern(dt);
     this._tickRaft(dt);
     if (this._nudgeCool > 0) this._nudgeCool -= dt;
     this._tickCombat(dt);
@@ -900,6 +901,12 @@ export class BattleDirector extends Component {
       else hint.hide();
       return;
     }
+    if (guide.id === 'shovel' && guide.phase === 'world') {
+      const idle = this._guideIdleFrontUnit();
+      if (idle) this._placeTapHint(hint, idle.node, 0.02, 0.06);
+      else hint.hide();
+      return;
+    }
     if (guide.id === 'shovel' && guide.phase === 'target') {
       const unit = this._guideSlotUnit();
       if (unit) this._placeTapHint(hint, unit.node, 0.18, 0.04);
@@ -963,6 +970,10 @@ export class BattleDirector extends Component {
     hint.placeWorld(_hintA, _hintB);
   }
 
+  private _teachingShovel(): boolean {
+    return guideIdForLevel(PLAY.levelId) === 'shovel' && !isGuideDone('shovel');
+  }
+
   private _guideFrontUnit(): UnitActor | null {
     this._ensureVis();
     for (const u of this._units) {
@@ -970,6 +981,36 @@ export class BattleDirector extends Component {
       if (this._canNowAbsorb(u)) return u;
     }
     return null;
+  }
+
+  /** Front bench unit with the fewest currently exposed matches. */
+  private _guideIdleFrontUnit(): UnitActor | null {
+    this._visDirty = true;
+    this._ensureVis();
+    if (this._visList.length <= 0) return null;
+    let best: UnitActor | null = null;
+    let bestN = 1e9;
+    for (const u of this._units) {
+      if (!u.usable || u.state !== 'bench' || !this._isColFront(u)) continue;
+      if (!this._hintSlot(u)) continue;
+      const n = this._visHitCount(u);
+      if (n < bestN) {
+        bestN = n;
+        best = u;
+      }
+    }
+    return best;
+  }
+
+  private _visHitCount(u: UnitActor): number {
+    let n = 0;
+    const list = this._visList;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (!b.suckable || !this._sameColor(b, u) || this._plateBlocks(b.row, b.col)) continue;
+      n += 1;
+    }
+    return n;
   }
 
   private _guideRearUnit(): UnitActor | null {
@@ -980,10 +1021,20 @@ export class BattleDirector extends Component {
   }
 
   private _guideSlotUnit(): UnitActor | null {
+    this._visDirty = true;
+    this._ensureVis();
+    let best: UnitActor | null = null;
+    let bestN = 1e9;
     for (const s of this._slots) {
-      if (s.occupant?.usable) return s.occupant;
+      const u = s.occupant;
+      if (!u?.usable) continue;
+      const n = this._visList.length > 0 ? this._visHitCount(u) : 0;
+      if (n < bestN) {
+        bestN = n;
+        best = u;
+      }
     }
-    return null;
+    return best;
   }
 
   private _guideBrick(): BlockCell | null {
@@ -1131,7 +1182,7 @@ export class BattleDirector extends Component {
     if (this._guideBlocksWorld()) return;
     const loc = e.getLocation();
     this._ptrDown = true;
-    this._dragSpin = this._lastGuide?.phase === 'target' ? false : this._canSpinAt(e);
+    this._dragSpin = this._teachingShovel() || this._lastGuide?.phase === 'target' ? false : this._canSpinAt(e);
     this._spinning = false;
     this._dragStartX = loc.x;
     this._dragStartY = loc.y;
@@ -1403,6 +1454,10 @@ export class BattleDirector extends Component {
   }
 
   private _placeOrMerge(unit: UnitActor): void {
+    if (this._teachingShovel()) {
+      const idle = this._guideIdleFrontUnit();
+      if (idle && unit !== idle) return;
+    }
     completeGuide('tap');
     const slot = this._hintSlot(unit);
     if (slot) this._placeUnit(unit, slot);
@@ -1418,7 +1473,7 @@ export class BattleDirector extends Component {
     this._refillBenchCol(unit.benchCol);
   }
 
-  private _placeUnit(unit: UnitActor, slot: SlotPad, delay = 0): void {
+  private _placeUnit(unit: UnitActor, slot: SlotPad, delay = 0, keepScale = false): void {
     gameAudio()?.playUiClick();
     slot.occupant = unit;
     unit.lockedCol = slot.homeCol;
@@ -1427,9 +1482,9 @@ export class BattleDirector extends Component {
     slot.node.getWorldPosition(_tmp);
     _tmp.y += SLOT_PAD_TOP + SLOT_UNIT_LIFT;
     _tmp.z += SLOT_UNIT_FWD;
-    unit.flyToWorld(_tmp, delay);
+    unit.flyToWorld(_tmp, delay, keepScale);
     unit.suckWait = Math.max(unit.suckWait, GAME.suckLandDelay);
-    unit.refreshSeatLook();
+    if (!keepScale) unit.refreshSeatLook();
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
     this._maybeAutoPlace();
@@ -1746,6 +1801,7 @@ export class BattleDirector extends Component {
 
   /** Only guns seated in a pit. */
   private _canFire(u: UnitActor): boolean {
+    if (this._teachingShovel()) return false;
     return !u.asBlock && u.lockedCol >= 0 && u.state !== 'drag' && !u.trapped && !u.traveling;
   }
 
@@ -1901,13 +1957,8 @@ export class BattleDirector extends Component {
 
   /** Visible same-color brick the turret can shoot without spinning first. */
   private _canNowAbsorb(u: UnitActor): boolean {
-    const list = this._visList;
-    for (let i = 0; i < list.length; i++) {
-      const b = list[i];
-      if (!b.suckable || !this._sameColor(b, u) || this._plateBlocks(b.row, b.col)) continue;
-      return true;
-    }
-    return false;
+    this._ensureVis();
+    return this._visHitCount(u) > 0;
   }
 
   private _bumpVis(): void {
@@ -3107,7 +3158,7 @@ export class BattleDirector extends Component {
   private _deployHooked(unit: UnitActor): boolean {
     const slot = this._hintSlot(unit);
     if (slot) {
-      this._placeUnit(unit, slot);
+      this._placeUnit(unit, slot, 0, true);
       return true;
     }
     const merge = this._bestMerge(unit);

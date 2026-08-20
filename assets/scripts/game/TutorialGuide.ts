@@ -134,7 +134,7 @@ export function activeGuide(level: number, ctx: GuideContext): GuideView | null 
   }
   if (id === 'shovel') {
     if (ctx.shovelPick) return { id, phase: 'target', tip: TIPS.shovelTarget, item: id };
-    if (!ctx.canShovel) return { id: 'tap', phase: 'world', tip: TIPS.shovelWait };
+    if (!ctx.canShovel) return { id, phase: 'world', tip: TIPS.shovelWait, item: id };
     return { id, phase: 'icon', tip: TIPS.shovel, item: id };
   }
   if (ctx.bombPick) return { id, phase: 'target', tip: TIPS.bombTarget, item: id };

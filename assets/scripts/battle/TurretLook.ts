@@ -8,7 +8,7 @@ import {
   utils,
 } from 'cc';
 import { ColorId, tokenOfColorId } from '../game/GameConfig';
-import { paintUnitColor } from './BrickSpecials';
+import { paintQueueBlock, paintUnitColor, preloadHiddenPattern } from './BrickSpecials';
 import { applyToyCaster } from './ToyBlockMesh';
 import { applyTurretPose } from './TurretPose';
 import { TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
@@ -74,6 +74,7 @@ export function preloadTurretLooks(): Promise<void> {
     loadPack('meshes/toy-shooter', (m) => { _mesh = m; }),
     loadPack('meshes/toy-block', (m) => { _cube = m; }),
     loadPack('meshes/hidden-shooter', (m) => { _hidden = m; }),
+    preloadHiddenPattern(),
     preloadToyOutline(),
   ]).then(() => undefined);
   return _boot;
@@ -147,7 +148,7 @@ export function applyTurretLook(host: Node, colorId: ColorId, outline = true): v
   });
 }
 
-/** Same 45° sit as live turrets so the lid tilts toward the camera. */
+/** Same 45° sit as live turrets so queue cubes match the bench. */
 function lockQueueBlockPose(host: Node): void {
   host.setRotationFromEuler(0, 0, 0);
   host.setScale(HIDDEN_SCALE, HIDDEN_SCALE, HIDDEN_SCALE);
@@ -164,8 +165,8 @@ function lockQueueBlockPose(host: Node): void {
   body.setScale(1, 1, 1);
 }
 
-/** Queued / unactivated: original Shooter_Hidden + T_Hidden_Pattern. */
-export function applyQueueBlockLook(host: Node, colorId: ColorId = 0): void {
+/** Queued / unactivated: original Shooter_Hidden + T_Hidden_Pattern when marked. */
+export function applyQueueBlockLook(host: Node, colorId: ColorId = 0, hidden = false): void {
   hideFace(host);
   const body = bodyOf(host);
   if (!body) return;
@@ -176,7 +177,7 @@ export function applyQueueBlockLook(host: Node, colorId: ColorId = 0): void {
     lockQueueBlockPose(host);
     mr.mesh = mesh;
     mr.enabled = true;
-    paintUnitColor(host, tokenOfColorId(colorId));
+    paintQueueBlock(host, tokenOfColorId(colorId), hidden);
     applyToyOutline(host, false);
     const mouth = host.getChildByName('Mouth')
       ?? host.getChildByName('Rig')?.getChildByName('Mouth')
@@ -188,6 +189,11 @@ export function applyQueueBlockLook(host: Node, colorId: ColorId = 0): void {
   if (mesh) {
     apply(mesh);
     applyToyCaster(host, false, false);
+    if (hidden) {
+      void preloadHiddenPattern().then(() => {
+        if (host.isValid) paintQueueBlock(host, tokenOfColorId(colorId), true);
+      });
+    }
     return;
   }
   preloadTurretLooks().then(() => {

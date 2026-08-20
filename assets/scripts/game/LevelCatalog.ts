@@ -294,6 +294,9 @@ export const ITEM_UNLOCK_LEVEL: Record<ItemId, number> = {
 /** Victory settle: from this cleared level, hide 下一关 and keep only 双倍领取. */
 export const WIN_DOUBLE_ONLY_FROM = 35;
 
+/** After this official level, queued bench cubes hide their real color. */
+export const HIDDEN_QUEUE_AFTER_LEVEL = 30;
+
 export function itemUnlocked(id: ItemId, level: number): boolean {
   return (level | 0) >= ITEM_UNLOCK_LEVEL[id];
 }

@@ -1,8 +1,9 @@
-import { Color, Material, Mesh, MeshRenderer, Node } from 'cc';
+import { Color, ImageAsset, Material, Mesh, MeshRenderer, Node, Texture2D, Vec4, resources } from 'cc';
 import { ColorToken, PLAY, TOKEN_RGB } from '../game/GameConfig';
+import { HIDDEN_QUEUE_AFTER_LEVEL } from '../game/LevelCatalog';
 import { VoxelLook, lookOfRgb, lookOfVoxel } from '../game/VoxelPalette';
 import { applyPaintCan } from './PaintCan';
-import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
+import { applyToyCaster, forgetBrickParts, inflateFieldCull, makeFieldLit, makeFieldUnlit, makeInstancedLit, makeInstancedTextured, preloadBrickLit, preloadInstancedLit } from './ToyBlockMesh';
 import { getToyBall } from './ToySlotMesh';
 
 const _mats = new Map<string, Material>();
@@ -126,7 +127,7 @@ export function paintMeshRenderers(mrs: MeshRenderer[], token: ColorToken): void
 }
 
 export function preloadVoxelLook(): Promise<void> {
-  return Promise.all([preloadInstancedLit(), preloadBrickLit()]).then(() => undefined);
+  return Promise.all([preloadInstancedLit(), preloadBrickLit(), preloadHiddenPattern()]).then(() => undefined);
 }
 
 /** Recolor without material instances so same-color debris stay batched. */
@@ -174,14 +175,7 @@ export function paintNodeColor(root: Node, token: ColorToken): void {
   paintLook(root, lookOfRgb(PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y));
 }
 
-export function paintUnitColor(root: Node, token: ColorToken): void {
-  const rgb = PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y;
-  const mat = glossy(
-    `unit-${rgb[0]}-${rgb[1]}-${rgb[2]}`,
-    colorOf(rgb),
-    0.34,
-    0.04,
-  );
+function applySharedMat(root: Node, mat: Material): void {
   for (const mr of root.getComponentsInChildren(MeshRenderer)) {
     if (skipPaint(mr.node.name)) continue;
     const on = mr.enabled;
@@ -189,6 +183,143 @@ export function paintUnitColor(root: Node, token: ColorToken): void {
     mr.setSharedMaterial(mat, 0);
     mr.enabled = on;
   }
+}
+
+export function paintUnitColor(root: Node, token: ColorToken): void {
+  const rgb = PLAY.tints[token] ?? TOKEN_RGB[token] ?? TOKEN_RGB.y;
+  applySharedMat(root, glossy(
+    `unit-${rgb[0]}-${rgb[1]}-${rgb[2]}`,
+    colorOf(rgb),
+    0.62,
+    0,
+  ));
+}
+
+const HIDDEN_TEX = 'toys/hidden-pattern';
+/** Original M_Shooter_Hidden._Color. */
+const HIDDEN_TINT = new Color(161, 161, 161, 255);
+const HIDDEN_RGB: readonly [number, number, number] = [89, 84, 82];
+/** Original scroll is 0.4; game-speed reads too fast, keep a slow crawl. */
+const HIDDEN_SCROLL = 0.08;
+let _hiddenTex: Texture2D | null = null;
+let _hiddenMat: Material | null = null;
+let _hiddenBoot: Promise<void> | null = null;
+let _hiddenUvX = 0;
+let _hiddenUvY = 0;
+const _hiddenTiling = new Vec4(1, -1, 0, 1);
+
+/** Official levels after 30 may hide a few queued cubes with T_Hidden_Pattern. */
+export function hideQueueColors(level = PLAY.levelId): boolean {
+  return (level | 0) > HIDDEN_QUEUE_AFTER_LEVEL;
+}
+
+export type HiddenQueueTarget = {
+  colorHidden: boolean;
+  benchRank: number;
+  refreshSeatLook: () => void;
+};
+
+/** 2–4 back cubes, or fewer when the bench is short. */
+export function pickHiddenQueueCount(backN: number): number {
+  if (backN <= 0) return 0;
+  const max = Math.min(backN, 4);
+  const min = Math.min(backN, backN <= 2 ? 1 : 2);
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/** Pick a fresh random subset of back-row cubes for this level. */
+export function rollHiddenQueue(units: HiddenQueueTarget[]): void {
+  for (let i = 0; i < units.length; i++) units[i].colorHidden = false;
+  if (!hideQueueColors()) {
+    for (let i = 0; i < units.length; i++) units[i].refreshSeatLook();
+    return;
+  }
+  const back: HiddenQueueTarget[] = [];
+  for (let i = 0; i < units.length; i++) {
+    if (units[i].benchRank > 0) back.push(units[i]);
+  }
+  for (let i = back.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    const tmp = back[i];
+    back[i] = back[j];
+    back[j] = tmp;
+  }
+  const n = pickHiddenQueueCount(back.length);
+  for (let i = 0; i < n; i++) back[i].colorHidden = true;
+  for (let i = 0; i < units.length; i++) units[i].refreshSeatLook();
+}
+
+function bindHiddenTex(tex: Texture2D): void {
+  tex.setWrapMode(Texture2D.WrapMode.REPEAT, Texture2D.WrapMode.REPEAT);
+  tex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+  _hiddenTex = tex;
+}
+
+export function preloadHiddenPattern(): Promise<void> {
+  if (_hiddenTex) return Promise.resolve();
+  if (_hiddenBoot) return _hiddenBoot;
+  _hiddenBoot = Promise.all([preloadBrickLit(), preloadInstancedLit()]).then(() => new Promise<void>((resolve) => {
+    resources.load(HIDDEN_TEX, Texture2D, (err, tex) => {
+      if (!err && tex) {
+        bindHiddenTex(tex);
+        resolve();
+        return;
+      }
+      resources.load(HIDDEN_TEX, ImageAsset, (imgErr, img) => {
+        if (!imgErr && img) {
+          const made = new Texture2D();
+          made.image = img;
+          bindHiddenTex(made);
+        }
+        resolve();
+      });
+    });
+  }));
+  return _hiddenBoot;
+}
+
+function bindHiddenUv(mat: Material): void {
+  _hiddenTiling.set(1, -1, _hiddenUvX, 1 - _hiddenUvY);
+  try {
+    mat.setProperty('tilingOffset', _hiddenTiling);
+  } catch {
+    /* builtin fallback */
+  }
+}
+
+function hiddenMat(): Material {
+  if (_hiddenMat && usable(_hiddenMat)) return _hiddenMat;
+  if (_hiddenTex) {
+    const mat = makeInstancedTextured(_hiddenTex, HIDDEN_TINT, 0.72, 0.04, 0);
+    bindHiddenUv(mat);
+    _hiddenMat = mat;
+    _mats.set('unit-hidden', mat);
+    return mat;
+  }
+  const key = `unit-${HIDDEN_RGB[0]}-${HIDDEN_RGB[1]}-${HIDDEN_RGB[2]}`;
+  const hit = _mats.get(key);
+  if (usable(hit)) return hit;
+  const mat = glossy(key, colorOf(HIDDEN_RGB), 0.72, 0);
+  _mats.set(key, mat);
+  return mat;
+}
+
+/** Original Toony Colors Pro _ScrollTexture at 0.4 / 0.4. */
+export function tickHiddenPattern(dt: number): void {
+  if (!_hiddenMat || !usable(_hiddenMat)) return;
+  _hiddenUvX = (_hiddenUvX + HIDDEN_SCROLL * dt) % 1;
+  _hiddenUvY = (_hiddenUvY + HIDDEN_SCROLL * dt) % 1;
+  bindHiddenUv(_hiddenMat);
+}
+
+/** Original Shooter_Hidden albedo: T_Hidden_Pattern, no real color. */
+export function paintHiddenPattern(root: Node): void {
+  applySharedMat(root, hiddenMat());
+}
+
+export function paintQueueBlock(root: Node, token: ColorToken, hidden = false): void {
+  if (hidden) paintHiddenPattern(root);
+  else paintUnitColor(root, token);
 }
 
 function rgbFromMat(mr: MeshRenderer): readonly [number, number, number] | null {
