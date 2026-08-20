@@ -125,6 +125,11 @@ const FACE = [
 ] as const;
 const LOCK_WALK = [[-1, 0], [1, 0], [0, 1], [0, -1]] as const;
 const HOLD_SIDES = [[-1, 0], [1, 0], [0, 1]] as const;
+/** Renderers built per frame for bricks still waiting inside the sculpture. */
+const MESH_WARM_PER_FRAME = 6;
+/** Cap the walk too, or a mostly-warmed backlog costs a long scan for nothing. */
+const MESH_WARM_SCAN = 96;
+
 const COLOR_WALK = [
   [-1, 0, 0],
   [1, 0, 0],
@@ -262,6 +267,8 @@ export class BattleDirector extends Component {
   private readonly _bombGroup: BlockCell[] = [];
   private readonly _bombStack: BlockCell[] = [];
   private readonly _bombSeen = new Set<BlockCell>();
+  private readonly _meshless: BlockCell[] = [];
+  private _meshCursor = 0;
   private readonly _onShotLand = (shot: InkShot): void => {
     this._landShot(shot);
   };
@@ -439,6 +446,31 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint(dt);
+    this._warmBuriedMeshes();
+  }
+
+  /**
+   * Interior bricks ship without a renderer. Building one the moment a brick is dug
+   * out bunches the cost into whichever frame cleared the layer, so walk the backlog
+   * a few at a time and have them ready before the player gets there.
+   */
+  private _warmBuriedMeshes(): void {
+    const list = this._meshless;
+    let budget = MESH_WARM_PER_FRAME;
+    let scan = MESH_WARM_SCAN;
+    while (budget > 0 && scan > 0 && this._meshCursor < list.length) {
+      const b = list[this._meshCursor];
+      this._meshCursor += 1;
+      scan -= 1;
+      if (!b?.isValid || !b.meshless || !b.node.active) continue;
+      if (!attachBrickRenderer(b.node, b.voxelId)) break;
+      b.meshless = false;
+      budget -= 1;
+    }
+    if (this._meshCursor >= list.length && list.length) {
+      list.length = 0;
+      this._meshCursor = 0;
+    }
   }
 
   private _tickShots(dt: number): void {
@@ -2024,10 +2056,13 @@ export class BattleDirector extends Component {
   }
 
   private _hideBuried(): void {
+    this._meshless.length = 0;
+    this._meshCursor = 0;
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.alive) continue;
       setBrickDrawn(b, !this._isBuried(b));
+      if (b.meshless) this._meshless.push(b);
     }
     dirtyBrickSkin();
   }
