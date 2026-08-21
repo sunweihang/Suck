@@ -2560,7 +2560,6 @@ export class BattleDirector extends Component {
     push(hud?.getChildByName('BackBtn'));
     push(hud?.getChildByName('NextBtn'));
     push(hud?.getChildByName('SettingsBtn'));
-    push(hud?.getChildByName('UgcBtn'));
     push(hud?.getChildByName('ScoreBoard'));
     push(hud?.getChildByName('Powers'));
     push(this._canvas?.getChildByName('GoldHud'));

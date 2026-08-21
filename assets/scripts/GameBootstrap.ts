@@ -1235,7 +1235,6 @@ export class GameBootstrap extends Component {
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
       onRevealGm: () => this._gm?.revealEntry(),
-      onUgc: () => this._openUgcFromPlay(),
       onItem: (id) => this._onPlayItem(id),
     });
     this._playHud.hide();
@@ -1613,12 +1612,6 @@ export class GameBootstrap extends Component {
       undoCount: ed.undoCount,
       showAll: ed.showAll,
     });
-  }
-
-  private _openUgcFromPlay(): void {
-    if (this._ugcPlay) return;
-    this._ugcHoldPlay = true;
-    void this._enterUgcEditor();
   }
 
   private _loadUgcText(text: string): string | true {

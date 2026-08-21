@@ -14,6 +14,7 @@ import {
   Widget,
 } from 'cc';
 import { openGameCircle } from '../ads/GameCircleService';
+import { getWxMiniProgramVersionText } from '../ads/WxAccount';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import { styleQCaption, styleQNum } from './QChrome';
@@ -39,8 +40,10 @@ const BGM_Y = 126;
 const SFX_Y = -64;
 const BTN_FONT = 48;
 const ACTION_Y = -323;
+const VERSION_Y = -455;
 const SHARE_X = -197;
 const CLUB_X = 197;
+const VERSION_INK = new Color(74, 68, 128, 180);
 const CLOSE_X = 340;
 const CLOSE_Y = 425;
 const TITLE_INK = new Color(74, 68, 128, 255);
@@ -73,6 +76,7 @@ export class SettingsPanel extends Component {
     this.layoutChrome();
     this.applyArt();
     this._syncFromAudio();
+    this._syncVersion();
   }
 
   hide(): void {
@@ -253,6 +257,7 @@ export class SettingsPanel extends Component {
     this._bindTap(card?.getChildByName('CloseBtn'), () => this._onClose?.());
     this._bindTap(card?.getChildByName('ShareButton'), () => this._onRestart?.());
     this._bindTap(card?.getChildByName('ClubButton'), () => openGameCircle());
+    this._syncVersion();
   }
 
   private _adoptVolumeRow(row: Node | null): { slider: Slider | null; fill: Node | null } {
@@ -346,6 +351,33 @@ export class SettingsPanel extends Component {
       this._updateFill(fill, v);
       apply(v);
     }, this);
+  }
+
+  private _syncVersion(): void {
+    const card = this.node.getChildByName('Card');
+    if (!card) return;
+    const text = getWxMiniProgramVersionText();
+    let node = card.getChildByName('Version');
+    if (!text) {
+      if (node) node.active = false;
+      return;
+    }
+    if (!node) {
+      const lab = this._label(card, 'Version', text, 28, VERSION_INK, 0, VERSION_Y, CARD_W - 80, 40, false);
+      lab.outlineWidth = 0;
+      lab.enableOutline = false;
+      lab.color = VERSION_INK;
+      node = lab.node;
+    } else {
+      const lab = node.getComponent(Label);
+      if (lab) {
+        lab.string = text;
+        lab.color = VERSION_INK;
+        lab.enableOutline = false;
+      }
+    }
+    node.active = true;
+    node.setPosition(0, VERSION_Y, 0);
   }
 
   private _syncFromAudio(): void {

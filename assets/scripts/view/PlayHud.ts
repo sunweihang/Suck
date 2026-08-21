@@ -31,7 +31,6 @@ const PLAY_BADGE = 360;
 const PLAY_DIGIT_H = 92;
 const SETTINGS_CIRCLE = 160;
 const SETTINGS_GEAR = 75;
-const SETTINGS_ICON = 107;
 const SETTINGS_W = 187;
 const SETTINGS_H = 224;
 const SETTINGS_LAB_W = 160;
@@ -39,7 +38,6 @@ const SETTINGS_LAB_H = 53;
 const SETTINGS_LAB_SIZE = 37;
 const SETTINGS_ICON_Y = 32;
 const SETTINGS_LAB_Y = -35;
-const SETTINGS_STACK_GAP = 11;
 const SETTINGS_INK = new Color(110, 104, 168, 255);
 const ITEM_HIT = 192;
 const ITEM_ICON = 168;
@@ -69,7 +67,6 @@ export class PlayHud extends Component {
   private _onNext: (() => void) | null = null;
   private _onSettings: (() => void) | null = null;
   private _onRevealGm: (() => void) | null = null;
-  private _onUgc: (() => void) | null = null;
   private _onItem: ((id: ItemId) => void) | null = null;
   private _gmTaps = 0;
   private _gmTapAt = 0;
@@ -92,14 +89,12 @@ export class PlayHud extends Component {
     onNext?: () => void;
     onSettings?: () => void;
     onRevealGm?: () => void;
-    onUgc?: () => void;
     onItem?: (id: ItemId) => void;
   }): void {
     this._onHome = opts.onHome;
     this._onNext = opts.onNext ?? null;
     this._onSettings = opts.onSettings ?? null;
     this._onRevealGm = opts.onRevealGm ?? null;
-    this._onUgc = opts.onUgc ?? null;
     this._onItem = opts.onItem ?? null;
     this._ensureTree();
     const back = this.node.getChildByName('BackBtn');
@@ -118,7 +113,6 @@ export class PlayHud extends Component {
       gameAudio()?.playUiClick();
       this._onSettings?.();
     }, this);
-    this._bindUgcBtn();
     this._bindScoreBoard();
     this.layoutChrome();
   }
@@ -144,7 +138,6 @@ export class PlayHud extends Component {
     this._ensureTree();
     layoutHomeLevel(this.node.getChildByName('ScoreBoard'), this._level, PLAY_BADGE, PLAY_DIGIT_H);
     this._paintSettings();
-    this._paintUgc();
     this._paintTip();
   }
 
@@ -160,8 +153,6 @@ export class PlayHud extends Component {
     this._ugc = on;
     const board = this.node.getChildByName('ScoreBoard');
     if (board) board.active = !on;
-    const ugc = this.node.getChildByName('UgcBtn');
-    if (ugc) ugc.active = !on;
   }
 
   showCleared(_cleared: number, _hasNext: boolean): void {
@@ -173,8 +164,6 @@ export class PlayHud extends Component {
     if (tip) tip.active = false;
     const powers = this.node.getChildByName('Powers');
     if (powers) powers.active = false;
-    const ugc = this.node.getChildByName('UgcBtn');
-    if (ugc) ugc.active = false;
     this._guide = null;
     this.hintHand?.hide();
   }
@@ -223,18 +212,12 @@ export class PlayHud extends Component {
     this.node.getChildByName('WinLabel')?.setPosition(0, 80, 0);
     this.node.getChildByName('NextBtn')?.setPosition(0, -80, 0);
     const rightX = vis.w * 0.5 - SETTINGS_W * 0.5 - safe.right - pad;
-    const ugcY = chromeY - GOLD_HUD.rootH - 88;
-    const ugc = this.node.getChildByName('UgcBtn');
-    if (ugc) {
-      ugc.active = !this._ugc;
-      this._syncSideBtn(ugc, 'UgcLabel', 'Icon', SETTINGS_ICON);
-      ugc.setPosition(rightX, ugcY, 0);
-    }
+    const settingsY = chromeY - GOLD_HUD.rootH - 88;
     const settings = this.node.getChildByName('SettingsBtn');
     if (settings) {
       settings.active = true;
       this._syncSideBtn(settings, 'SettingsLabel', 'Gear', SETTINGS_GEAR);
-      settings.setPosition(rightX, ugc?.active ? ugcY - SETTINGS_H - SETTINGS_STACK_GAP : ugcY, 0);
+      settings.setPosition(rightX, settingsY, 0);
     }
     this._layoutItems(vis.h, safe.bottom);
     this._placeGuideHand();
@@ -281,7 +264,6 @@ export class PlayHud extends Component {
 
     this._scoreBoard();
     this._settingsBtn();
-    this._ugcBtn();
 
     const tip = this._mk('TipLab', TIP_W, TIP_H);
     this._mk('Face', TIP_W, TIP_H, tip);
@@ -327,22 +309,6 @@ export class PlayHud extends Component {
     return n;
   }
 
-  private _ugcBtn(): Node {
-    const n = this._mk('UgcBtn', SETTINGS_W, SETTINGS_H);
-    this._mk('Bg', SETTINGS_CIRCLE, SETTINGS_CIRCLE, n);
-    this._mk('Icon', SETTINGS_ICON, SETTINGS_ICON, n);
-    const labN = this._mk('UgcLabel', SETTINGS_LAB_W, SETTINGS_LAB_H, n);
-    this._lab(labN, '创作', SETTINGS_LAB_SIZE, SETTINGS_INK, SETTINGS_LAB_W, SETTINGS_LAB_H, false);
-    const lab = labN.getComponent(Label);
-    if (lab) {
-      lab.outlineColor = Color.WHITE;
-      lab.outlineWidth = 4;
-    }
-    this._syncSideBtn(n, 'UgcLabel', 'Icon', SETTINGS_ICON);
-    this._paintUgc();
-    return n;
-  }
-
   private _syncSideBtn(n: Node, labName: string, iconName: string, iconSize: number): void {
     n.getComponent(UITransform)?.setContentSize(SETTINGS_W, SETTINGS_H);
     const bg = n.getChildByName('Bg');
@@ -359,67 +325,6 @@ export class PlayHud extends Component {
       lab.fontSize = SETTINGS_LAB_SIZE;
       lab.lineHeight = SETTINGS_LAB_SIZE;
       lab.outlineWidth = 4;
-    }
-  }
-
-  private _bindUgcBtn(): void {
-    const n = this.node.getChildByName('UgcBtn');
-    n?.off(Node.EventType.TOUCH_START);
-    n?.off(Node.EventType.TOUCH_END);
-    n?.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
-      e.propagationStopped = true;
-    }, this);
-    n?.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
-      e.propagationStopped = true;
-      gameAudio()?.playUiClick();
-      this._onUgc?.();
-    }, this);
-  }
-
-  private _paintUgc(): void {
-    const n = this.node.getChildByName('UgcBtn');
-    if (!n) return;
-    this._syncSideBtn(n, 'UgcLabel', 'Icon', SETTINGS_ICON);
-    applyArtSpriteSoon(n.getChildByName('Bg'), 'settingsBg', SETTINGS_CIRCLE, SETTINGS_CIRCLE);
-    const icon = n.getChildByName('Icon');
-    if (!icon) return;
-    icon.active = true;
-    let art = icon.getChildByName('Art');
-    if (!art) art = this._mk('Art', SETTINGS_ICON, SETTINGS_ICON, icon);
-    art.getComponent(UITransform)?.setContentSize(SETTINGS_ICON, SETTINGS_ICON);
-    const glyph = icon.getChildByName('Glyph') ?? this._mk('Glyph', SETTINGS_ICON, SETTINGS_ICON, icon);
-    glyph.getComponent(UITransform)?.setContentSize(SETTINGS_ICON, SETTINGS_ICON);
-    if (applyArtSprite(art, 'ugcBtn', SETTINGS_ICON, SETTINGS_ICON)) {
-      glyph.active = false;
-      return;
-    }
-    glyph.active = true;
-    this._paintUgcBricks(glyph);
-    applyArtSpriteSoon(art, 'ugcBtn', SETTINGS_ICON, SETTINGS_ICON, false, () => {
-      if (glyph.isValid) glyph.active = false;
-    });
-  }
-
-  private _paintUgcBricks(icon: Node): void {
-    let g = icon.getComponent(Graphics);
-    if (!g) g = icon.addComponent(Graphics);
-    g.enabled = true;
-    g.clear();
-    const bricks: Array<readonly [number, number, Color]> = [
-      [-27, 16, Theme.cyan],
-      [13, 19, Theme.pink],
-      [-8, -19, Theme.lime],
-    ];
-    for (const [x, y, fill] of bricks) {
-      g.fillColor = new Color(48, 32, 24, 70);
-      g.roundRect(x + 4, y - 7, 43, 32, 9);
-      g.fill();
-      g.fillColor = fill;
-      g.roundRect(x, y, 43, 32, 9);
-      g.fill();
-      g.fillColor = new Color(255, 255, 255, 90);
-      g.roundRect(x + 5, y + 19, 29, 8, 4);
-      g.fill();
     }
   }
 
