@@ -71,6 +71,7 @@ import { playItemGrantFly, playItemUseFly } from './view/ItemFlyFx';
 import { artFrame, preloadHomeArt, preloadUiArt } from './view/UiArt';
 import { loadGameBundles, loadHomeBundles } from './boot/LoadBundles';
 import { attachBootLoad, type BootLoad } from './view/BootLoad';
+import { initPlayerCloud } from './net/PlayerCloud';
 
 function loadPrefab(uuid: string): Promise<Prefab> {
   return new Promise((resolve, reject) => {
@@ -262,6 +263,7 @@ export class GameBootstrap extends Component {
       await ensureLevels();
       this._restoreProgress();
       this._wallet.load();
+      this._bindPlayerCloud();
       load.raise();
       await this._buildUi();
       load.raise();
@@ -1406,6 +1408,24 @@ export class GameBootstrap extends Component {
   private _restoreProgress(): void {
     this._level = loadLevelIndex();
     this._builtLevel = 0;
+  }
+
+  private _bindPlayerCloud(): void {
+    initPlayerCloud({
+      snapshot: () => ({
+        level: this._level,
+        coins: this._wallet.coins,
+        items: this._wallet.items,
+      }),
+      apply: (save) => {
+        this._level = save.level;
+        saveLevelIndex(save.level);
+        this._wallet.applyCloud(save.coins, save.items);
+        this._home?.setLevel(this._level, LEVEL_COUNT);
+        this._playHud?.setLevel(this._level);
+        this._gm?.setLevel(this._level);
+      },
+    });
   }
 
   private _setGoldVisible(on: boolean): void {

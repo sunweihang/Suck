@@ -14,6 +14,7 @@ import {
   rgbOfVoxel,
 } from './VoxelPalette';
 import { playViewBand } from './ViewFit';
+import { notifyPlayerDirty } from '../net/PlayerCloud';
 
 export let LEVEL_COUNT = 100;
 
@@ -108,6 +109,7 @@ export function loadLevelIndex(): number {
 export function saveLevelIndex(n: number): void {
   try {
     sys.localStorage.setItem(SAVE_KEY, String(Math.max(1, Math.min(LEVEL_COUNT, n | 0))));
+    notifyPlayerDirty();
   } catch (e) {
     console.warn('[LevelCatalog] save failed', e);
   }

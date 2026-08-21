@@ -1,5 +1,6 @@
 import { sys } from 'cc';
 import type { ItemId } from './LevelCatalog';
+import { notifyPlayerDirty } from '../net/PlayerCloud';
 
 const STORAGE_KEY = 'suck.wallet.v1';
 
@@ -64,9 +65,24 @@ export class PlayerWallet {
     }
   }
 
+  get items(): Record<ItemId, number> {
+    return { ...this._items };
+  }
+
+  applyCloud(coins: number, items: Partial<Record<ItemId, number>>): void {
+    this._coins = Math.max(0, Math.floor(Number(coins) || 0));
+    this._items = { ...EMPTY_ITEMS };
+    for (const id of Object.keys(EMPTY_ITEMS) as ItemId[]) {
+      this._items[id] = Math.max(0, Math.floor(Number(items?.[id]) || 0));
+    }
+    this.save();
+    this._onChange?.(this._coins, false);
+  }
+
   save(): void {
     try {
       sys.localStorage.setItem(STORAGE_KEY, JSON.stringify({ coins: this._coins, items: this._items }));
+      notifyPlayerDirty();
     } catch (e) {
       console.warn('[PlayerWallet] save failed', e);
     }
