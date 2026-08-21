@@ -5,7 +5,7 @@ import { sys } from 'cc';
  * 空着则开发版 / 预览走本地，正式版关掉云存档。
  */
 const PROD_BASE_URL = '';
-const LOCAL_BASE_URL = 'http://127.0.0.1:8787';
+const LOCAL_BASE_URL = 'http://10.1.5.25:8787';
 
 declare const wx: undefined | {
   getAccountInfoSync?: () => { miniProgram?: { envVersion?: string } };
