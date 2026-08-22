@@ -207,6 +207,10 @@ export class UnitActor extends Component {
     return this._flying || this._slideLeft > 0 || this._flyWait > 0 || this._vanish;
   }
 
+  get vanishing(): boolean {
+    return this._vanish;
+  }
+
   private _wake(): void {
     this.enabled = true;
   }

@@ -1581,7 +1581,7 @@ export class BattleDirector extends Component {
 
   /** Last empty pits == leftover octopuses → seat them without a tap. */
   private _maybeAutoPlace(): void {
-    if (this._autoPlacing || !this._playing || this._won || this._lost) return;
+    if (this._autoPlacing || !this._playing || this._won || this._lost || this._remain === 0) return;
     if (!this._itemsReady || this._lastGuide || this._itemFxBusy) return;
     if (this._hookPick || this._shovelPick || this._bombPick) return;
     const pits = this._countOpenEmptySlots();
@@ -1651,9 +1651,9 @@ export class BattleDirector extends Component {
 
   private _tickCombat(dt: number): void {
     if (!this._playing || this._won || this._lost || this._platesBreaking) return;
-    this._maybeAutoPlace();
     if (this._remain <= 0) this._remain = this._countAlive();
     if (this._remain === 0) {
+      this._retireLeftoverUnits();
       if (!this._platesOpen && this._ironRows.length) return;
       this._refreshChests();
       if (this._chestBusy || this._chestQueue.length) return;
@@ -1663,6 +1663,7 @@ export class BattleDirector extends Component {
       this._onWin?.();
       return;
     }
+    this._maybeAutoPlace();
     this._winSettle = 0;
     if (this._needHoldRefresh) {
       this._needHoldRefresh = false;
@@ -1687,6 +1688,7 @@ export class BattleDirector extends Component {
   }
 
   private _fireUnits(dt: number): void {
+    if (!this._playing || this._won || this._lost || this._remain === 0) return;
     const units = this._units;
     if (!units) return;
     let flying = this._flightBusy();
@@ -1732,7 +1734,8 @@ export class BattleDirector extends Component {
     const units = this._units;
     if (units) {
       for (let i = 0; i < units.length; i++) {
-        if (units[i].inflight > 0) return true;
+        const u = units[i];
+        if (u.inflight > 0 || u.vanishing) return true;
       }
     }
     return false;
@@ -1808,6 +1811,7 @@ export class BattleDirector extends Component {
       _hitDir.set(0, 1, 0);
       this._shatterBrick(block, _hitDir);
       this._spendShot(u, true);
+      this._syncSpentColor(u.colorId);
     }
   }
 
@@ -1818,7 +1822,10 @@ export class BattleDirector extends Component {
     shot.landUnit = null;
     shot.landBlock = null;
     if (!block?.node?.isValid) {
-      if (u?.isValid) this._spendShot(u, false);
+      if (u?.isValid) {
+        this._spendShot(u, false);
+        this._syncSpentColor(u.colorId);
+      }
       return;
     }
     fieldWorldOf(block.node, _world);
@@ -1839,7 +1846,10 @@ export class BattleDirector extends Component {
       _hitDir.z += _faceN.z / toward * 0.65;
     }
     const broke = this._shatterBrick(block, _hitDir);
-    if (u?.isValid) this._spendShot(u, broke);
+    if (u?.isValid) {
+      this._spendShot(u, broke);
+      this._syncSpentColor(u.colorId);
+    }
   }
 
   /** Visible surface toward the lens — same as original worldHitPoint. */
@@ -3192,9 +3202,7 @@ export class BattleDirector extends Component {
       this._emitItems();
       return;
     }
-    const teaching = guideIdForLevel(PLAY.levelId) === id && !isGuideDone(id);
     completeGuide(id);
-    if (teaching && this._wallet.itemCount(id) <= 0) this._wallet.addItem(id, 1);
     this._clearPicks();
     this._emitItems();
     if (autoPlace) this._maybeAutoPlace();
@@ -3418,7 +3426,7 @@ export class BattleDirector extends Component {
     let have = 0;
     for (let i = 0; i < this._units.length; i++) {
       const u = this._units[i];
-      if (!u.node?.isValid || !u.node.active || u.power <= 0) continue;
+      if (!u.node?.isValid || !u.node.active || u.vanishing || u.power <= 0) continue;
       if (!this._idsMatch(u.colorId, colorId)) continue;
       have += u.power;
       units.push(u);
@@ -3428,6 +3436,15 @@ export class BattleDirector extends Component {
     }
     let extra = have - need;
     if (extra <= 0) return;
+    for (let i = this._reserve.length - 1; i >= 0 && extra > 0; i--) {
+      const spec = this._reserve[i];
+      if (!this._idsMatch(parseColorToken(spec[0]), colorId)) continue;
+      const take = Math.min(spec[1], extra);
+      extra -= take;
+      const next = spec[1] - take;
+      if (next <= 0) this._reserve.splice(i, 1);
+      else this._reserve[i] = spec[2] ? [spec[0], next, spec[2]] : [spec[0], next];
+    }
     units.sort((a, b) => {
       const rank = (u: UnitActor): number => {
         if (u.lockedCol >= 0) return 0;
@@ -3442,6 +3459,7 @@ export class BattleDirector extends Component {
     });
     for (let i = 0; i < units.length && extra > 0; i++) {
       const u = units[i];
+      if (u.vanishing) continue;
       const free = Math.max(0, u.power - u.inflight);
       if (free <= 0) continue;
       const take = Math.min(free, extra);
@@ -3451,18 +3469,34 @@ export class BattleDirector extends Component {
       u.flashFree();
       if (u.power <= 0) this._retireColorUnit(u);
     }
-    for (let i = this._reserve.length - 1; i >= 0 && extra > 0; i--) {
-      const spec = this._reserve[i];
-      if (!this._idsMatch(parseColorToken(spec[0]), colorId)) continue;
-      const take = Math.min(spec[1], extra);
-      extra -= take;
-      const next = spec[1] - take;
-      if (next <= 0) this._reserve.splice(i, 1);
-      else this._reserve[i] = spec[2] ? [spec[0], next, spec[2]] : [spec[0], next];
+  }
+
+  /** Color is gone — retire leftover ammo of that color. */
+  private _syncSpentColor(colorId: number): void {
+    if (this._countColorBricks(colorId) > 0) return;
+    this._syncColorPower(colorId);
+  }
+
+  /** Sculpture is empty: don't refill, just vanish leftover guns. */
+  private _retireLeftoverUnits(): void {
+    this._reserve.length = 0;
+    const units = this._units;
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (!u.node?.isValid || !u.node.active || u.vanishing) continue;
+      if (u.inflight > 0) {
+        if (u.power > u.inflight) {
+          u.power = u.inflight;
+          u.syncPowerLabel();
+        }
+        continue;
+      }
+      this._retireColorUnit(u, false);
     }
   }
 
-  private _retireColorUnit(u: UnitActor): void {
+  private _retireColorUnit(u: UnitActor, refill = true): void {
+    if (u.vanishing) return;
     if (u.trapped) {
       u.trapped = false;
       u.node.active = false;
@@ -3470,7 +3504,7 @@ export class BattleDirector extends Component {
     }
     const benchCol = u.onBench ? u.benchCol : -1;
     this._retireUnit(u);
-    if (benchCol >= 0) this._refillBenchCol(benchCol);
+    if (refill && benchCol >= 0) this._refillBenchCol(benchCol);
   }
 
   private _deployHooked(unit: UnitActor): boolean {

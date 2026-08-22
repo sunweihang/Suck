@@ -37,7 +37,7 @@ import { resetPlayFx } from './battle/InkShot';
 import { GAME, playCamLookAtY, playCamOrthoHeight } from './game/GameConfig';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
 import { applyLevel, ensureLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
-import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, resetGuideProgress } from './game/TutorialGuide';
+import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, reclaimTeachItem, resetGuideProgress } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -514,6 +514,7 @@ export class GameBootstrap extends Component {
     this._clearGold = GOLD.win;
     const gid = guideIdForLevel(cleared);
     if (gid === 'tap' || gid === 'spin') completeGuide(gid);
+    reclaimTeachItem(this._wallet, cleared);
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.hide();
     this._settings?.hide();

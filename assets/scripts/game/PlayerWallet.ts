@@ -2,7 +2,7 @@ import { sys } from 'cc';
 import type { ItemId } from './LevelCatalog';
 import { notifyPlayerDirty } from '../net/PlayerCloud';
 
-const STORAGE_KEY = 'suck.wallet.v1';
+const STORAGE_KEY = 'suck.wallet.v2';
 
 /** 50–70 关纯通关累计（含宝箱金、不含广告）≈ 1 个道具。 */
 export const GOLD = {

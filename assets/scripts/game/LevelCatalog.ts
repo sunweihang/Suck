@@ -294,7 +294,7 @@ export const ITEM_UNLOCK_LEVEL: Record<ItemId, number> = {
 export const WIN_DOUBLE_ONLY_FROM = 35;
 
 /** After this official level, queued bench cubes hide their real color. */
-export const HIDDEN_QUEUE_AFTER_LEVEL = 30;
+export const HIDDEN_QUEUE_AFTER_LEVEL = 6;
 
 export function itemUnlocked(id: ItemId, level: number): boolean {
   return (level | 0) >= ITEM_UNLOCK_LEVEL[id];

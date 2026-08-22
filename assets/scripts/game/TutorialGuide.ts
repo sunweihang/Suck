@@ -103,18 +103,30 @@ export function shouldSkipItemShop(id: ItemId, level: number): boolean {
   return guideIdForLevel(level) === id && !isGuideDone(id);
 }
 
+let _loan: ItemId | null = null;
+
 export function grantGuideItem(
   wallet: { itemCount(id: ItemId): number; addItem(id: ItemId, n?: number): number },
   level: number,
 ): ItemId[] {
+  _loan = null;
   const id = guideIdForLevel(level);
-  if (!isItemGuide(id) || isGuideDone(id)) return [];
-  const need = 2 - wallet.itemCount(id);
-  if (need <= 0) return [];
-  wallet.addItem(id, need);
-  const ids: ItemId[] = [];
-  for (let i = 0; i < need; i++) ids.push(id);
-  return ids;
+  if (!isItemGuide(id)) return [];
+  if (wallet.itemCount(id) >= 1) return [];
+  wallet.addItem(id, 1);
+  _loan = id;
+  return [id];
+}
+
+/** Teaching items are a loan — unused leftover does not enter the first real gate. */
+export function reclaimTeachItem(
+  wallet: { consumeItem(id: ItemId): boolean },
+  level: number,
+): void {
+  const id = guideIdForLevel(level);
+  if (!isItemGuide(id) || _loan !== id) return;
+  wallet.consumeItem(id);
+  _loan = null;
 }
 
 export function activeGuide(level: number, ctx: GuideContext): GuideView | null {
