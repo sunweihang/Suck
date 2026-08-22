@@ -1950,4 +1950,15 @@ function recalcUnits(level) {
   return finalizeUnits(planned.units, minUnitsFor(level.id || 1));
 }
 
-module.exports = { makeLevel, generateFresh, encodeLevel, bakeAll, recalcUnits, minUnitsFor };
+module.exports = {
+  makeLevel,
+  generateFresh,
+  encodeLevel,
+  bakeAll,
+  recalcUnits,
+  minUnitsFor,
+  finalizeUnits,
+  packPower,
+  ensureMinUnits,
+  spreadBenchUnits,
+};

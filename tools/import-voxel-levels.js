@@ -4,11 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const { TOKENS, assignTokens } = require('./voxel-colors');
 const levelIo = require('./level-io');
+const { packFairUnits } = require('./repack-level-units');
+const { minUnitsFor } = require('./bake-levels');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'tmp-cube-pack', 'levels-json');
 const OUT = levelIo.CATALOG;
-const UNIT_CHUNK = 72;
 /** Default orbit so the face-on bird matches the original 3/4 screenshot. */
 const FIELD_YAW = 0;
 
@@ -57,16 +58,7 @@ function convert(raw, id) {
     if (z < face[i].z) face[i] = { z, t: token };
   }
   const cells = face.map((c) => (c.t ? c.t : null));
-  const remain = palette.map((t) => ({ t, n: tokenCounts.get(t) }));
-  const units = [];
-  while (remain.some((b) => b.n > 0)) {
-    for (const b of remain) {
-      if (b.n <= 0) continue;
-      const chunk = Math.min(b.n, UNIT_CHUNK);
-      units.push([b.t, chunk]);
-      b.n -= chunk;
-    }
-  }
+  const units = packFairUnits(tokenCounts, minUnitsFor(id));
   return {
     id,
     cols: sx,
@@ -110,6 +102,9 @@ function main() {
   levels.sort((a, b) => a.id - b.id);
   levels.forEach((level, i) => {
     level.id = i + 1;
+    const counts = new Map();
+    for (const u of level.units || []) counts.set(u[0], (counts.get(u[0]) || 0) + u[1]);
+    level.units = packFairUnits(counts, minUnitsFor(level.id));
   });
   levelIo.writeCatalogPack({ generatedBy: 'tools/import-voxel-levels.js', levels });
   const l6 = levels[5];
