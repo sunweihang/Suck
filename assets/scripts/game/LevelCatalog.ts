@@ -296,6 +296,23 @@ export const WIN_DOUBLE_ONLY_FROM = 35;
 /** After this official level, queued bench cubes hide their real color. */
 export const HIDDEN_QUEUE_AFTER_LEVEL = 6;
 
+/** Official levels from here seed iced bench turrets. Shared field count thaws them. */
+export const FREEZE_TURRET_FROM = 20;
+
+/** How many iced front-row turrets this official level starts with. */
+export function freezeTurretCount(level: number): number {
+  const n = level | 0;
+  if (n < FREEZE_TURRET_FROM) return 0;
+  if (n >= 200) return 3;
+  if (n >= 80) return 2;
+  return 1;
+}
+
+/** Field turrets needed before every iced turret thaws. Shared by all ice. */
+export function freezeDeployNeed(level: number): number {
+  return freezeTurretCount(level) > 0 ? 3 : 0;
+}
+
 export function itemUnlocked(id: ItemId, level: number): boolean {
   return (level | 0) >= ITEM_UNLOCK_LEVEL[id];
 }

@@ -175,6 +175,27 @@ export class TurretAnim {
     }
   }
 
+  /** Sit still. No idle sway, no oneshot hops. */
+  holdSit(): void {
+    this._oneshot = null;
+    this._oneshotT = 0;
+    this._hold = false;
+    this._onDone = null;
+    this._hasAim = false;
+    const rig = this._rig;
+    const body = this._body;
+    if (rig?.isValid) {
+      rig.setPosition(0, 0, 0);
+      rig.setRotationFromEuler(0, 0, 0);
+      rig.setScale(1, 1, 1);
+    }
+    if (body?.isValid) {
+      body.setPosition(0, 0, 0);
+      body.setRotation(_restQ);
+      body.setScale(1, 1, 1);
+    }
+  }
+
   bind(root: Node, seed: number): void {
     this._root = root;
     this._rig = ensureRig(root);

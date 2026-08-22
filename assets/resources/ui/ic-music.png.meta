@@ -3,10 +3,7 @@
   "importer": "image",
   "imported": true,
   "uuid": "7e22bb20-0069-4b02-8002-000000000069",
-  "files": [
-    ".json",
-    ".png"
-  ],
+  "files": [".json", ".png"],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
@@ -27,9 +24,7 @@
       },
       "ver": "1.0.22",
       "imported": true,
-      "files": [
-        ".json"
-      ],
+      "files": [".json"],
       "subMetas": {}
     },
     "f9941": {
@@ -45,10 +40,10 @@
         "offsetY": 0,
         "trimX": 0,
         "trimY": 0,
-        "width": 112,
-        "height": 112,
-        "rawWidth": 112,
-        "rawHeight": 112,
+        "width": 256,
+        "height": 256,
+        "rawWidth": 256,
+        "rawHeight": 256,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -59,58 +54,12 @@
         "pivotY": 0.5,
         "meshType": 0,
         "vertices": {
-          "rawPosition": [
-            -56,
-            -56,
-            0,
-            56,
-            -56,
-            0,
-            -56,
-            56,
-            0,
-            56,
-            56,
-            0
-          ],
-          "indexes": [
-            0,
-            1,
-            2,
-            2,
-            1,
-            3
-          ],
-          "uv": [
-            0,
-            112,
-            112,
-            112,
-            0,
-            0,
-            112,
-            0
-          ],
-          "nuv": [
-            0,
-            0,
-            1,
-            0,
-            0,
-            1,
-            1,
-            1
-          ],
-          "minPos": [
-            -56,
-            -56,
-            0
-          ],
-          "maxPos": [
-            56,
-            56,
-            0
-          ]
+          "rawPosition": [-128.0, -128.0, 0, 128.0, -128.0, 0, -128.0, 128.0, 0, 128.0, 128.0, 0],
+          "indexes": [0, 1, 2, 2, 1, 3],
+          "uv": [0, 256, 256, 256, 0, 0, 256, 0],
+          "nuv": [0, 0, 1, 0, 0, 1, 1, 1],
+          "minPos": [-128.0, -128.0, 0],
+          "maxPos": [128.0, 128.0, 0]
         },
         "isUuid": true,
         "imageUuidOrDatabaseUri": "7e22bb20-0069-4b02-8002-000000000069@6c48a",
@@ -119,9 +68,7 @@
       },
       "ver": "1.0.12",
       "imported": true,
-      "files": [
-        ".json"
-      ],
+      "files": [".json"],
       "subMetas": {}
     }
   },
@@ -130,8 +77,8 @@
     "fixAlphaTransparencyArtifacts": true,
     "hasAlpha": true,
     "redirect": "7e22bb20-0069-4b02-8002-000000000069@6c48a",
-    "maxWidth": 512,
-    "maxHeight": 512,
+    "maxWidth": 256,
+    "maxHeight": 256,
     "compressSettings": {
       "useCompressTexture": false,
       "presetId": "webUi"

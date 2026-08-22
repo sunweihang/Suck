@@ -17,7 +17,7 @@ import {
 } from 'cc';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
-import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
+import { AD_MARK_H, applyAdIcon, applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
 
 const { ccclass } = _decorator;
 
@@ -32,8 +32,7 @@ const GOLD_OUTLINE = new Color(74, 68, 128, 255);
 const BTN_W = VOLCANO_BTN_W;
 const BTN_H = VOLCANO_BTN_H;
 const BTN_GAP = 24;
-const AD_ICON_W = 52;
-const AD_ICON_H = 36;
+const AD_ICON_H = AD_MARK_H;
 const BTN_FONT = 40;
 const GOLD_ICON = 72;
 const GOLD_LAB_W = 160;
@@ -46,7 +45,7 @@ const CARD_H = 1070;
 export class FailPanel extends Component {
   private _built = false;
   private _onRetry: (() => void) | null = null;
-  private _onDouble: (() => void) | null = null;
+  private _onContinue: (() => void) | null = null;
   private _gold = 0;
   private _canDouble = true;
   private _locked = false;
@@ -54,9 +53,9 @@ export class FailPanel extends Component {
   private _dimH = 0;
   private _chromeReady = false;
 
-  setup(opts: { onRetry: () => void; onDouble?: () => void }): void {
+  setup(opts: { onRetry: () => void; onContinue?: () => void }): void {
     this._onRetry = opts.onRetry;
-    this._onDouble = opts.onDouble ?? null;
+    this._onContinue = opts.onContinue ?? null;
     this._ensureTree();
     this._bindEvents();
     const dim = this.node.getChildByName('Dim') ?? this.node;
@@ -67,10 +66,10 @@ export class FailPanel extends Component {
     this.layoutChrome();
   }
 
-  show(opts?: { gold?: number; canDouble?: boolean }): void {
+  show(opts?: { gold?: number; canContinue?: boolean }): void {
     this._ensureTree();
     this._gold = Math.max(0, Math.floor(opts?.gold ?? 0));
-    this._canDouble = opts?.canDouble !== false && this._gold > 0;
+    this._canDouble = opts?.canContinue !== false;
     this._locked = false;
     this.node.active = true;
     const retry = this._card()?.getChildByName('RetryBtn');
@@ -89,6 +88,10 @@ export class FailPanel extends Component {
 
   lock(): void {
     this._locked = true;
+  }
+
+  unlock(): void {
+    this._locked = false;
   }
 
   hide(): void {
@@ -205,8 +208,8 @@ export class FailPanel extends Component {
     if (!card.getChildByName('DoubleBtn')) {
       const btn = this._mk('DoubleBtn', card, BTN_W, BTN_H);
       const content = this._mk('Content', btn, 280, BTN_H - 8);
-      this._mk('AdIcon', content, AD_ICON_W, AD_ICON_H);
-      this._styleLabel(this._mk('Label', content, 200, BTN_H - 16), '双倍领取', DOUBLE_OUTLINE);
+      this._mk('AdIcon', content, Math.round(AD_ICON_H * 1.41), AD_ICON_H);
+      this._styleLabel(this._mk('Label', content, 200, BTN_H - 16), '继续游戏', DOUBLE_OUTLINE);
     }
     const retry = card.getChildByName('RetryBtn') ?? this._mk('RetryBtn', card, BTN_W, BTN_H);
     if (!retry.getChildByName('Label')) {
@@ -242,11 +245,12 @@ export class FailPanel extends Component {
     const lab = content.getChildByName('Label');
     const textW = 200;
     const gap = 10;
-    const w = AD_ICON_W + gap + textW;
+    const iconW = applyAdIcon(icon, AD_ICON_H);
+    const w = iconW + gap + textW;
     content.getComponent(UITransform)?.setContentSize(w, BTN_H - 8);
     content.setPosition(0, 2, 0);
-    icon?.setPosition(-w * 0.5 + AD_ICON_W * 0.5, 0, 0);
-    lab?.setPosition(-w * 0.5 + AD_ICON_W + gap + textW * 0.5, 0, 0);
+    icon?.setPosition(-w * 0.5 + iconW * 0.5, 0, 0);
+    lab?.setPosition(-w * 0.5 + iconW + gap + textW * 0.5, 0, 0);
   }
 
   private _layoutRetryLabel(): void {
@@ -292,14 +296,10 @@ export class FailPanel extends Component {
     }
     const dLab = card?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('Label');
     const rLab = card?.getChildByName('RetryBtn')?.getChildByName('Label');
-    if (dLab) this._styleLabel(dLab, '双倍领取', DOUBLE_OUTLINE);
+    if (dLab) this._styleLabel(dLab, '继续游戏', DOUBLE_OUTLINE);
     if (rLab) this._styleLabel(rLab, '再试一次', RETRY_OUTLINE);
-    applyArtSpriteSoon(
-      card?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
-      'icAd',
-      AD_ICON_W,
-      AD_ICON_H,
-    );
+    applyAdIcon(card?.getChildByName('DoubleBtn')?.getChildByName('Content')?.getChildByName('AdIcon') ?? null, AD_ICON_H);
+    this._layoutDoubleContent();
     this._syncGold();
   }
 
@@ -373,7 +373,7 @@ export class FailPanel extends Component {
     });
     this._bindTap(this._card()?.getChildByName('DoubleBtn'), () => {
       if (this._locked) return;
-      this._onDouble?.();
+      this._onContinue?.();
     });
   }
 

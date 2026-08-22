@@ -13,13 +13,13 @@ import {
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
 import { uiSafeInsets, uiVisibleSize } from '../game/ViewFit';
-import { applyArtSpriteSoon } from './UiArt';
+import { applyAdIcon, applyArtSpriteSoon } from './UiArt';
 
 const { ccclass } = _decorator;
 
 export const GOLD_HUD = {
   rootW: 300,
-  rootH: 88,
+  rootH: 96,
   pad: 36,
   gapBelow: 16,
   bgW: 236,
@@ -32,32 +32,58 @@ export const GOLD_HUD = {
   amountX: 8,
   plus: 52,
   plusX: 122,
+  plusY: 28,
   fontSize: 36,
 };
 
 const AMOUNT_COLOR = new Color(248, 225, 128, 255);
 const AMOUNT_SHADOW = new Color(20, 36, 48, 160);
-const PLUS_INK = new Color(255, 255, 255, 255);
-const PLUS_OUTLINE = new Color(160, 40, 72, 255);
+
+export type CurrencyHudSide = 'left' | 'right';
+export type CurrencyHudIcon = 'goldIcon' | 'energyIcon';
 
 export function goldHudTopRight(visW: number, visH: number, safeTop: number, safeRight = 0): { x: number; y: number } {
-  return {
-    x: visW * 0.5 - GOLD_HUD.rootW * 0.5 - GOLD_HUD.pad - safeRight,
-    y: visH * 0.5 - GOLD_HUD.rootH * 0.5 - safeTop - GOLD_HUD.pad,
-  };
+  return goldHudPose('right', visW, visH, safeTop, 0, safeRight);
+}
+
+export function goldHudTopLeft(visW: number, visH: number, safeTop: number, safeLeft = 0): { x: number; y: number } {
+  return goldHudPose('left', visW, visH, safeTop, safeLeft, 0);
+}
+
+export function goldHudPose(
+  side: CurrencyHudSide,
+  visW: number,
+  visH: number,
+  safeTop: number,
+  safeLeft = 0,
+  safeRight = 0,
+): { x: number; y: number } {
+  const y = visH * 0.5 - GOLD_HUD.rootH * 0.5 - safeTop - GOLD_HUD.pad;
+  if (side === 'left') {
+    return { x: -visW * 0.5 + GOLD_HUD.rootW * 0.5 + GOLD_HUD.pad + safeLeft, y };
+  }
+  return { x: visW * 0.5 - GOLD_HUD.rootW * 0.5 - GOLD_HUD.pad - safeRight, y };
 }
 
 @ccclass('GoldHud')
 export class GoldHud extends Component {
   private _built = false;
-  private _coins = 0;
+  private _value = 0;
   private _amount: Label | null = null;
   private _icon: Node | null = null;
   private _onPlus: (() => void) | null = null;
   private _pulseAt = 0;
+  private _side: CurrencyHudSide = 'right';
+  private _iconKey: CurrencyHudIcon = 'goldIcon';
 
-  setup(opts?: { onPlus?: () => void }): void {
+  setup(opts?: {
+    onPlus?: () => void;
+    side?: CurrencyHudSide;
+    icon?: CurrencyHudIcon;
+  }): void {
     this._onPlus = opts?.onPlus ?? null;
+    this._side = opts?.side ?? 'right';
+    this._iconKey = opts?.icon ?? 'goldIcon';
     this._ensureTree();
     this.layoutChrome();
     this.applyArt();
@@ -66,17 +92,20 @@ export class GoldHud extends Component {
   applyArt(): void {
     this._ensureTree();
     applyArtSpriteSoon(this.node.getChildByName('Bg'), 'goldBg', GOLD_HUD.bgW, GOLD_HUD.bgH, true);
-    applyArtSpriteSoon(this.node.getChildByName('Icon'), 'goldIcon', GOLD_HUD.icon, GOLD_HUD.icon);
-    const plus = this.node.getChildByName('Plus');
-    applyArtSpriteSoon(plus?.getChildByName('Face') ?? plus, 'itemBadge', GOLD_HUD.plus, GOLD_HUD.plus);
+    applyArtSpriteSoon(this.node.getChildByName('Icon'), this._iconKey, GOLD_HUD.icon, GOLD_HUD.icon);
+    this._paintAdPlus();
   }
 
   setCoins(coins: number, animate = false): void {
+    this.setValue(coins, animate);
+  }
+
+  setValue(n: number, animate = false): void {
     this._ensureTree();
-    const next = Math.max(0, Math.floor(coins));
-    const gained = next > this._coins;
-    this._coins = next;
-    if (this._amount) this._amount.string = String(this._coins);
+    const next = Math.max(0, Math.floor(n));
+    const gained = next > this._value;
+    this._value = next;
+    if (this._amount) this._amount.string = String(this._value);
     if (animate && gained) {
       const now = Date.now();
       if (now - this._pulseAt > 90) {
@@ -95,6 +124,15 @@ export class GoldHud extends Component {
     return out;
   }
 
+  adWorldPos(out: Vec3): Vec3 {
+    const plus = this.node.getChildByName('Plus');
+    if (plus?.isValid) {
+      plus.getWorldPosition(out);
+      return out;
+    }
+    return this.iconWorldPos(out);
+  }
+
   deny(): void {
     const icon = this._icon;
     if (!icon?.isValid) return;
@@ -110,7 +148,7 @@ export class GoldHud extends Component {
     this._ensureTree();
     const vis = uiVisibleSize();
     const safe = uiSafeInsets();
-    const pose = goldHudTopRight(vis.w, vis.h, safe.top, safe.right);
+    const pose = goldHudPose(this._side, vis.w, vis.h, safe.top, safe.left, safe.right);
     this.node.setPosition(pose.x, pose.y, 0);
   }
 
@@ -156,36 +194,34 @@ export class GoldHud extends Component {
     this._icon?.setPosition(GOLD_HUD.iconX, 0, 0);
     this.node.getChildByName('Amount')?.setPosition(GOLD_HUD.amountX, -2, 0);
     const plus = this.node.getChildByName('Plus');
-    plus?.setPosition(GOLD_HUD.plusX, 0, 0);
+    plus?.setPosition(GOLD_HUD.plusX, GOLD_HUD.plusY, 0);
     plus?.setSiblingIndex(this.node.children.length - 1);
   }
 
   private _plusBtn(): Node {
     const n = this._mk('Plus', GOLD_HUD.plus, GOLD_HUD.plus);
-    this._mk('Face', GOLD_HUD.plus, GOLD_HUD.plus, n);
-    const labN = this._mk('Lab', GOLD_HUD.plus, GOLD_HUD.plus, n);
-    const lab = labN.addComponent(Label);
-    lab.string = '+';
-    lab.fontSize = 32;
-    lab.lineHeight = 36;
-    lab.isBold = true;
-    lab.color = PLUS_INK;
-    lab.enableOutline = true;
-    lab.outlineWidth = 3;
-    lab.outlineColor = PLUS_OUTLINE;
-    lab.enableWrapText = false;
-    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-    lab.verticalAlign = Label.VerticalAlign.CENTER;
-    lab.overflow = Label.Overflow.SHRINK;
-    lab.useSystemFont = true;
-    lab.fontFamily = 'PingFang SC';
-    labN.setPosition(0, 1, 0);
+    n.on(Node.EventType.TOUCH_START, (e: EventTouch) => {
+      e.propagationStopped = true;
+    }, this);
     n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
       e.propagationStopped = true;
       gameAudio()?.playUiClick();
       this._onPlus?.();
     }, this);
     return n;
+  }
+
+  private _paintAdPlus(): void {
+    const plus = this.node.getChildByName('Plus');
+    if (!plus) return;
+    const face = plus.getChildByName('Face');
+    if (face) face.active = false;
+    const lab = plus.getChildByName('Lab');
+    if (lab) lab.active = false;
+    applyAdIcon(plus, GOLD_HUD.plus);
+    tween(plus).stop();
+    plus.setScale(1, 1, 1);
+    this._placeParts();
   }
 
   private _mk(name: string, w: number, h: number, parent: Node = this.node): Node {

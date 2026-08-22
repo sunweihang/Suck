@@ -18,7 +18,7 @@ import {
   Vec3,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
-import { itemTrayTopFromBottom, uiFromBottomToScreenY, uiVisibleSize } from '../game/ViewFit';
+import { itemTrayTopFromBottom, playViewBand, screenYToUiFromBottom, uiFromBottomToScreenY, uiVisibleSize } from '../game/ViewFit';
 import { playBaozhaBurst, preloadBaozhaBurst } from './BaozhaBurst';
 import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
 import { playShuaxinBurst, preloadShuaxinBurst } from './ShuaxinBurst';
@@ -43,26 +43,35 @@ import {
   parseColorToken,
   tokenOfColorId,
   wallStartX,
+  playCamOrthoHeight,
   shooterStandZ,
+  slotX,
   slotY,
+  slotZ,
+  viewFracOfWorld,
 } from '../game/GameConfig';
+import { boostMul, grantBoost, tickBoost } from '../game/Boost';
+import { freeSpinOn, tickFreeSpin } from '../game/FreeSpin';
 import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { attachBrickRenderer, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
-import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
+import { freezeDeployNeed, freezeTurretCount, itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
 import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, pickGuide, type GuideContext, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { clearDestroyBurst, destroyBurstBusy, playDestroyBurst, tickDestroyBurst } from './DestroyBurst';
 import { createInkShot, InkShot, playHitFlash, playMuzzleFlash, warmInkShots } from './InkShot';
 import { HintHand } from './HintHand';
+import { preloadPickMark, setPickMark, tickPickMarks } from './PickMark';
 import { IronPlate } from './IronPlate';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
 import { bindBrickSkin, brickSkinBatched, brickSkinNeedsFlush, clearBrickSkin, coverBrickSkin, flushBrickSkin, popBrickSkin, requestBrickSkinFlush, tickBrickSkin } from './BrickSkin';
 import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, setFieldSpin, worldToRest } from './FieldSpin';
+import { layoutWorldBg } from './ToyBackdrop';
 import { setBrickMeshEnabled } from './ToyBlockMesh';
+import { applyIceShell, setIceNeed } from './IceShell';
 import { UnitActor } from './UnitActor';
 
 const { ccclass } = _decorator;
@@ -294,6 +303,7 @@ export class BattleDirector extends Component {
     this._landShot(shot);
   };
   private _stuckT = 0;
+  private _seatAimed = false;
   private _sw = 1;
   private _sh = 1;
   private _remain = 0;
@@ -306,6 +316,8 @@ export class BattleDirector extends Component {
   private _onLose: (() => void) | null = null;
   private _onItems: ((state: ItemHudState) => void) | null = null;
   private _onGuide: ((guide: GuideView | null) => void) | null = null;
+  private _onAdvanceUi: ((on: boolean) => void) | null = null;
+  private _advanceUi = false;
   private _guideKey = '';
   private _lastGuide: GuideView | null = null;
   private _itemsReady = true;
@@ -345,6 +357,19 @@ export class BattleDirector extends Component {
   private _itemFxBusy = false;
   private _fxHoldUnit: UnitActor | null = null;
   private _fxHoldSlot: SlotPad | null = null;
+  private _pickMarkOn = false;
+  private _pickMarkClock = 0;
+  private _pickMarkSync = 0;
+  private _zoomK = 0;
+  private _zoomWant = 0;
+  private _zoomRestReady = false;
+  private _zoomRestOrtho = 0;
+  private _zoomFocusOrtho = 0;
+  private _zoomHold = false;
+  private _afterZoom: (() => void) | null = null;
+  private readonly _zoomRestLook = new Vec3();
+  private readonly _zoomFocusLook = new Vec3();
+  private readonly _zoomLook = new Vec3();
   private _raft: Node | null = null;
   private _raftCarry: Node | null = null;
   private _raftShift = 0;
@@ -388,6 +413,7 @@ export class BattleDirector extends Component {
     onLose?: () => void;
     onItems?: (state: ItemHudState) => void;
     onGuide?: (guide: GuideView | null) => void;
+    onAdvanceUi?: (on: boolean) => void;
     onGoldDenied?: () => void;
     onChest?: (chest: ChestActor) => void;
     onUnlockSlot?: (slot: SlotPad) => void;
@@ -401,6 +427,8 @@ export class BattleDirector extends Component {
     this._onLose = opts.onLose ?? null;
     this._onItems = opts.onItems ?? null;
     this._onGuide = opts.onGuide ?? null;
+    this._onAdvanceUi = opts.onAdvanceUi ?? null;
+    this._setAdvanceUi(false);
     this._guideKey = '*';
     this._lastGuide = null;
     this._itemsReady = true;
@@ -420,6 +448,8 @@ export class BattleDirector extends Component {
     void preloadMergeBurst();
     void preloadShuaxinBurst();
     void preloadBaozhaBurst();
+    void preloadPickMark();
+    this._captureCamRest();
   }
 
   setItemsReady(on: boolean): void {
@@ -435,6 +465,7 @@ export class BattleDirector extends Component {
     const units = this._units;
     if (!units) return;
     for (const u of units) u.setPowerVisible(on);
+    if (!on) this._setAdvanceUi(false);
     if (!on && (this._hookPick || this._shovelPick || this._bombPick)) {
       this._clearPicks();
       this._emitItems();
@@ -453,7 +484,34 @@ export class BattleDirector extends Component {
     this._onLose?.();
   }
 
+  /** Watch-ad continue: send pit turrets home, keep wall and bench as-is. */
+  continueAfterFail(): void {
+    this._lost = false;
+    this._stuckT = 0;
+    const seen = new Set<UnitActor>();
+    for (const s of this._slots) {
+      const u = s.occupant;
+      if (!u || seen.has(u)) continue;
+      if (!u.node?.isValid || !u.node.active) continue;
+      seen.add(u);
+      this._shovelToBench(u, false);
+    }
+    for (const u of this._units) {
+      if (seen.has(u) || !u.node?.isValid || !u.node.active) continue;
+      if (u.lockedCol < 0 && u.state !== 'walk' && u.state !== 'attack') continue;
+      seen.add(u);
+      this._shovelToBench(u, false);
+    }
+    this._syncShovelHud();
+    this._emitItems();
+  }
+
   onDestroy(): void {
+    this._zoomWant = 0;
+    this._zoomK = 0;
+    this._zoomHold = false;
+    this._afterZoom = null;
+    if (this._zoomRestReady) this._placePlayCam(this._zoomRestLook, this._zoomRestOrtho);
     this._resetDock();
     this._unbindTouch();
     bindFieldActors(null);
@@ -469,6 +527,11 @@ export class BattleDirector extends Component {
 
   reposeView(): void {
     this.parkView();
+    this._captureCamRest();
+    if (this._hookPick || this._shovelPick) {
+      this._refreshPickFocus();
+      this._placePlayCamLerp(this._zoomK);
+    }
   }
 
   update(dt: number): void {
@@ -488,6 +551,8 @@ export class BattleDirector extends Component {
     this._tickCombat(dt);
     this._refreshPlates(dt);
     this._syncHint(dt);
+    this._tickPickMarks(dt);
+    this._tickPickZoom(dt);
     this._warmBuriedMeshes();
     if (brickSkinNeedsFlush()) this._flushSkin();
     else tickBrickSkin();
@@ -697,6 +762,69 @@ export class BattleDirector extends Component {
     this._refreshRescues();
     this._refreshChests();
     this._resetItems();
+    this._seedFrozenTurrets();
+    this._refreshFrozenThaw();
+  }
+
+  private _countDeployed(): number {
+    let n = 0;
+    for (const u of this._units) {
+      if (!u.node?.isValid || !u.node.active || u.frozen || u.trapped || u.vanishing) continue;
+      if (u.lockedCol >= 0 || u.state === 'walk' || u.state === 'attack') n += 1;
+    }
+    return n;
+  }
+
+  /** Shared remain: each field turret knocks the ice number down; 0 thaws all. */
+  private _refreshFrozenThaw(): void {
+    const need = freezeDeployNeed(PLAY.levelId);
+    if (need <= 0) return;
+    const remain = Math.max(0, need - this._countDeployed());
+    setIceNeed(remain);
+    if (remain > 0) {
+      for (const u of this._units) {
+        if (!u.frozen || !u.node?.isValid) continue;
+        applyIceShell(u.node, remain);
+      }
+      return;
+    }
+    let any = false;
+    for (const u of this._units) {
+      if (!u.frozen || !u.node?.isValid) continue;
+      u.node.getWorldPosition(_world);
+      _world.y += 0.2;
+      playShuaxinBurst(this.node, _world);
+      u.setFrozen(false);
+      any = true;
+    }
+    if (!any) return;
+    gameAudio()?.playUiClick();
+    this._maybeAutoPlace();
+  }
+
+  private _seedFrozenTurrets(): void {
+    const want = freezeTurretCount(PLAY.levelId);
+    if (want <= 0) return;
+    const fronts: UnitActor[] = [];
+    for (const u of this._units) {
+      if (!u.onBench || u.trapped || u.benchRank !== 0) continue;
+      fronts.push(u);
+    }
+    let frozen = 0;
+    for (let i = 0; i < fronts.length; i++) {
+      if (fronts[i].frozen) frozen += 1;
+    }
+    const keep = 2;
+    const room = Math.max(0, fronts.length - frozen - keep);
+    let need = Math.min(want - frozen, room);
+    if (need <= 0) return;
+    fronts.sort((a, b) => a.power - b.power);
+    for (let i = 0; i < fronts.length && need > 0; i++) {
+      const u = fronts[i];
+      if (u.frozen) continue;
+      u.setFrozen(true);
+      need -= 1;
+    }
   }
 
   claimChest(chest: ChestActor): void {
@@ -815,8 +943,16 @@ export class BattleDirector extends Component {
     return false;
   }
 
+  cancelPick(): boolean {
+    if (!this._hookPick && !this._shovelPick && !this._bombPick) return false;
+    this._clearPicks();
+    this._emitItems();
+    this._kickGuide();
+    return true;
+  }
+
   private _canHookUnit(u: UnitActor): boolean {
-    return u.onBench && !u.traveling && u !== this._fxHoldUnit && !this._isColFront(u);
+    return u.usable && u.onBench && !u.traveling && u !== this._fxHoldUnit && !this._isColFront(u);
   }
 
   /** Plant the item on the visible face of the clicked turret. */
@@ -849,6 +985,250 @@ export class BattleDirector extends Component {
       if (!s.empty && u?.node?.isValid && u.node.active) return true;
     }
     return false;
+  }
+
+  private _canShovelUnit(u: UnitActor): boolean {
+    if (!u.node?.isValid || !u.node.active || u === this._fxHoldUnit) return false;
+    for (const s of this._slots) {
+      if (!s.empty && s.occupant === u) return true;
+    }
+    return false;
+  }
+
+  private _canBombBlock(b: BlockCell): boolean {
+    return !!b.node?.isValid && b.node.active && b.hp > 0 && !b.inFlight && !b.buried && !this._plateBlocks(b.row, b.col);
+  }
+
+  private _syncPickMarks(): void {
+    const live = this._playing && !this._won && !this._lost && !this._itemFxBusy;
+    const hook = live && this._hookPick;
+    const shovel = live && this._shovelPick;
+    const bomb = live && this._bombPick;
+    this._setPickZoom(hook || shovel || bomb || this._zoomHold);
+    if (!hook && !shovel && !bomb && !this._pickMarkOn) return;
+    let any = false;
+    for (const u of this._units) {
+      const on = hook ? this._canHookUnit(u) : shovel && this._canShovelUnit(u);
+      if (setPickMark(u.node, on, hook)) any = true;
+    }
+    this._pickMarkOn = any;
+    if (hook || shovel) tickPickMarks(this._units, this._cam, this._pickMarkClock);
+  }
+
+  private _tickPickMarks(dt: number): void {
+    if (!this._hookPick && !this._shovelPick && !this._bombPick) {
+      if (this._pickMarkOn) this._syncPickMarks();
+      return;
+    }
+    this._pickMarkClock += dt;
+    this._pickMarkSync += dt;
+    if (this._pickMarkSync >= 0.12) {
+      this._pickMarkSync = 0;
+      this._syncPickMarks();
+    }
+    if (!this._pickMarkOn) return;
+    if (this._hookPick || this._shovelPick) tickPickMarks(this._units, this._cam, this._pickMarkClock);
+  }
+
+  private _setPickZoom(on: boolean): void {
+    if (on) {
+      if (!this._zoomRestReady || this._zoomK < 0.02) this._captureCamRest();
+      if (!this._zoomHold) this._refreshPickFocus();
+      this._zoomWant = 1;
+      return;
+    }
+    this._zoomWant = 0;
+  }
+
+  private _captureCamRest(): void {
+    const cam = this._cam;
+    const n = cam?.node;
+    if (!cam || !n?.isValid) return;
+    this._zoomRestOrtho = cam.orthoHeight || playCamOrthoHeight();
+    const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+    const yaw = (GAME.worldCamYawDeg * Math.PI) / 180;
+    const dist = GAME.worldCamDist;
+    n.getWorldPosition(_camP);
+    this._zoomRestLook.set(
+      _camP.x - dist * Math.sin(yaw) * Math.cos(pitch),
+      _camP.y - dist * Math.sin(pitch),
+      _camP.z - dist * Math.cos(yaw) * Math.cos(pitch),
+    );
+    this._zoomRestReady = true;
+  }
+
+  private _refreshPickFocus(): void {
+    if (!this._zoomRestReady) this._captureCamRest();
+    const rest = this._zoomRestOrtho || playCamOrthoHeight();
+    let n = 0;
+    let xMin = 1e9;
+    let xMax = -1e9;
+    let hMin = 1e9;
+    let hMax = -1e9;
+    const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
+    const add = (x: number, y: number, z: number): void => {
+      const h = y * cp - z * sp;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+      if (h < hMin) hMin = h;
+      if (h > hMax) hMax = h;
+      n += 1;
+    };
+    if (this._bombPick) {
+      this._zoomFocusLook.set(this._zoomRestLook);
+      this._zoomFocusOrtho = rest * 0.9;
+      return;
+    }
+    if (this._shovelPick) {
+      for (const s of this._slots) {
+        if (!s.node?.isValid) continue;
+        s.node.getWorldPosition(_world);
+        add(_world.x, _world.y + 0.28, _world.z);
+      }
+      if (n <= 0) {
+        for (let i = 0; i < GAME.slotMax; i++) {
+          add(slotX(i), slotY(i) + 0.28, slotZ(i));
+        }
+      }
+    } else {
+      for (const u of this._units) {
+        if (!this._canHookUnit(u)) continue;
+        u.node.getWorldPosition(_world);
+        add(_world.x, _world.y, _world.z);
+      }
+    }
+    if (n <= 0) {
+      this._zoomFocusLook.set(this._zoomRestLook);
+      this._zoomFocusOrtho = rest;
+      return;
+    }
+    hMin -= 0.34;
+    hMax += 0.40;
+    xMin -= 0.30;
+    xMax += 0.30;
+    const band = playViewBand();
+    const pin = band.pinFrac + 0.04;
+    const ceil = Math.min(band.ceilFrac - 0.04, 0.84);
+    const bandFrac = Math.max(0.34, ceil - pin);
+    const aspect = Math.max(0.45, this._cam?.aspect || 0.56);
+    const needH = (hMax - hMin) / (2 * bandFrac);
+    const needW = ((xMax - xMin) * 0.5) / (aspect * 0.9);
+    let ortho = Math.max(needH, needW);
+    if (ortho > rest) ortho = rest;
+    const midH = (hMin + hMax) * 0.5;
+    const midFrac = (pin + ceil) * 0.5;
+    const lookZ = this._zoomRestLook.z;
+    const hLook = midH - ortho * (2 * midFrac - 1);
+    const lookY = (hLook + lookZ * sp) / cp;
+    this._zoomFocusLook.set((xMin + xMax) * 0.5, lookY, lookZ);
+    this._zoomFocusOrtho = ortho;
+    this._fitPickFocus(pin, ceil, cp, sp);
+  }
+
+  /** Grow the shot until every target sits in the open band above the item tray. */
+  private _fitPickFocus(pin: number, ceil: number, cp: number, sp: number): void {
+    const rest = this._zoomRestOrtho || playCamOrthoHeight();
+    const midFrac = (pin + ceil) * 0.5;
+    for (let step = 0; step < 6; step++) {
+      let lo = 1;
+      let hi = 0;
+      let hMin = 1e9;
+      let hMax = -1e9;
+      const sample = (x: number, y: number, z: number): void => {
+        const frac = viewFracOfWorld(y, z, this._zoomFocusLook.y, this._zoomFocusOrtho);
+        if (frac < lo) lo = frac;
+        if (frac > hi) hi = frac;
+        const h = y * cp - z * sp;
+        if (h < hMin) hMin = h;
+        if (h > hMax) hMax = h;
+      };
+      if (this._shovelPick) {
+        let slots = 0;
+        for (const s of this._slots) {
+          if (!s.node?.isValid) continue;
+          s.node.getWorldPosition(_world);
+          sample(_world.x, _world.y + 0.28, _world.z);
+          slots += 1;
+        }
+        if (slots <= 0) {
+          for (let i = 0; i < GAME.slotMax; i++) {
+            sample(slotX(i), slotY(i) + 0.28, slotZ(i));
+          }
+        }
+      } else {
+        for (const u of this._units) {
+          if (!this._canHookUnit(u)) continue;
+          u.node.getWorldPosition(_world);
+          sample(_world.x, _world.y, _world.z);
+        }
+      }
+      if (lo >= pin && hi <= ceil) return;
+      this._zoomFocusOrtho = Math.min(rest, this._zoomFocusOrtho * 1.14);
+      const hLook = (hMin + hMax) * 0.5 - this._zoomFocusOrtho * (2 * midFrac - 1);
+      this._zoomFocusLook.y = (hLook + this._zoomFocusLook.z * sp) / cp;
+    }
+  }
+
+  private _placePlayCam(look: Vec3, ortho: number): void {
+    const cam = this._cam;
+    const n = cam?.node;
+    if (!cam || !n?.isValid) return;
+    const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
+    const yaw = (GAME.worldCamYawDeg * Math.PI) / 180;
+    const dist = GAME.worldCamDist;
+    n.setPosition(
+      look.x + dist * Math.sin(yaw) * Math.cos(pitch),
+      look.y + dist * Math.sin(pitch),
+      look.z + dist * Math.cos(yaw) * Math.cos(pitch),
+    );
+    n.lookAt(look, Vec3.UNIT_Y);
+    if (Math.abs(cam.orthoHeight - ortho) > 0.002) {
+      cam.orthoHeight = ortho;
+      layoutWorldBg(n.scene);
+    }
+  }
+
+  private _placePlayCamLerp(k: number): void {
+    const u = k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k);
+    Vec3.lerp(this._zoomLook, this._zoomRestLook, this._zoomFocusLook, u);
+    const ortho = this._zoomRestOrtho + (this._zoomFocusOrtho - this._zoomRestOrtho) * u;
+    this._placePlayCam(this._zoomLook, ortho);
+  }
+
+  private _tickPickZoom(dt: number): void {
+    if (Math.abs(this._zoomK - this._zoomWant) < 0.002) {
+      this._zoomK = this._zoomWant;
+      if (this._zoomWant === 0 && !this._afterZoom) return;
+      this._placePlayCamLerp(this._zoomK);
+      this._flushAfterZoom();
+      return;
+    }
+    this._zoomK += (this._zoomWant - this._zoomK) * (1 - Math.exp(-9 * dt));
+    this._placePlayCamLerp(this._zoomK);
+    if (Math.abs(this._zoomK - this._zoomWant) < 0.002) {
+      this._zoomK = this._zoomWant;
+      this._flushAfterZoom();
+    }
+  }
+
+  private _runAfterZoom(fn: () => void): void {
+    if (this._zoomK <= 0.02 && this._zoomWant <= 0) {
+      fn();
+      return;
+    }
+    this._afterZoom = fn;
+    this._zoomHold = false;
+    this._setPickZoom(false);
+  }
+
+  private _flushAfterZoom(): void {
+    if (this._zoomWant !== 0 || this._zoomK > 0.02) return;
+    const fn = this._afterZoom;
+    if (!fn) return;
+    this._afterZoom = null;
+    fn();
   }
 
   private _syncShovelHud(): void {
@@ -1339,7 +1719,11 @@ export class BattleDirector extends Component {
     if (!this._spinning) {
       const ax = loc.x - this._dragStartX;
       const ay = loc.y - this._dragStartY;
-      if (ax * ax + ay * ay < SPIN_THRESH_PX * SPIN_THRESH_PX) return;
+      if (freeSpinOn()) {
+        if (ax * ax + ay * ay < SPIN_THRESH_PX * SPIN_THRESH_PX) return;
+      } else if (Math.abs(ax) < SPIN_THRESH_PX) {
+        return;
+      }
       this._spinning = true;
       completeGuide('spin');
     }
@@ -1366,6 +1750,24 @@ export class BattleDirector extends Component {
     if (this._inTurretBand(e.getLocation())) return false;
     if (this._hitsFieldModel(e)) return true;
     return this._nearFieldScreen(e.getLocation());
+  }
+
+  /** UI-from-bottom of the blue deploy-pad tops (上阵区). 0 if not ready. */
+  dockPadTopFromBottom(): number {
+    const cam = this._cam;
+    if (!cam || this._slots.length <= 0) return 0;
+    let top = 0;
+    for (let i = 0; i < this._slots.length; i++) {
+      const n = this._slots[i].node;
+      if (!n?.isValid || !n.activeInHierarchy) continue;
+      const pad = n.getChildByName('Pad') ?? n;
+      _tmp.set(0, 0.5, 0);
+      Vec3.transformMat4(_world, _tmp, pad.worldMatrix);
+      cam.worldToScreen(_world, _screen);
+      if (_screen.y > top) top = _screen.y;
+    }
+    if (top <= 0) return 0;
+    return screenYToUiFromBottom(top, uiVisibleSize().h);
   }
 
   private _itemTrayTopScreen(): number {
@@ -1464,13 +1866,26 @@ export class BattleDirector extends Component {
 
   private _applySpinDelta(dx: number, dy: number): void {
     const dt = Math.max(1 / 120, director.getDeltaTime());
-    const k = GAME.wallSpinDragDeg * (Math.PI / 180);
-    // Screen follow: UI Y is up, so drag right/down moves the grabbed face the same way.
+    const k = GAME.wallSpinDragDeg * (Math.PI / 180) * boostMul();
     const dYaw = dx * k;
-    const dPitch = -dy * k;
-    this._orbitSpin(dYaw, dPitch);
+    if (freeSpinOn()) {
+      // Screen follow: UI Y is up, so drag right/down moves the grabbed face the same way.
+      const dPitch = -dy * k;
+      this._orbitSpin(dYaw, dPitch);
+      this._spinVel = dYaw / dt;
+      this._pitchVel = dPitch / dt;
+      return;
+    }
+    this._yawSpin(dYaw);
     this._spinVel = dYaw / dt;
-    this._pitchVel = dPitch / dt;
+    this._pitchVel = 0;
+  }
+
+  private _yawSpin(dYaw: number): void {
+    if (dYaw === 0) return;
+    Quat.fromAxisAngle(_spinDq, Vec3.UNIT_Y, dYaw);
+    Quat.multiply(this._spinRot, _spinDq, this._spinRot);
+    Quat.normalize(this._spinRot, this._spinRot);
   }
 
   private _camSpinAxes(right: Vec3, up: Vec3): void {
@@ -1536,7 +1951,8 @@ export class BattleDirector extends Component {
     if (this._bombPick) {
       const block = this._pickBrick(e);
       if (block) {
-        this._commitItemFx('bomb', null, () => {
+        this._brickFace(block, _world);
+        this._commitItemFx('bomb', _world, () => {
           this._blastColorGroup(block);
         });
       } else if (!this._guideKeepPick()) {
@@ -1546,6 +1962,8 @@ export class BattleDirector extends Component {
       }
       return;
     }
+    const frozen = this._pickFrozenBench(e);
+    if (frozen) return;
     const unit = this._pickBench(e);
     if (unit) {
       this._placeOrMerge(unit);
@@ -1589,9 +2007,10 @@ export class BattleDirector extends Component {
     this._autoPlacing = true;
     let guard = 0;
     let delay = 0;
+    let placed = false;
     while (guard++ < GAME.slotMax) {
       if (this._countOpenEmptySlots() !== this._countAwaitingUnits()) break;
-      let placed = false;
+      let step = false;
       for (const u of this._units) {
         if (!u.usable || u.state !== 'bench' || !this._isColFront(u)) continue;
         const slot = this._hintSlot(u);
@@ -1599,14 +2018,17 @@ export class BattleDirector extends Component {
         this._placeUnit(u, slot, delay);
         delay += 0.07;
         placed = true;
+        step = true;
         break;
       }
-      if (!placed) break;
+      if (!step) break;
     }
+    if (placed) grantBoost();
     this._autoPlacing = false;
   }
 
   private _placeOrMerge(unit: UnitActor): void {
+    if (unit.frozen) return;
     if (this._teachingShovel()) {
       const idle = this._guideIdleFrontUnit();
       if (idle && unit !== idle) return;
@@ -1627,6 +2049,7 @@ export class BattleDirector extends Component {
   }
 
   private _placeUnit(unit: UnitActor, slot: SlotPad, delay = 0, keepScale = false): void {
+    if (unit.frozen) return;
     if (!this._slotOpenFor(slot, unit)) {
       const next = this._hintSlot(unit);
       if (!next) return;
@@ -1645,12 +2068,17 @@ export class BattleDirector extends Component {
     if (!keepScale) unit.refreshSeatLook();
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
+    this._refreshFrozenThaw();
     this._maybeAutoPlace();
     this._syncShovelHud();
   }
 
   private _tickCombat(dt: number): void {
-    if (!this._playing || this._won || this._lost || this._platesBreaking) return;
+    if (!this._playing || this._won || this._lost) return;
+    if (this._platesBreaking) {
+      this._stuckT = 0;
+      return;
+    }
     if (this._remain <= 0) this._remain = this._countAlive();
     if (this._remain === 0) {
       this._retireLeftoverUnits();
@@ -1663,6 +2091,7 @@ export class BattleDirector extends Component {
       this._onWin?.();
       return;
     }
+    this._refreshFrozenThaw();
     this._maybeAutoPlace();
     this._winSettle = 0;
     if (this._needHoldRefresh) {
@@ -1671,12 +2100,8 @@ export class BattleDirector extends Component {
       this._refreshRescues();
       this._refreshChests();
     }
-    this._stuckT += dt;
-    if (this._stuckT >= 0.15) {
-      this._stuckT = 0;
-      this._checkStuckLose();
-      this._syncShovelHud();
-    }
+    this._tickStuckLose(dt);
+    this._syncShovelHud();
   }
 
   private _countAlive(): number {
@@ -1688,6 +2113,7 @@ export class BattleDirector extends Component {
   }
 
   private _fireUnits(dt: number): void {
+    this._seatAimed = false;
     if (!this._playing || this._won || this._lost || this._remain === 0) return;
     const units = this._units;
     if (!units) return;
@@ -1705,8 +2131,10 @@ export class BattleDirector extends Component {
       u.suckWait = Math.max(0, u.suckWait - dt);
       u.state = 'attack';
       const block = this._bestBlock(u);
-      if (block) u.aimAt(block.worldPos(_world));
-      else u.clearAim();
+      if (block) {
+        this._seatAimed = true;
+        u.aimAt(block.worldPos(_world));
+      } else u.clearAim();
       if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
       if (flying >= GAME.suckMaxFlightTotal) continue;
       if (!block) {
@@ -1735,44 +2163,59 @@ export class BattleDirector extends Component {
     if (units) {
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
+        if (!u.node?.isValid || !u.node.active) continue;
         if (u.inflight > 0 || u.vanishing) return true;
       }
     }
     return false;
   }
 
-  /** Open pits full, wall still has bricks, and nothing can progress → fail. */
-  private _checkStuckLose(): void {
+  /** Open pits full and no shot for `stuckLoseSec` → fail. */
+  private _tickStuckLose(dt: number): void {
     if (this._won || this._lost || this._platesBreaking) return;
-    let openSlots = 0;
-    let filled = 0;
-    let absorbing = false;
-    let canAbsorb = false;
-    for (const s of this._slots) {
-      if (!s.open) continue;
-      openSlots += 1;
-      if (s.empty) continue;
-      filled += 1;
-      const u = s.occupant;
-      if (u?.traveling) {
-        absorbing = true;
-        continue;
-      }
-      if (!u?.usable) continue;
-      if (u.inflight > 0) absorbing = true;
-      else if (u.power > 0 && this._canEventuallyAbsorb(u)) canAbsorb = true;
+    if (this._itemFxBusy || this._teachingShovel() || this._lastGuide || !this._itemsReady) {
+      this._stuckT = 0;
+      return;
     }
-    if (openSlots <= 0 || filled < openSlots || absorbing || canAbsorb) return;
-    if (this._afford('bomb') && this._canBomb()) return;
-    if (this._afford('shovel') && this._canShovel()) return;
+    if (!this._pitsAllFilled() || this._seatAimed || this._isFiring()) {
+      this._stuckT = 0;
+      return;
+    }
+    this._stuckT += dt;
+    if (this._stuckT < GAME.stuckLoseSec) return;
     this._lost = true;
     this._onLose?.();
   }
 
+  private _isFiring(): boolean {
+    if (this._flightBusy() > 0) return true;
+    for (let i = 0; i < this._shots.length; i++) {
+      if (this._shots[i].busy) return true;
+    }
+    for (const s of this._slots) {
+      if (s.occupant?.traveling) return true;
+    }
+    return false;
+  }
+
+  private _pitsAllFilled(): boolean {
+    let open = 0;
+    let filled = 0;
+    for (const s of this._slots) {
+      if (!s.open) continue;
+      open += 1;
+      if (!s.empty) filled += 1;
+    }
+    return open > 0 && filled >= open;
+  }
+
   private _suckInterval(u: UnitActor): number {
+    const mul = boostMul();
     const power = Math.max(1, u.maxPower);
     const interval = GAME.suckRefInterval * (power / GAME.suckRefPower);
-    return Math.min(GAME.suckMaxInterval, Math.max(GAME.suckMinInterval, interval));
+    const min = GAME.suckMinInterval / mul;
+    const max = GAME.suckMaxInterval / mul;
+    return Math.min(max, Math.max(min, interval / mul));
   }
 
   private _shootBrick(u: UnitActor, block: BlockCell): void {
@@ -1798,7 +2241,11 @@ export class BattleDirector extends Component {
       _tmp.y += (dy / dist) * 0.02;
       _tmp.z += (dz / dist) * 0.02;
       _hitDir.set(dx, dy, dz);
-      const dur = Math.min(GAME.shotMaxSec, Math.max(GAME.shotMinSec, dist / GAME.shotSpeed));
+      const mul = boostMul();
+      const dur = Math.min(
+        GAME.shotMaxSec / mul,
+        Math.max(GAME.shotMinSec / mul, dist / (GAME.shotSpeed * mul)),
+      );
       const shot = this._nextShot();
       shot.landUnit = u;
       shot.landBlock = block;
@@ -1932,6 +2379,7 @@ export class BattleDirector extends Component {
     u.playVanish(() => {
       if (u.node?.isValid) u.node.active = false;
     });
+    this._refreshFrozenThaw();
   }
 
   /** Only guns that have finished flying into a pit. */
@@ -2088,21 +2536,6 @@ export class BattleDirector extends Component {
     const a = Math.min(lo, hi);
     const b = Math.max(lo, hi);
     return col >= a && col <= b ? -4 : 1.5;
-  }
-
-  /** Same-color brick that is only turned away will face the camera again. */
-  private _canEventuallyAbsorb(u: UnitActor): boolean {
-    for (let col = 0; col < this._byCol.length; col++) {
-      const list = this._byCol[col];
-      if (!list) continue;
-      for (let i = 0; i < list.length; i++) {
-        const b = list[i];
-        if (!this._sameColor(b, u) || !b.suckable || b.buried) continue;
-        if (this._plateBlocks(b.row, b.col)) continue;
-        return true;
-      }
-    }
-    return false;
   }
 
   /** Visible same-color brick the turret can shoot without spinning first. */
@@ -2552,6 +2985,7 @@ export class BattleDirector extends Component {
       const b = this._blocks[i];
       b.setGrayed(b.alive && this._plateBlocks(b.row, b.col));
     }
+    requestBrickSkinFlush();
     this._bumpVis();
   }
 
@@ -2627,9 +3061,13 @@ export class BattleDirector extends Component {
     push(hud?.getChildByName('BackBtn'));
     push(hud?.getChildByName('NextBtn'));
     push(hud?.getChildByName('SettingsBtn'));
+    push(hud?.getChildByName('HomeBtn'));
+    push(hud?.getChildByName('ClubBtn'));
     push(hud?.getChildByName('ScoreBoard'));
     push(hud?.getChildByName('Powers'));
+    push(hud?.getChildByName('CancelPick'));
     push(this._canvas?.getChildByName('GoldHud'));
+    push(this._canvas?.getChildByName('EnergyHud'));
     const gm = this._canvas?.getChildByName('GmPanel');
     push(gm?.getChildByName('Toggle'));
     push(gm?.getChildByName('Dim'));
@@ -2675,6 +3113,24 @@ export class BattleDirector extends Component {
     const loc = e.getLocation();
     cam.screenPointToRay(loc.x, loc.y, _ray);
     return true;
+  }
+
+  private _pickFrozenBench(e: PointerEvt): UnitActor | null {
+    if (!this._aimRay(e)) return null;
+    let best: UnitActor | null = null;
+    let bestD = PICK_R2;
+    for (const u of this._units) {
+      if (!u.frozen || u.state !== 'bench' || !u.onBench || u === this._fxHoldUnit) continue;
+      if (!this._isColFront(u)) continue;
+      u.node.getWorldPosition(_world);
+      _world.y += 0.12;
+      const d = rayPointDistSq(_ray, _world);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
   }
 
   private _pickBench(e: PointerEvt): UnitActor | null {
@@ -2747,6 +3203,12 @@ export class BattleDirector extends Component {
     if (!u.onBench) return false;
     this._ensureFront();
     return this._frontByCol[u.benchCol] === u;
+  }
+
+  private _setAdvanceUi(on: boolean): void {
+    if (this._advanceUi === on) return;
+    this._advanceUi = on;
+    this._onAdvanceUi?.(on);
   }
 
   private _advanceBenchCol(col: number): void {
@@ -3077,17 +3539,25 @@ export class BattleDirector extends Component {
   }
 
   private _tickField(dt: number): void {
-    if (this._playing && !this._won && !this._lost && !this._spinning) {
-      this._orbitSpin(this._spinVel * dt, this._pitchVel * dt);
-      this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
-      this._pitchVel *= Math.exp(-SPIN_FRICTION * dt);
-      if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
-      if (Math.abs(this._pitchVel) < 0.04) this._pitchVel = 0;
+    const playing = this._playing && !this._won && !this._lost;
+    tickFreeSpin(dt, playing);
+    tickBoost(dt, playing);
+    if (playing && !this._spinning) {
+      if (freeSpinOn()) {
+        this._orbitSpin(this._spinVel * dt, this._pitchVel * dt);
+        this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
+        this._pitchVel *= Math.exp(-SPIN_FRICTION * dt);
+        if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
+        if (Math.abs(this._pitchVel) < 0.04) this._pitchVel = 0;
+      } else {
+        this._yawSpin(this._spinVel * dt);
+        this._spinVel *= Math.exp(-SPIN_FRICTION * dt);
+        this._pitchVel = 0;
+        if (Math.abs(this._spinVel) < 0.04) this._spinVel = 0;
+      }
       if (this._spinVel === 0 && this._pitchVel === 0 && GAME.wallSpinPeriod > 0) {
-        const period = Math.max(4, GAME.wallSpinPeriod);
-        Quat.fromAxisAngle(_spinDq, Vec3.UNIT_Y, (dt / period) * Math.PI * 2);
-        Quat.multiply(this._spinRot, _spinDq, this._spinRot);
-        Quat.normalize(this._spinRot, this._spinRot);
+        const period = Math.max(4, GAME.wallSpinPeriod) / boostMul();
+        this._yawSpin((dt / period) * Math.PI * 2);
       }
     }
     if (Quat.equals(this._spinRot, this._posedRot)) return;
@@ -3174,7 +3644,10 @@ export class BattleDirector extends Component {
 
   private _resetItems(): void {
     this._itemFxBusy = false;
+    this._setAdvanceUi(false);
     this._clearFxHold();
+    this._zoomHold = false;
+    this._afterZoom = null;
     this._clearPicks();
     this._canShovelHud = this._canShovel();
     this._emitItems();
@@ -3229,17 +3702,27 @@ export class BattleDirector extends Component {
   ): void {
     if (this._itemFxBusy || !this._afford(id)) return;
     this._itemFxBusy = true;
+    this._setAdvanceUi(true);
     this._fxHoldUnit = holdUnit;
     this._fxHoldSlot = holdSlot;
+    if (id === 'hook' || id === 'shovel' || id === 'bomb') this._zoomHold = true;
     this._spend(id, false);
     const land = world ? new Vec3(world.x, world.y, world.z) : null;
     const finish = (): void => {
       if (!this.isValid || !this._itemFxBusy) return;
       this.unschedule(finish);
-      apply();
-      this._clearFxHold();
-      this._itemFxBusy = false;
-      this._maybeAutoPlace();
+      const done = (): void => {
+        apply();
+        this._clearFxHold();
+        this._itemFxBusy = false;
+        this._setAdvanceUi(false);
+        this._maybeAutoPlace();
+      };
+      if (id === 'hook' || id === 'shovel' || id === 'bomb') {
+        this._runAfterZoom(done);
+        return;
+      }
+      done();
     };
     this.scheduleOnce(finish, 1.8);
     if (!this._onItemUseFx) {
@@ -3250,6 +3733,7 @@ export class BattleDirector extends Component {
   }
 
   private _emitItems(): void {
+    this._syncPickMarks();
     this._onItems?.(this.itemState());
   }
 
@@ -3287,7 +3771,9 @@ export class BattleDirector extends Component {
   private _canBomb(): boolean {
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
-      if (b.node?.isValid && b.node.active && b.hp > 0 && !b.inFlight) return true;
+      if (!b.node?.isValid || !b.node.active || b.hp <= 0 || b.inFlight) continue;
+      if (this._plateBlocks(b.row, b.col)) continue;
+      return true;
     }
     return false;
   }
@@ -3315,6 +3801,7 @@ export class BattleDirector extends Component {
     for (let i = 0; i < this._blocks.length; i++) {
       const b = this._blocks[i];
       if (!b.node?.isValid || !b.node.active || b.hp <= 0 || b.inFlight) continue;
+      if (this._plateBlocks(b.row, b.col)) continue;
       worldToRest(_ray.o, _tmp);
       b.node.inverseTransformPoint(_tmp, _tmp);
       Vec3.scaleAndAdd(_world, _ray.o, _ray.d, 80);
@@ -3355,12 +3842,13 @@ export class BattleDirector extends Component {
       out.push(b);
       for (let i = 0; i < COLOR_WALK.length; i++) {
         const n = this._colorAt(b.col + COLOR_WALK[i][0], b.row + COLOR_WALK[i][1], b.layer + COLOR_WALK[i][2], start.colorId);
-        if (n && !seen.has(n)) stack.push(n);
+        if (n && !seen.has(n) && !this._plateBlocks(n.row, n.col)) stack.push(n);
       }
     }
   }
 
   private _blastColorGroup(start: BlockCell): boolean {
+    if (this._plateBlocks(start.row, start.col)) return false;
     const group = this._bombGroup;
     this._collectColorGroup(start, group);
     if (group.length <= 0) return false;
@@ -3508,7 +3996,7 @@ export class BattleDirector extends Component {
   }
 
   private _deployHooked(unit: UnitActor): boolean {
-    if (!unit?.node?.isValid || !unit.node.active) return false;
+    if (!unit?.node?.isValid || !unit.node.active || unit.frozen || !unit.usable) return false;
     if (unit.traveling || !unit.onBench || this._isColFront(unit)) return false;
     const slot = this._hintSlot(unit);
     if (slot) {
@@ -3544,6 +4032,7 @@ export class BattleDirector extends Component {
   private _unitSpec(unit: UnitActor): UnitSpec {
     const token = tokenOfColorId(unit.colorId);
     if (unit.ghost) return [token, unit.power, 'ghost'];
+    if (unit.frozen) return [token, unit.power, 'frozen'];
     if (unit.asBlock) return [token, unit.power, 'block'];
     return [token, unit.power];
   }
@@ -3559,7 +4048,7 @@ export class BattleDirector extends Component {
     unit.node.active = false;
   }
 
-  private _shovelToBench(unit: UnitActor): boolean {
+  private _shovelToBench(unit: UnitActor, fx = true): boolean {
     const bench = this._bench;
     if (!bench) return false;
     const seat = this._shortestBenchSeat();
@@ -3573,8 +4062,10 @@ export class BattleDirector extends Component {
     if (!owned && unit.lockedCol < 0 && unit.state !== 'walk' && unit.state !== 'attack') return false;
     unit.node.getWorldPosition(_world);
     _world.y += 0.18;
-    playMergeBurst(this.node, _world);
-    gameAudio()?.playRemove();
+    if (fx) {
+      playMergeBurst(this.node, _world);
+      gameAudio()?.playRemove();
+    }
     const overflow = seat.rank >= BENCH.rows;
     const rank = overflow ? BENCH.rows : seat.rank;
     unit.lockedCol = -1;
@@ -3592,6 +4083,7 @@ export class BattleDirector extends Component {
       else unit.refreshSeatLook();
     });
     unit.setPowerVisible(this._playing);
+    this._refreshFrozenThaw();
     return true;
   }
 

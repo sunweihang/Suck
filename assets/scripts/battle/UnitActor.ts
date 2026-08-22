@@ -8,6 +8,8 @@ import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from
 import { applyToyCaster } from './ToyBlockMesh';
 import { TURRET_SCALE } from './ToyLook';
 import { applyQueueBlockLook, applyTurretLook } from './TurretLook';
+import { applyIceShell, clearIceShell, iceNeed } from './IceShell';
+import { clearPickMark } from './PickMark';
 
 const { ccclass } = _decorator;
 
@@ -26,6 +28,8 @@ export class UnitActor extends Component {
   colorHidden = false;
   trapped = false;
   freeing = false;
+  /** Bench ice: cannot deploy until the shared field-count thaws. */
+  frozen = false;
   trapCol = -1;
   trapRow = -1;
   trapSpan = SPECIAL_SPAN;
@@ -142,7 +146,7 @@ export class UnitActor extends Component {
       this._powerTag.active = true;
       return;
     }
-    this._powerTag.active = this._powerOn && (this.usable || this.trapped) && this._shouldShowPower();
+    this._powerTag.active = this._powerOn && !this.frozen && (this.usable || this.trapped) && this._shouldShowPower();
   }
 
   syncPowerLabel(): void {
@@ -169,6 +173,9 @@ export class UnitActor extends Component {
     this.colorHidden = false;
     this.trapped = false;
     this.freeing = false;
+    this.frozen = false;
+    clearIceShell(this.node, true);
+    clearPickMark(this.node);
     this.lockedCol = -1;
     this.inflight = 0;
     this.suckWait = 0;
@@ -196,11 +203,33 @@ export class UnitActor extends Component {
   }
 
   get usable(): boolean {
-    return this.node.activeInHierarchy && !this.trapped && !this._flying && !this._vanish;
+    return this.node.activeInHierarchy && !this.trapped && !this._flying && !this._vanish && !this.frozen;
   }
 
   get onBench(): boolean {
-    return this.usable && (this.state === 'bench' || this.state === 'drag');
+    return this.node.activeInHierarchy
+      && !this.trapped
+      && !this._flying
+      && !this._vanish
+      && (this.state === 'bench' || this.state === 'drag');
+  }
+
+  setFrozen(on: boolean): void {
+    if (this.frozen === on) {
+      if (on) {
+        this._q.holdSit();
+        applyIceShell(this.node);
+      } else clearIceShell(this.node);
+      return;
+    }
+    this.frozen = on;
+    if (on) {
+      this._q.holdSit();
+      applyIceShell(this.node);
+    } else clearIceShell(this.node);
+    this._shownPower = -1;
+    this.refreshSeatLook();
+    this._syncPowerText();
   }
 
   get traveling(): boolean {
@@ -222,6 +251,10 @@ export class UnitActor extends Component {
     }
     this._wake();
     this._vanish = true;
+    if (this.frozen) {
+      this.frozen = false;
+      clearIceShell(this.node);
+    }
     vibrateShort('medium');
     this._shownPower = -1;
     this._syncPowerText();
@@ -344,7 +377,7 @@ export class UnitActor extends Component {
       this._prevInflight = this.inflight;
     } else {
       if (this.state !== this._prevState || this.trapped !== this._prevTrapped) {
-        if (!this._vanish) {
+        if (!this._vanish && !this.frozen) {
           if (this.state === 'drag') this._q.punchPick();
           else if (this._prevState === 'drag') this._q.punchLand();
           if (!this._flying) this.refreshSeatLook();
@@ -352,13 +385,17 @@ export class UnitActor extends Component {
         this._prevState = this.state;
         this._prevTrapped = this.trapped;
       }
-      if (this.inflight > this._prevInflight) this._q.punchSpit();
-      if (this.power < this._prevPower) this._q.punchEat();
-      else if (this.power > this._prevPower && this.state === 'bench' && !this._queued()) this._q.punchMerge();
+      if (!this.frozen) {
+        if (this.inflight > this._prevInflight) this._q.punchSpit();
+        if (this.power < this._prevPower) this._q.punchEat();
+        else if (this.power > this._prevPower && this.state === 'bench' && !this._queued()) this._q.punchMerge();
+      }
       this._prevPower = this.power;
       this._prevInflight = this.inflight;
     }
-    if (this._vanish) {
+    if (this.frozen && !this._vanish) {
+      this._q.holdSit();
+    } else if (this._vanish) {
       this._q.tick(dt, this.state, this.inflight);
     } else if (this._queued()) {
       if (!this._queuePosed) {
@@ -370,7 +407,7 @@ export class UnitActor extends Component {
       this._queuePosed = false;
       if (this._wantsAnim()) this._q.tick(dt, this.state, this.inflight);
     }
-    if (this._shownPower !== this.power) this._syncPowerText();
+    if (this._shownPower !== this._shownNeed()) this._syncPowerText();
     if (this._canSleep()) this.enabled = false;
   }
 
@@ -401,7 +438,7 @@ export class UnitActor extends Component {
   }
 
   private _wantsAnim(): boolean {
-    if (this._queued()) return false;
+    if (this.frozen || this._queued()) return false;
     if (this.state === 'bench' && this.benchRank > 0 && !this.trapped) return false;
     if (this._vanish || this._slideLeft > 0 || this.state === 'drag' || this.state === 'walk' || this.state === 'attack') {
       return true;
@@ -438,6 +475,7 @@ export class UnitActor extends Component {
     this.maxPower = this.power;
     this.ghost = p[4] === 'ghost';
     this.asBlock = p[4] === 'block';
+    this.frozen = p[4] === 'frozen';
   }
 
   applySpecialLook(): void {
@@ -479,6 +517,7 @@ export class UnitActor extends Component {
     }
     if (this._powerTag?.isValid) posePowerMark(this.node, this._powerTag);
     this.refreshPowerVisible();
+    if (this.frozen && !this._vanish) applyIceShell(this.node);
   }
 
   private _bindMuzzle(): void {
@@ -501,9 +540,15 @@ export class UnitActor extends Component {
     });
   }
 
+  private _shownNeed(): number {
+    return this.frozen ? iceNeed() : this.power;
+  }
+
   private _syncPowerText(): void {
-    if (!this._powerTag || this._shownPower === this.power) return;
-    if (!paintPowerMark(this._powerTag, this.power)) return;
-    this._shownPower = this.power;
+    if (!this._powerTag) return;
+    const value = this._shownNeed();
+    if (this._shownPower === value) return;
+    if (!paintPowerMark(this._powerTag, value)) return;
+    this._shownPower = value;
   }
 }

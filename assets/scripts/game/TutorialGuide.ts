@@ -35,7 +35,7 @@ const TIPS: Record<string, string> = {
   tap: '点击炮塔，吸走砖块',
   spin: '滑动模型，转到另一面',
   shuffle: '点击洗牌，打乱炮塔位置',
-  hook: '点击钩子，让后方炮塔上场',
+  hook: '点击机械爪，让后方炮塔上场',
   hookTarget: '点击后方的炮塔',
   shovel: '点击铲子，铲回场上炮塔',
   shovelWait: '先点击炮塔上场',

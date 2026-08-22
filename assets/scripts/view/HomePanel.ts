@@ -47,6 +47,7 @@ export class HomePanel extends Component {
 
   show(): void {
     this.node.active = true;
+    this._hideLinkTeaser();
     this.layoutChrome();
     this._startBreath();
   }
@@ -61,6 +62,7 @@ export class HomePanel extends Component {
     this._layoutCoverBg();
     this.node.getChildByName('Content')?.getComponent(Widget)?.updateAlignment();
     this._playNode()?.getComponent(Widget)?.updateAlignment();
+    this._hideLinkTeaser();
   }
 
   private _layoutCoverBg(): void {
@@ -86,6 +88,11 @@ export class HomePanel extends Component {
 
   private _playNode(): Node | null {
     return this._content()?.getChildByName('PlayBtn') ?? null;
+  }
+
+  private _hideLinkTeaser(): void {
+    const btn = this._content()?.getChildByName('LinkBtn');
+    if (btn) btn.active = false;
   }
 
   private _bindEvents(): void {

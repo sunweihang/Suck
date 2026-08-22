@@ -81,6 +81,16 @@ export class RankingPanel extends Component {
     this.node.active = false;
   }
 
+  isOpen(): boolean {
+    return this.node.active;
+  }
+
+  applyPlayer(level: number): void {
+    const lv = Math.max(1, Math.floor(level));
+    const better = DEMO_LIST.filter((e) => e.level > lv).length;
+    this.setSelf({ rank: better + 1, level: lv, name: '我', isSelf: true });
+  }
+
   setSelf(entry: RankEntry): void {
     this._self = { ...entry, isSelf: true };
     this._paintSelf();

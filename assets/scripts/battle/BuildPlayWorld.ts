@@ -40,6 +40,7 @@ import { preloadToySlots } from './ToySlotMesh';
 import { applySandLook, paintVoxelId, preloadVoxelLook, rememberBrickMesh, rollHiddenQueue } from './BrickSpecials';
 import { ChestActor } from './ChestActor';
 import { applyLockNails, preloadLockNails } from './LockNails';
+import { preloadIceShell } from './IceShell';
 import { applyRaftBoard, preloadRaftBoard } from './RaftBoard';
 import { preloadInkShot } from './InkShot';
 import { preloadPowerDigits } from './PowerMark';
@@ -147,6 +148,98 @@ function levelNeeds(level: LevelDef): {
     iron: (level.ironRows?.length ?? 0) > 0 || level.ironRow >= 0,
     chest,
   };
+}
+
+function ironRowsOf(level: LevelDef): number[] {
+  if (level.ironRows?.length) return level.ironRows;
+  return level.ironRow >= 0 ? [level.ironRow] : [];
+}
+
+function spawnPlate(
+  prefab: Prefab,
+  parent: Node,
+  x: number,
+  ironRow: number,
+  pos: Vec3,
+  sx: number,
+  sy: number,
+  sz: number,
+): void {
+  const n = spawn(prefab, parent, `Iron_${x}_${ironRow}`, pos);
+  n.setScale(sx, sy, sz);
+  (n.getComponent(IronPlate) ?? n.addComponent(IronPlate)).syncFromName();
+}
+
+/** Horizontal metal cuts. Voxel sculptures get one slab per occupied column. */
+function spawnIronPlates(
+  level: LevelDef,
+  ironPf: Prefab | null,
+  root: Node,
+  cols: number,
+  rows: number,
+  step: number,
+  startX: number,
+  baseY: number,
+  frontZ: number,
+): void {
+  const ironRows = ironRowsOf(level);
+  if (!ironRows.length || !ironPf) return;
+  const plates = new Node('Plates');
+  root.addChild(plates);
+  const gaps = new Set(level.ironGaps ?? PLAY.ironGaps ?? []);
+  const sx = PLAY.blockSize;
+  const sy = PLAY.blockSize * 0.42;
+  if (level.voxels.length) {
+    const depth = PLAY.wallDepth;
+    const originX = -((cols - 1) * step) / 2;
+    const originZ = GAME.worldCamLookAtZ + ((depth - 1) * step) / 2;
+    for (let i = 0; i < ironRows.length; i++) {
+      const ironRow = ironRows[i];
+      const ironY = baseY + ironRow * step - step * 0.5;
+      for (let x = 0; x < cols; x++) {
+        if (gaps.has(x)) continue;
+        let minZ = 1e9;
+        let maxZ = -1e9;
+        let above = 0;
+        let below = 0;
+        const voxels = level.voxels;
+        for (let k = 0; k < voxels.length; k++) {
+          const v = voxels[k];
+          if (v.x !== x) continue;
+          if (v.y >= ironRow) above += 1;
+          else below += 1;
+          if (v.z < minZ) minZ = v.z;
+          if (v.z > maxZ) maxZ = v.z;
+        }
+        if (!above || !below || maxZ < minZ) continue;
+        const sz = Math.max(PLAY.blockSize, (maxZ - minZ + 1) * step * 0.96);
+        spawnPlate(
+          ironPf,
+          plates,
+          x,
+          ironRow,
+          new Vec3(originX + x * step, ironY, originZ - ((minZ + maxZ) * 0.5) * step),
+          sx,
+          sy,
+          sz,
+        );
+      }
+    }
+    return;
+  }
+  const ironZ = frontZ - Math.max(0, PLAY.wallDepth - 1) * step * 0.5;
+  const sz = Math.max(PLAY.blockSize, PLAY.wallDepth * step * 0.96);
+  for (let i = 0; i < ironRows.length; i++) {
+    const ironRow = ironRows[i];
+    const ironY = baseY + ironRow * step - step * 0.5;
+    for (let x = 0; x < cols; x++) {
+      if (gaps.has(x)) continue;
+      const below = ironRow > 0 ? level.cells[(ironRow - 1) * cols + x] : null;
+      const above = ironRow < rows ? level.cells[ironRow * cols + x] : null;
+      if (!below && !above) continue;
+      spawnPlate(ironPf, plates, x, ironRow, new Vec3(startX + x * step, ironY, ironZ), sx, PLAY.blockSize, sz);
+    }
+  }
 }
 
 function onRaft(level: LevelDef, x: number, y: number): boolean {
@@ -329,6 +422,7 @@ export async function buildPlayWorld(
     needs.nails ? preloadLockNails() : Promise.resolve(),
     needs.raft ? preloadRaftBoard() : Promise.resolve(),
     preloadPowerDigits().then(() => null),
+    preloadIceShell(),
     preloadInkShot(),
     preloadTurretLooks(),
     preloadToySlots(),
@@ -431,33 +525,7 @@ export async function buildPlayWorld(
     }
   }
 
-  const ironRows = level.ironRows?.length
-    ? level.ironRows
-    : level.ironRow >= 0
-      ? [level.ironRow]
-      : [];
-  if (ironRows.length && ironPf) {
-    const plates = new Node('Plates');
-    root.addChild(plates);
-    const ironZ = frontZ - Math.max(0, PLAY.wallDepth - 1) * step * 0.5;
-    const sx = PLAY.blockSize;
-    const sy = PLAY.blockSize;
-    const sz = Math.max(PLAY.blockSize, PLAY.wallDepth * step * 0.96);
-    const gaps = new Set(level.ironGaps ?? PLAY.ironGaps ?? []);
-    for (let i = 0; i < ironRows.length; i++) {
-      const ironRow = ironRows[i];
-      const ironY = baseY + ironRow * step - step * 0.5;
-      for (let x = 0; x < cols; x++) {
-        if (gaps.has(x)) continue;
-        const below = ironRow > 0 ? level.cells[(ironRow - 1) * cols + x] : null;
-        const above = ironRow < rows ? level.cells[ironRow * cols + x] : null;
-        if (!below && !above) continue;
-        const n = spawn(ironPf, plates, `Iron_${x}_${ironRow}`, new Vec3(startX + x * step, ironY, ironZ));
-        n.setScale(sx, sy, sz);
-        (n.getComponent(IronPlate) ?? n.addComponent(IronPlate)).syncFromName();
-      }
-    }
-  }
+  spawnIronPlates(level, ironPf, root, cols, rows, step, startX, baseY, frontZ);
 
   if ((level.raftW ?? 0) > 0) {
     const holder = new Node('Raft');

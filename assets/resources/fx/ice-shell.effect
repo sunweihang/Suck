@@ -1,0 +1,171 @@
+CCEffect %{
+  techniques:
+  - name: opaque
+    passes:
+    - vert: ice-vs:vert
+      frag: ice-fs:frag
+      depthStencilState:
+        depthTest: true
+        depthWrite: true
+        depthFunc: less_equal
+      rasterizerState:
+        cullMode: back
+}%
+
+CCProgram ice-vs %{
+  precision highp float;
+  #include <legacy/input-standard>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/local-batch>
+
+  out vec3 v_worldN;
+  out vec3 v_worldP;
+  out vec3 v_objP;
+
+  vec4 vert () {
+    StandardVertInput In;
+    CCVertInput(In);
+    mat4 matWorld, matWorldIT;
+    CCGetWorldMatrixFull(matWorld, matWorldIT);
+    vec3 nrm = normalize(In.normal.xyz);
+    vec4 lp = In.position;
+    lp.xyz += nrm * 0.016;
+    vec4 wp = matWorld * lp;
+    v_worldN = normalize((matWorldIT * vec4(nrm, 0.0)).xyz);
+    v_worldP = wp.xyz;
+    v_objP = In.position.xyz;
+    return cc_matProj * cc_matView * wp;
+  }
+}%
+
+CCProgram ice-fs %{
+  precision highp float;
+  #include <common/common-define>
+  #include <builtin/uniforms/cc-global>
+  #include <legacy/output-standard>
+
+  in vec3 v_worldN;
+  in vec3 v_worldP;
+  in vec3 v_objP;
+
+  float hash13 (vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+
+  vec3 hash33 (vec3 p) {
+    p = vec3(
+      dot(p, vec3(127.1, 311.7, 74.7)),
+      dot(p, vec3(269.5, 183.3, 246.1)),
+      dot(p, vec3(113.5, 271.9, 124.6))
+    );
+    return fract(sin(p) * 43758.5453);
+  }
+
+  float noise (vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x),
+          mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
+      mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x),
+          mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y),
+      f.z
+    );
+  }
+
+  vec4 voronoi (vec3 p) {
+    vec3 n = floor(p);
+    vec3 f = fract(p);
+    float md = 8.0;
+    vec3 mb = vec3(0.0);
+    vec3 mr = vec3(0.0);
+    for (int k = -1; k <= 1; k++) {
+      for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+          vec3 g = vec3(float(i), float(j), float(k));
+          vec3 o = hash33(n + g);
+          vec3 r = g + o - f;
+          float d = dot(r, r);
+          if (d < md) {
+            md = d;
+            mr = r;
+            mb = o;
+          }
+        }
+      }
+    }
+    float nd = 8.0;
+    for (int k = -1; k <= 1; k++) {
+      for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+          vec3 g = vec3(float(i), float(j), float(k));
+          vec3 o = hash33(n + g);
+          vec3 r = g + o - f;
+          float d = dot(mr - r, mr - r);
+          if (d > 0.0001) nd = min(nd, dot(0.5 * (mr + r), normalize(r - mr)));
+        }
+      }
+    }
+    return vec4(mb, nd);
+  }
+
+  float cracks (vec3 p) {
+    float c = 0.0;
+    vec3 q = p * 3.4;
+    for (int i = 0; i < 4; i++) {
+      float n = noise(q);
+      float line = abs(n * 2.0 - 1.0);
+      c = max(c, smoothstep(0.07, 0.0, line));
+      q = q * 1.7 + 2.3;
+    }
+    return c;
+  }
+
+  vec4 frag () {
+    vec3 N = normalize(v_worldN);
+    vec3 V = normalize(cc_cameraPos.xyz - v_worldP);
+    vec3 L = normalize(-cc_mainLitDir.xyz);
+    vec3 cellP = v_objP * 11.0 + v_worldP * 0.35;
+    vec4 cell = voronoi(cellP);
+    vec3 facetN = normalize(N + (cell.xyz - 0.5) * 0.85);
+    float NV = max(abs(dot(facetN, V)), 0.001);
+    float NL = max(dot(facetN, L), 0.0);
+    vec3 H = normalize(L + V);
+    float NH = max(dot(facetN, H), 0.0);
+
+    float fres = pow(1.0 - NV, 3.2);
+    float spec = pow(NH, 72.0);
+    float spec2 = pow(NH, 18.0);
+    float frost = noise(v_objP * 28.0) * 0.22 + noise(v_objP * 64.0) * 0.08;
+    float crack = cracks(v_objP * 1.15);
+    float cavity = smoothstep(0.0, 0.12, cell.w);
+
+    vec3 deep = vec3(0.18, 0.52, 0.82);
+    vec3 mid = vec3(0.48, 0.82, 0.98);
+    vec3 lite = vec3(0.86, 0.96, 1.0);
+    vec3 ice = mix(deep, mid, cavity);
+    ice = mix(ice, lite, frost * 0.55);
+    ice = mix(ice, vec3(0.95, 0.99, 1.0), crack * 0.75);
+
+    vec3 lit = cc_mainLitColor.rgb * cc_mainLitColor.w;
+    vec3 col = ice * (0.22 + NL * 0.78) * (0.35 + lit * 0.75);
+    col += lit * spec * 1.35;
+    col += vec3(0.75, 0.9, 1.0) * spec2 * 0.28;
+    col += vec3(0.65, 0.88, 1.0) * fres * 0.55;
+    col += ice * crack * 0.25;
+
+    vec3 R = normalize(reflect(-V, facetN));
+    float fEnv = clamp(0.5 - R.y * 0.5, 0.0, 1.0);
+    vec3 env = mix(cc_ambientSky.rgb, cc_ambientGround.rgb, fEnv);
+    col += env * cc_ambientSky.w * (0.12 + fres * 0.35);
+
+    float tw = 0.5 + 0.5 * sin(cc_time.x * 7.0 + hash13(floor(v_objP * 40.0)) * 6.2831);
+    col += vec3(1.0) * crack * tw * 0.2 * step(0.82, hash13(floor(v_objP * 18.0)));
+
+    col = clamp(col, 0.0, 1.6);
+    return CCFragOutput(vec4(col, 1.0));
+  }
+}%

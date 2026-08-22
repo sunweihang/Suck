@@ -17,7 +17,7 @@ import type { ChestReward } from '../game/ChestLoot';
 import type { ItemId } from '../game/LevelCatalog';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
-import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
+import { AD_MARK_H, applyAdIcon, applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
 
 const { ccclass } = _decorator;
 
@@ -37,8 +37,7 @@ const CARD_H = 980;
 const CHEST = 420;
 const BTN_W = VOLCANO_BTN_W;
 const BTN_H = VOLCANO_BTN_H;
-const AD_ICON_W = 64;
-const AD_ICON_H = 44;
+const AD_ICON_H = AD_MARK_H;
 const REWARD_ICON = 88;
 const ITEM_ICON_KEY = {
   shuffle: 'icShuffle',
@@ -118,12 +117,7 @@ export class ChestPanel extends Component {
     applyArtSpriteSoon(card?.getChildByName('Frame') ?? null, 'settingsCard', CARD_W, CARD_H, true);
     applyArtSpriteSoon(card?.getChildByName('ChestArt') ?? null, 'chest', CHEST, CHEST);
     this._paintBtns();
-    applyArtSpriteSoon(
-      card?.getChildByName('WatchBtn')?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
-      'icAd',
-      AD_ICON_W,
-      AD_ICON_H,
-    );
+    applyAdIcon(card?.getChildByName('WatchBtn')?.getChildByName('Content')?.getChildByName('AdIcon') ?? null, AD_ICON_H);
     this._paintRewards();
   }
 
@@ -285,7 +279,7 @@ export class ChestPanel extends Component {
   private _ensureWatch(card: Node): void {
     const btn = this._mk('WatchBtn', card, BTN_W, BTN_H);
     const content = this._mk('Content', btn, 420, BTN_H - 8);
-    this._mk('AdIcon', content, AD_ICON_W, AD_ICON_H);
+    this._mk('AdIcon', content, Math.round(AD_ICON_H * 1.41), AD_ICON_H);
     this._label(content, 'Label', '看视频开启', 48, BTN_INK, 260, 64);
     this._layoutWatch(content);
   }
@@ -301,11 +295,12 @@ export class ChestPanel extends Component {
     const lab = content.getChildByName('Label');
     const textW = 260;
     const gap = 16;
-    const w = AD_ICON_W + gap + textW;
+    const iconW = applyAdIcon(icon, AD_ICON_H);
+    const w = iconW + gap + textW;
     content.getComponent(UITransform)?.setContentSize(w, BTN_H - 8);
     content.setPosition(0, 3, 0);
-    icon?.setPosition(-w * 0.5 + AD_ICON_W * 0.5, 0, 0);
-    lab?.setPosition(-w * 0.5 + AD_ICON_W + gap + textW * 0.5, 0, 0);
+    icon?.setPosition(-w * 0.5 + iconW * 0.5, 0, 0);
+    lab?.setPosition(-w * 0.5 + iconW + gap + textW * 0.5, 0, 0);
   }
 
   private _bindEvents(): void {

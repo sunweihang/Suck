@@ -159,3 +159,10 @@ export function uiFromBottomToScreenY(uiFromBottom: number, viewH?: number): num
   const vp = view.getViewportRect();
   return vp.y + (uiFromBottom / h) * vp.height;
 }
+
+export function screenYToUiFromBottom(screenY: number, viewH?: number): number {
+  const h = Math.max(1, viewH ?? uiVisibleSize().h);
+  const vp = view.getViewportRect();
+  if (vp.height <= 0) return 0;
+  return ((screenY - vp.y) / vp.height) * h;
+}

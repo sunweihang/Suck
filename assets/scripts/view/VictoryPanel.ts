@@ -18,10 +18,11 @@ import {
   tween,
 } from 'cc';
 import { chestPercentOf, chestReadyOf, chestStepOf } from '../game/ChestProgress';
+import { playPreviewOf, type LoadTipIcon, type PlayPreview } from '../game/LoadTip';
 import type { ItemId } from '../game/LevelCatalog';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
-import { applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
+import { AD_MARK_H, applyAdIcon, applyArtSpriteSoon, ensureBtnChrome, VOLCANO_BTN_H, VOLCANO_BTN_W } from './UiArt';
 import { clearWinConfetti, playWinConfetti, warmupWinConfetti } from './WinConfetti';
 
 const { ccclass } = _decorator;
@@ -39,8 +40,7 @@ const TITLE_OUTLINE = new Color(88, 48, 16, 255);
 const BTN_W = VOLCANO_BTN_W;
 const BTN_H = VOLCANO_BTN_H;
 const BTN_GAP = 24;
-const AD_ICON_W = 52;
-const AD_ICON_H = 36;
+const AD_ICON_H = AD_MARK_H;
 const BTN_FONT = 40;
 const GOLD_ICON = 72;
 const GOLD_LAB_W = 160;
@@ -56,6 +56,13 @@ const PCT_OUTLINE = new Color(16, 18, 28, 255);
 const PCT_FONT = 92;
 const PRIZE_ICON = 260;
 const PRIZE_GAP = 48;
+const LINK_ICON = 200;
+const LINK_HINT = new Color(255, 248, 220, 255);
+const LINK_HINT_OUTLINE = new Color(48, 32, 16, 255);
+const TAG_INK = new Color(255, 236, 176, 255);
+const IRON_FILL = new Color(168, 176, 188, 255);
+const IRON_HI = new Color(214, 220, 228, 255);
+const IRON_STROKE = new Color(96, 104, 116, 255);
 const ITEM_ICON_KEY = {
   shuffle: 'icShuffle',
   hook: 'icHook',
@@ -83,6 +90,7 @@ export class VictoryPanel extends Component {
   private _gpuHot = false;
   private _chestItems: ItemId[] = [];
   private _prizeOn = false;
+  private _preview: PlayPreview | null = null;
 
   isOpen(): boolean {
     return this._open;
@@ -115,10 +123,12 @@ export class VictoryPanel extends Component {
     this._gold = 25;
     this._canDouble = true;
     this._cleared = 5;
+    this._preview = playPreviewOf(1);
     this._nextLabel = '下一关';
     this._syncDouble();
     this._syncGold();
     this._syncChest();
+    this._syncLink();
     this._paintBtns();
     this._setFill(1);
     this._bakePctAtlas();
@@ -137,15 +147,25 @@ export class VictoryPanel extends Component {
     this._fill = 0;
     this._fillPx = -1;
     this._chestItems = [];
+    this._preview = null;
     this._resetPrize();
   }
 
-  show(opts?: { hasNext?: boolean; gold?: number; canDouble?: boolean; nextLabel?: string; cleared?: number; chestItems?: readonly ItemId[] }): void {
+  show(opts?: {
+    hasNext?: boolean;
+    gold?: number;
+    canDouble?: boolean;
+    nextLabel?: string;
+    cleared?: number;
+    chestItems?: readonly ItemId[];
+    playPreview?: PlayPreview | null;
+  }): void {
     this._ensureTree();
     this._gold = Math.max(0, Math.floor(opts?.gold ?? 0));
     this._canDouble = opts?.canDouble !== false && this._gold > 0;
     this._nextLabel = opts?.nextLabel || '下一关';
     this._cleared = Math.max(0, Math.floor(opts?.cleared ?? 0));
+    this._preview = opts?.playPreview ?? (this._cleared > 0 ? playPreviewOf(this._cleared) : null);
     this._chestItems = (opts?.chestItems ?? []).filter(Boolean);
     this._resetPrize();
     this._locked = false;
@@ -158,6 +178,7 @@ export class VictoryPanel extends Component {
     this._syncDouble();
     this._syncGold();
     this._syncChest();
+    this._syncLink();
     if (!this._gpuHot) this._paintBtns();
     else this._syncBtnLabels();
     const vis = uiVisibleSize();
@@ -194,6 +215,7 @@ export class VictoryPanel extends Component {
     this.node.active = false;
     this._locked = false;
     this._chestItems = [];
+    this._preview = null;
     this._resetPrize();
   }
 
@@ -251,6 +273,10 @@ export class VictoryPanel extends Component {
     return this._stage()?.getChildByName('ChestProgress') ?? null;
   }
 
+  private _linkWrap(): Node | null {
+    return this._stage()?.getChildByName('LinkUnlock') ?? null;
+  }
+
   private _goldIcon(): Node | null {
     const gold = this._stage()?.getChildByName('GoldReward');
     if (gold) gold.active = true;
@@ -276,6 +302,7 @@ export class VictoryPanel extends Component {
     this._layoutTitle(h);
     this._layoutChest(h);
     this._layoutGold(h);
+    this._layoutLink(h);
     const double = stage.getChildByName('DoubleBtn');
     const next = stage.getChildByName('NextBtn');
     const count = (double?.active ? 1 : 0) + (next?.active ? 1 : 0);
@@ -356,10 +383,11 @@ export class VictoryPanel extends Component {
     this._ensureTitle(stage);
     this._ensureGold();
     this._ensureChest();
+    this._ensureLink();
     if (!stage.getChildByName('DoubleBtn')) {
       const btn = this._mk('DoubleBtn', stage, BTN_W, BTN_H);
       const content = this._mk('Content', btn, 280, BTN_H - 8);
-      this._mk('AdIcon', content, AD_ICON_W, AD_ICON_H);
+      this._mk('AdIcon', content, Math.round(AD_ICON_H * 1.41), AD_ICON_H);
       this._styleLabel(this._mk('Label', content, 200, BTN_H - 16), '双倍领取', DOUBLE_OUTLINE);
     }
     const next = stage.getChildByName('NextBtn') ?? this._mk('NextBtn', stage, BTN_W, BTN_H);
@@ -426,11 +454,12 @@ export class VictoryPanel extends Component {
     const lab = content.getChildByName('Label');
     const textW = 200;
     const gap = 10;
-    const w = AD_ICON_W + gap + textW;
+    const iconW = applyAdIcon(icon, AD_ICON_H);
+    const w = iconW + gap + textW;
     content.getComponent(UITransform)?.setContentSize(w, BTN_H - 8);
     content.setPosition(0, 2, 0);
-    icon?.setPosition(-w * 0.5 + AD_ICON_W * 0.5, 0, 0);
-    lab?.setPosition(-w * 0.5 + AD_ICON_W + gap + textW * 0.5, 0, 0);
+    icon?.setPosition(-w * 0.5 + iconW * 0.5, 0, 0);
+    lab?.setPosition(-w * 0.5 + iconW + gap + textW * 0.5, 0, 0);
   }
 
   private _layoutNextLabel(): void {
@@ -468,14 +497,8 @@ export class VictoryPanel extends Component {
       ensureBtnChrome(next, BTN_W, BTN_H, NEXT_FILL, NEXT_OUTLINE, 'winAction');
     }
     this._syncBtnLabels();
-    if (!double?.getChildByName('Content')?.getChildByName('AdIcon')?.getComponent(Sprite)?.spriteFrame) {
-      applyArtSpriteSoon(
-        double?.getChildByName('Content')?.getChildByName('AdIcon') ?? null,
-        'icAd',
-        AD_ICON_W,
-        AD_ICON_H,
-      );
-    }
+    applyAdIcon(double?.getChildByName('Content')?.getChildByName('AdIcon') ?? null, AD_ICON_H);
+    this._layoutDoubleContent();
     this._syncGold();
   }
 
@@ -572,14 +595,7 @@ export class VictoryPanel extends Component {
   private _syncChest(): void {
     const wrap = this._chestWrap();
     if (!wrap) return;
-    const on = this._cleared > 0;
-    wrap.active = on;
-    if (!on) return;
-    const hint = wrap.getChildByName('Hint');
-    if (hint) hint.active = false;
-    this._paintChestArt();
-    this._setFill(chestPercentOf(this._cleared) / 100);
-    this._setPctText(chestPercentOf(this._cleared));
+    wrap.active = false;
   }
 
   private _layoutChest(_h: number): void {
@@ -587,7 +603,7 @@ export class VictoryPanel extends Component {
     if (!wrap) return;
     wrap.getComponent(UITransform)?.setContentSize(CHEST + 80, CHEST + 160);
     wrap.setPosition(0, 70, 0);
-    wrap.active = this._cleared > 0;
+    wrap.active = false;
     const glow = wrap.getChildByName('Glow');
     const shadow = wrap.getChildByName('Shadow');
     const clip = wrap.getChildByName('FillClip');
@@ -608,6 +624,172 @@ export class VictoryPanel extends Component {
       this._paintChestArt();
       this._applyFill(this._fill);
     }
+  }
+
+  private _ensureLink(): void {
+    const stage = this._stage();
+    if (!stage) return;
+    let wrap = stage.getChildByName('LinkUnlock');
+    if (!wrap) {
+      wrap = this._mk('LinkUnlock', stage, 760, 360);
+      const icon = this._mk('Icon', wrap, LINK_ICON, LINK_ICON);
+      this._mk('Art', icon, LINK_ICON, LINK_ICON);
+      this._styleLinkCap(this._mk('Cap', wrap, 420, 48), '');
+      this._styleLinkHint(this._mk('Hint', wrap, 720, 48), '');
+    }
+    if (!wrap.getChildByName('Tag')) {
+      this._styleLinkTag(this._mk('Tag', wrap, 360, 44), '玩法预告');
+    }
+    this._hideLinkBar(wrap);
+  }
+
+  private _hideLinkBar(wrap: Node): void {
+    for (const name of ['Track', 'FillClip', 'Count']) {
+      const n = wrap.getChildByName(name);
+      if (n) n.active = false;
+    }
+    const ig = wrap.getChildByName('Icon')?.getComponent(Graphics);
+    if (ig) {
+      ig.clear();
+      ig.enabled = false;
+    }
+  }
+
+  private _syncLink(): void {
+    const wrap = this._linkWrap();
+    if (!wrap) return;
+    const on = !!this._preview;
+    wrap.active = on;
+    if (!on || !this._preview) return;
+    this._hideLinkBar(wrap);
+    const tag = wrap.getChildByName('Tag')?.getComponent(Label);
+    if (tag) tag.string = this._preview.unlocked ? '新玩法' : '玩法预告';
+    const cap = wrap.getChildByName('Cap')?.getComponent(Label);
+    if (cap) cap.string = this._preview.title;
+    const hint = wrap.getChildByName('Hint')?.getComponent(Label);
+    if (hint) {
+      hint.string = this._preview.unlocked
+        ? '可在设置中进入'
+        : this._preview.remain <= 1
+          ? '下一关开启'
+          : `再通关 ${this._preview.remain} 关即可开启`;
+    }
+    this._paintPreviewIcon(this._preview.icon);
+  }
+
+  private _paintPreviewIcon(icon?: LoadTipIcon): void {
+    const wrap = this._linkWrap();
+    const host = wrap?.getChildByName('Icon')?.getChildByName('Art')
+      ?? wrap?.getChildByName('Icon');
+    if (!host) return;
+    const g = host.getComponent(Graphics);
+    const sp = host.getComponent(Sprite);
+    if (icon === 'iron') {
+      if (sp) {
+        sp.spriteFrame = null;
+        sp.enabled = false;
+      }
+      this._paintIron(host);
+      return;
+    }
+    if (g) {
+      g.clear();
+      g.enabled = false;
+    }
+    if (!icon) return;
+    applyArtSpriteSoon(host, icon, LINK_ICON, LINK_ICON);
+  }
+
+  private _paintIron(node: Node): void {
+    let g = node.getComponent(Graphics);
+    if (!g) g = node.addComponent(Graphics);
+    const w = 176;
+    const h = 52;
+    g.enabled = true;
+    g.clear();
+    g.fillColor = IRON_STROKE;
+    g.roundRect(-w * 0.5 + 3, -h * 0.5 - 5, w, h, 12);
+    g.fill();
+    g.fillColor = IRON_FILL;
+    g.roundRect(-w * 0.5, -h * 0.5, w, h, 12);
+    g.fill();
+    g.fillColor = IRON_HI;
+    g.roundRect(-w * 0.5 + 16, h * 0.08, w - 32, 14, 6);
+    g.fill();
+  }
+
+  private _layoutLink(_h: number): void {
+    const wrap = this._linkWrap();
+    if (!wrap) return;
+    wrap.active = !!this._preview;
+    wrap.setPosition(0, this._preview ? 90 : 0, 0);
+    wrap.getComponent(UITransform)?.setContentSize(760, 360);
+    this._hideLinkBar(wrap);
+    const tag = wrap.getChildByName('Tag');
+    const icon = wrap.getChildByName('Icon');
+    const art = icon?.getChildByName('Art');
+    const cap = wrap.getChildByName('Cap');
+    const hint = wrap.getChildByName('Hint');
+    tag?.getComponent(UITransform)?.setContentSize(360, 44);
+    tag?.setPosition(0, 168, 0);
+    icon?.getComponent(UITransform)?.setContentSize(LINK_ICON, LINK_ICON);
+    art?.getComponent(UITransform)?.setContentSize(LINK_ICON, LINK_ICON);
+    icon?.setPosition(0, 36, 0);
+    art?.setPosition(0, 0, 0);
+    cap?.getComponent(UITransform)?.setContentSize(420, 48);
+    cap?.setPosition(0, -90, 0);
+    hint?.setPosition(0, -140, 0);
+  }
+
+  private _styleLinkTag(node: Node, text: string): Label {
+    const lab = node.getComponent(Label) ?? node.addComponent(Label);
+    lab.string = text;
+    lab.fontSize = 32;
+    lab.lineHeight = 38;
+    lab.isBold = true;
+    lab.color = TAG_INK;
+    lab.enableOutline = true;
+    lab.outlineWidth = 4;
+    lab.outlineColor = TITLE_OUTLINE;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
+    return lab;
+  }
+
+  private _styleLinkCap(node: Node, text: string): Label {
+    const lab = node.getComponent(Label) ?? node.addComponent(Label);
+    lab.string = text;
+    lab.fontSize = 40;
+    lab.lineHeight = 46;
+    lab.isBold = true;
+    lab.color = TITLE_INK;
+    lab.enableOutline = true;
+    lab.outlineWidth = 5;
+    lab.outlineColor = TITLE_OUTLINE;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
+    return lab;
+  }
+
+  private _styleLinkHint(node: Node, text: string): Label {
+    const lab = node.getComponent(Label) ?? node.addComponent(Label);
+    lab.string = text;
+    lab.fontSize = 34;
+    lab.lineHeight = 42;
+    lab.isBold = true;
+    lab.color = LINK_HINT;
+    lab.enableOutline = true;
+    lab.outlineWidth = 4;
+    lab.outlineColor = LINK_HINT_OUTLINE;
+    lab.horizontalAlign = Label.HorizontalAlign.CENTER;
+    lab.verticalAlign = Label.VerticalAlign.CENTER;
+    lab.useSystemFont = true;
+    lab.fontFamily = 'PingFang SC';
+    return lab;
   }
 
   private _paintChestArt(): void {
@@ -997,7 +1179,13 @@ export class VictoryPanel extends Component {
       title.setScale(0.82, 0.82, 1);
       tween(title).to(0.32, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
     }
-    if (!wrap) return;
+    const link = this._linkWrap();
+    if (link?.active) {
+      Tween.stopAllByTarget(link);
+      link.setScale(0.82, 0.82, 1);
+      tween(link).to(0.32, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+    }
+    if (!wrap || !wrap.active) return;
     Tween.stopAllByTarget(wrap);
     wrap.setScale(0.82, 0.82, 1);
     tween(wrap)

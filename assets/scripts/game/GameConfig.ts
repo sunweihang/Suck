@@ -30,12 +30,18 @@ export const GAME = {
   suckMaxInterval: 0.16,
   /** First shot after an octopus lands in a pit. */
   suckLandDelay: 0.18,
+  /** Seated guns with no target for this long → lose. */
+  stuckLoseSec: 3,
   shotSpeed: 7.6,
   shotMinSec: 0.16,
   shotMaxSec: 0.44,
   shotArc: 0.02,
-  /** Idle yaw period in seconds. Swipe still turns the field. */
+  /** Idle yaw period in seconds. Swipe is yaw-only until free-spin unlocks pitch. */
   wallSpinPeriod: 22,
+  /** Rewarded-ad free-spin duration in seconds. */
+  freeSpinSec: 90,
+  /** Rewarded-ad boost duration in seconds. Triples spin and fire rate. */
+  boostSec: 90,
   /** Swipe: degrees of field yaw/pitch per screen pixel. */
   wallSpinDragDeg: 0.38,
 

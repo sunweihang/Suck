@@ -17,7 +17,7 @@ import type { ItemId } from '../game/LevelCatalog';
 import { goldAdReward, itemGoldCost, slotGoldCost } from '../game/PlayerWallet';
 import { uiVisibleSize } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
-import { applyArtSpriteSoon } from './UiArt';
+import { AD_MARK_H, applyAdIcon, applyArtSpriteSoon } from './UiArt';
 
 const { ccclass } = _decorator;
 
@@ -32,7 +32,7 @@ const ITEM_ICON_KEY = {
 
 const ITEM_TITLE: Record<ItemId, string> = {
   shuffle: '洗牌',
-  hook: '钩子',
+  hook: '机械爪',
   shovel: '铲子',
   bomb: '炸弹',
 };
@@ -56,7 +56,6 @@ const BTN_GAP = 20;
 const BUY_X = -Math.round((BTN_W + BTN_GAP) * 0.5);
 const AD_X = Math.round((BTN_W + BTN_GAP) * 0.5);
 const GOLD_ICON = 76;
-const AD_ICON_W = 76;
 const ACTION_TEXT_W = 150;
 const ACTION_GAP = 10;
 
@@ -113,6 +112,8 @@ export class ItemShopPanel extends Component {
     if (icon && ut) applyArtSpriteSoon(icon, this._iconKey(), ut.width, ut.height);
     const close = this._closeBtn();
     if (close) applyArtSpriteSoon(close, 'settingsClose', 72, 72);
+    const adIcon = this._card()?.getChildByName('AdBtn')?.getChildByName('Content')?.getChildByName('AdIcon');
+    if (adIcon) applyAdIcon(adIcon, AD_MARK_H);
     this._syncCopy();
   }
 
@@ -201,7 +202,7 @@ export class ItemShopPanel extends Component {
       this._layoutActionBtn('BuyBtn', 'GoldIcon', GOLD_ICON, GOLD_ICON, owned ? '使用' : `${this._goldCost()}`, owned);
     }
     if (gold || !owned) {
-      this._layoutActionBtn('AdBtn', 'AdIcon', AD_ICON_W, 52, gold ? `+${goldAdReward()}` : '免费', false);
+      this._layoutActionBtn('AdBtn', 'AdIcon', Math.round(AD_MARK_H * 1.41), AD_MARK_H, gold ? `+${goldAdReward()}` : '免费', false);
     }
   }
 

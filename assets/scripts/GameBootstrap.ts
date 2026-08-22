@@ -49,16 +49,38 @@ import {
 import { Theme } from './game/Theme';
 import { rollChestReward, type ChestReward } from './game/ChestLoot';
 import { consumePendingChest, markChestPending, peekPendingChest, resetChestProgress } from './game/ChestProgress';
+import { grantBoost } from './game/Boost';
+import { grantFreeSpin } from './game/FreeSpin';
+import {
+  DAILY_ITEM_REWARDS,
+  hasShownDailyPlayToday,
+  isDailyItemClaimedToday,
+  markDailyItemClaimed,
+  markDailyPlayShown,
+  resetDailyItemOffer,
+} from './game/DailyItemOffer';
+import {
+  isLinkUnlocked,
+  LINK_GOLD,
+  loadLinkLevel,
+  resetLinkProgress,
+  saveLinkLevel,
+} from './game/LinkPlay';
+import { pickLoadTip, playPreviewOf } from './game/LoadTip';
+import { ENERGY, energyAdReward, PlayerEnergy } from './game/PlayerEnergy';
 import { GOLD, goldAdReward, itemGoldCost, PlayerWallet, slotGoldCost } from './game/PlayerWallet';
 import { ChestActor } from './battle/ChestActor';
 import { SlotPad } from './battle/SlotPad';
 import { ChestPanel } from './view/ChestPanel';
+import { DailyItemPanel } from './view/DailyItemPanel';
 import { ItemShopPanel, isItemShopKind, type ShopKind } from './view/ItemShopPanel';
 import { FailPanel } from './view/FailPanel';
 import { GmPanel } from './view/GmPanel';
 import { GoldHud } from './view/GoldHud';
 import { HomePanel } from './view/HomePanel';
+import { LinkPlayPanel } from './view/LinkPlayPanel';
 import { PlayHud } from './view/PlayHud';
+import { RankingPanel } from './view/RankingPanel';
 import { SettingsPanel } from './view/SettingsPanel';
 import { UgcHud } from './view/UgcHud';
 import { VictoryPanel } from './view/VictoryPanel';
@@ -149,6 +171,7 @@ export class GameBootstrap extends Component {
   private _canvas: Node | null = null;
   private _home: HomePanel | null = null;
   private _settings: SettingsPanel | null = null;
+  private _rank: RankingPanel | null = null;
   private _ugcHud: UgcHud | null = null;
   private _ugcEditor: UgcEditor | null = null;
   private _ugcPlay = false;
@@ -168,14 +191,25 @@ export class GameBootstrap extends Component {
   private _fail: FailPanel | null = null;
   private _gm: GmPanel | null = null;
   private _gold: GoldHud | null = null;
+  private _energyHud: GoldHud | null = null;
+  private _hudChromeHidden = false;
   private _chest: ChestPanel | null = null;
+  private _dailyItem: DailyItemPanel | null = null;
+  private _linkPlay: LinkPlayPanel | null = null;
+  private _inLink = false;
   private _itemShop: ItemShopPanel | null = null;
   private _chestActor: ChestActor | null = null;
   private _pendingSlot: SlotPad | null = null;
   private _chestBusy = false;
+  private _dailyBusy = false;
   private _clearChest: ChestReward | null = null;
   private _itemShopBusy = false;
+  private _settingsBusy = false;
+  private _spinBusy = false;
   private _wallet = new PlayerWallet();
+  private _energy = new PlayerEnergy();
+  private _hudAdBusy = false;
+  private _energyBusy = false;
   private _battle: BattleDirector | null = null;
   private _audio: AudioService | null = null;
   private _level = 1;
@@ -231,8 +265,10 @@ export class GameBootstrap extends Component {
       if (!this.isValid) return;
       this._playHud?.applyArt();
       this._gold?.applyArt();
+      this._energyHud?.applyArt();
       this._settings?.applyArt();
       this._chest?.applyArt();
+      this._dailyItem?.applyArt();
       this._itemShop?.applyArt();
     });
     void bootStep('win audio', audio.ensureWin());
@@ -263,6 +299,7 @@ export class GameBootstrap extends Component {
       await ensureLevels();
       this._restoreProgress();
       this._wallet.load();
+      this._energy.load();
       this._bindPlayerCloud();
       load.raise();
       await this._buildUi();
@@ -389,26 +426,36 @@ export class GameBootstrap extends Component {
     this._playHud?.hide();
   }
 
-  private async _runLevelLoad(work: (set: (p: number) => void) => Promise<void>): Promise<void> {
+  private async _runLevelLoad(
+    work: (set: (p: number) => void) => Promise<void>,
+  ): Promise<void> {
     const load = this._load;
+    const tip = this._ugcPlay ? null : pickLoadTip(this._level);
     if (!load) {
       await work(() => undefined);
       return;
     }
     this._loadShown = true;
-    load.show();
+    const started = Date.now();
+    load.show(tip);
     load.set(0.1);
     this._home?.hide();
     this._playHud?.hide();
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
     this._itemShop?.hide();
     this._settings?.hide();
+    this._rank?.hide();
     this._setGoldVisible(false);
     try {
       await work((p) => load.set(p));
-      await load.finish();
+      if (tip?.debut) {
+        const left = 1400 - (Date.now() - started);
+        if (left > 0) await new Promise<void>((resolve) => setTimeout(resolve, left));
+      }
+      await load.finish(true);
     } finally {
       this._loadShown = false;
       load.hide();
@@ -463,6 +510,7 @@ export class GameBootstrap extends Component {
       onLose: () => this._onLevelFailed(),
       onItems: (state) => this._playHud?.setItems(state),
       onGuide: (guide) => this._playHud?.setGuide(guide),
+      onAdvanceUi: (on) => this._playHud?.setChromeVisible(!on),
       onGoldDenied: () => this._gold?.deny(),
       onChest: (chest) => this._onChestReady(chest),
       onUnlockSlot: (slot) => this._showSlotShop(slot),
@@ -494,6 +542,8 @@ export class GameBootstrap extends Component {
       this._settings?.hide();
       this._fail?.hide();
       this._chest?.hide();
+      this._dailyItem?.hide();
+      this._rank?.hide();
       this._itemShop?.hide();
       this._gm?.collapse();
       this._battle?.setPlaying(false);
@@ -520,6 +570,8 @@ export class GameBootstrap extends Component {
     this._settings?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._itemShop?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
@@ -531,11 +583,13 @@ export class GameBootstrap extends Component {
       hasNext: this._level > cleared && cleared < WIN_DOUBLE_ONLY_FROM,
       gold: GOLD.win,
       canDouble: true,
+      nextLabel: '下一关',
       cleared,
       chestItems: this._clearChest?.items ?? [],
+      playPreview: playPreviewOf(cleared),
     });
     if (this._canvas) {
-      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._raiseCurrencyHud();
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
   }
@@ -545,7 +599,7 @@ export class GameBootstrap extends Component {
   }
 
   private _claimRetry(): void {
-    this._claimSettle('fail');
+    void this._restartPlayWithEnergy();
   }
 
   private _beginSettleClaim(kind: 'win' | 'fail'): void {
@@ -554,10 +608,13 @@ export class GameBootstrap extends Component {
   }
 
   private _claimSettle(kind: 'win' | 'fail'): void {
+    if (kind === 'fail') {
+      this._claimRetry();
+      return;
+    }
     if (this._doubleBusy) return;
     this._beginSettleClaim(kind);
-    const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
-    const amount = this._clearGold > 0 ? this._clearGold : fallback;
+    const amount = this._clearGold > 0 ? this._clearGold : GOLD.win;
     this._clearGold = 0;
     const extra = consumeClearChest(this);
     void this._flyGoldThen(amount + extra.gold, kind);
@@ -567,22 +624,56 @@ export class GameBootstrap extends Component {
     void this._claimSettleDouble('win');
   }
 
-  private _claimFailDouble(): void {
-    void this._claimSettleDouble('fail');
+  private _claimFailContinue(): void {
+    void this._continueAfterFail();
   }
 
   private async _claimSettleDouble(kind: 'win' | 'fail'): Promise<void> {
+    if (kind === 'fail') {
+      await this._continueAfterFail();
+      return;
+    }
     if (this._doubleBusy) return;
     this._doubleBusy = true;
     this._beginSettleClaim(kind);
     const result = await showRewardedVideoAd();
-    const fallback = kind === 'fail' ? GOLD.fail : GOLD.win;
-    const base = this._clearGold > 0 ? this._clearGold : fallback;
+    const base = this._clearGold > 0 ? this._clearGold : GOLD.win;
     const extra = consumeClearChest(this);
     const amount = (result === 'rewarded' ? base * 2 : base) + extra.gold;
     this._clearGold = 0;
     this._doubleBusy = false;
     void this._flyGoldThen(amount, kind);
+  }
+
+  private async _continueAfterFail(): Promise<void> {
+    if (this._doubleBusy) return;
+    this._doubleBusy = true;
+    this._fail?.lock();
+    const result = await showRewardedVideoAd();
+    this._doubleBusy = false;
+    if (!this.isValid) return;
+    if (result !== 'rewarded') {
+      this._fail?.unlock();
+      return;
+    }
+    this._resumePlayAfterFail();
+  }
+
+  private _resumePlayAfterFail(): void {
+    this._settledBuilt = -1;
+    this._clearGold = 0;
+    this._fail?.hide();
+    this._home?.hide();
+    this._settings?.hide();
+    this._setWorldLive(true);
+    this._frameMainCamera();
+    this._battle?.reposeView();
+    this._playHud?.setLevel(this._builtLevel);
+    this._playHud?.show();
+    this._setGoldVisible(!this._ugcPlay);
+    this._battle?.continueAfterFail();
+    this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
+    this._battle?.setPlaying(true);
   }
 
   private _lockSettle(kind: 'win' | 'fail'): void {
@@ -591,13 +682,16 @@ export class GameBootstrap extends Component {
   }
 
   private async _flyGoldThen(amount: number, kind: 'win' | 'fail'): Promise<void> {
+    if (kind === 'fail') {
+      this._claimRetry();
+      return;
+    }
     if (this._doubleBusy) return;
     this._doubleBusy = true;
     this._beginSettleClaim(kind);
     const after = () => {
       this._doubleBusy = false;
-      if (kind === 'fail') this._retryPlay();
-      else void this._enterNext();
+      void this._enterNext();
     };
     const canvas = this._canvas;
     if (!canvas?.isValid || amount <= 0) {
@@ -611,11 +705,11 @@ export class GameBootstrap extends Component {
       return;
     }
     const fx = ensureCoinFxRoot(canvas);
-    this._gold?.node.setSiblingIndex(canvas.children.length - 1);
+    this._raiseCurrencyHud();
     fx.setSiblingIndex(canvas.children.length - 1);
     const start = new Vec3();
     const end = new Vec3();
-    const panel = kind === 'fail' ? this._fail : this._victory;
+    const panel = this._victory;
     panel?.goldStartWorld(start);
     if (this._gold) this._gold.iconWorldPos(end);
     else end.set(start.x + 360, start.y + 720, 0);
@@ -646,31 +740,35 @@ export class GameBootstrap extends Component {
       this._settings?.hide();
       this._victory?.hide();
       this._chest?.hide();
+      this._dailyItem?.hide();
+      this._rank?.hide();
       this._itemShop?.hide();
       this._gm?.collapse();
       this._battle?.setPlaying(false);
       this._setGoldVisible(false);
       this._openSettle();
-      this._fail?.show({ gold: 0, canDouble: false });
+      this._fail?.show({ gold: 0, canContinue: false });
       return;
     }
-    this._clearGold = GOLD.fail;
+    this._clearGold = 0;
     this._clearChest = null;
     this._home?.hide();
     this._settings?.hide();
     this._victory?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._itemShop?.hide();
     this._gm?.collapse();
     this._battle?.setPlaying(false);
     this._setGoldVisible(true);
     this._openSettle();
     this._fail?.show({
-      gold: GOLD.fail,
-      canDouble: true,
+      gold: 0,
+      canContinue: true,
     });
     if (this._canvas) {
-      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._raiseCurrencyHud();
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
   }
@@ -682,6 +780,8 @@ export class GameBootstrap extends Component {
     this._victory?.hide();
     this._fail?.hide();
     this._itemShop?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._gm?.collapse();
     this._chest?.show();
   }
@@ -745,16 +845,18 @@ export class GameBootstrap extends Component {
   }
 
   private _showGoldShop(): void {
-    if (this._victory?.isOpen() || this._fail?.node.active || this._chest?.node.active) return;
+    if (this._victory?.isOpen() || this._fail?.node.active || this._chest?.node.active || this._dailyItem?.isOpen()) return;
+    if (this._rank?.isOpen()) return;
     this._showItemShop('gold');
   }
 
   private _showItemShop(kind: ShopKind): void {
     this._unlockAudio();
     this._itemShopBusy = false;
+    this._rank?.hide();
     this._itemShop?.show(kind, isItemShopKind(kind) ? this._wallet.itemCount(kind) : 0);
     if (this._canvas) {
-      this._gold?.node.setSiblingIndex(this._canvas.children.length - 1);
+      this._raiseCurrencyHud();
       this._gm?.node.setSiblingIndex(this._canvas.children.length - 1);
     }
     this._gm?.collapse();
@@ -765,8 +867,8 @@ export class GameBootstrap extends Component {
     this._itemShopBusy = false;
     this._pendingSlot = null;
     this._itemShop?.hide();
-    if (this._chest?.node.active || this._settings?.node.active) return;
-    if (this._victory?.isOpen() || this._fail?.node.active) return;
+    if (this._chest?.node.active || this._settings?.node.active || this._dailyItem?.isOpen()) return;
+    if (this._rank?.isOpen() || this._victory?.isOpen() || this._fail?.node.active) return;
     if (this._playHud?.node.active) this._battle?.setPlaying(true);
   }
 
@@ -839,6 +941,36 @@ export class GameBootstrap extends Component {
     if (slot) this._battle?.unlockSlot(slot);
   }
 
+  private async _watchFreeSpin(): Promise<void> {
+    await this._watchPlayReward(() => grantFreeSpin());
+  }
+
+  private async _watchBoost(): Promise<void> {
+    await this._watchPlayReward(() => grantBoost());
+  }
+
+  private async _watchPlayReward(grant: () => void): Promise<void> {
+    if (this._spinBusy || this._ugcPlay) return;
+    this._spinBusy = true;
+    const playing = !!this._playHud?.node.active;
+    if (playing) this._battle?.setPlaying(false);
+    const result = await showRewardedVideoAd();
+    this._spinBusy = false;
+    if (result === 'rewarded') grant();
+    if (
+      playing
+      && this._playHud?.node.active
+      && !this._settings?.node.active
+      && !this._rank?.isOpen()
+      && !this._itemShop?.node.active
+      && !this._chest?.node.active
+      && !this._fail?.node.active
+      && !this._victory?.isOpen()
+    ) {
+      this._battle?.setPlaying(true);
+    }
+  }
+
   private async _watchGold(): Promise<void> {
     if (this._itemShopBusy) return;
     this._itemShopBusy = true;
@@ -860,7 +992,7 @@ export class GameBootstrap extends Component {
       return;
     }
     const fx = ensureCoinFxRoot(canvas);
-    this._gold?.node.setSiblingIndex(canvas.children.length - 1);
+    this._raiseCurrencyHud();
     fx.setSiblingIndex(canvas.children.length - 1);
     const start = startWorld.clone();
     const end = new Vec3();
@@ -938,7 +1070,7 @@ export class GameBootstrap extends Component {
       startWorld: start,
       endWorld: req.world,
       worldCam: this._mainCam,
-      onArrive: req.onArrive,
+      onDone: req.onArrive,
     });
   }
 
@@ -963,11 +1095,15 @@ export class GameBootstrap extends Component {
     saveLevelIndex(this._level);
     this._builtLevel = 0;
     this._gm?.setLevel(this._level);
+    this._inLink = false;
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._playHud?.setLevel(this._level);
     this._victory?.hide();
+    this._linkPlay?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._itemShop?.hide();
     this._enterPlay();
   }
@@ -978,6 +1114,8 @@ export class GameBootstrap extends Component {
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._itemShop?.hide();
     this._enterPlay();
   }
@@ -985,7 +1123,10 @@ export class GameBootstrap extends Component {
   private _gmWipeLocal(): void {
     resetGuideProgress();
     resetChestProgress();
+    resetDailyItemOffer();
+    resetLinkProgress();
     this._wallet.reset();
+    this._energy.reset();
     this._gmSkip(1);
   }
 
@@ -1107,11 +1248,15 @@ export class GameBootstrap extends Component {
     this._home?.layoutChrome();
     this._ugcHud?.layoutChrome();
     this._settings?.layoutChrome();
+    this._rank?.layoutChrome();
     this._playHud?.layoutChrome();
     this._gold?.layoutChrome();
+    this._energyHud?.layoutChrome();
     this._victory?.layoutChrome();
     this._fail?.layoutChrome();
     this._chest?.layoutChrome();
+    this._dailyItem?.layoutChrome();
+    this._linkPlay?.layoutChrome();
     this._itemShop?.layoutChrome();
     this._gm?.layoutChrome();
     relayoutGameClubButton();
@@ -1165,7 +1310,7 @@ export class GameBootstrap extends Component {
     const homeN = await this._spawnHome(canvasN);
     this._home = homeN.getComponent(HomePanel) ?? homeN.addComponent(HomePanel);
     this._home.setup({
-      onPlay: () => this._enterPlay(),
+      onPlay: () => void this._startPlayWithEnergy(),
       onSettings: () => this._showSettings(),
     });
 
@@ -1229,9 +1374,21 @@ export class GameBootstrap extends Component {
     this._settings = settingsN.getComponent(SettingsPanel) ?? settingsN.addComponent(SettingsPanel);
     this._settings.setup({
       onClose: () => this._closeSettings(),
-      onRestart: () => this._retryPlay(),
+      onRestart: () => this._restartFromSettings(),
+      onHome: () => (this._ugcPlay ? this._returnToEditor() : this._showHome()),
+      onLink: () => this._enterLinkPlay(),
+      onSkip: () => void this._skipLevelFromSettings(),
+      onReset: () => void this._resetLevelFromSettings(),
     });
     this._settings.hide();
+
+    const rankPack = await this._spawnRank(canvasN);
+    this._rank = rankPack.node.getComponent(RankingPanel) ?? rankPack.node.addComponent(RankingPanel);
+    this._rank.setup({
+      onClose: () => this._closeRank(),
+      itemPrefab: rankPack.item,
+    });
+    this._rank.hide();
 
     const hudN = new Node('PlayHud');
     canvasN.addChild(hudN);
@@ -1240,8 +1397,14 @@ export class GameBootstrap extends Component {
       onHome: () => (this._ugcPlay ? this._returnToEditor() : this._showHome()),
       onNext: () => void this._enterNext(),
       onSettings: () => this._showSettings(),
+      onRank: () => this._showRank(),
       onRevealGm: () => this._gm?.revealEntry(),
       onItem: (id) => this._onPlayItem(id),
+      onCancelPick: () => this._battle?.cancelPick(),
+      onFreeSpin: () => void this._watchFreeSpin(),
+      onBoost: () => void this._watchBoost(),
+      onPickChrome: (hidden) => this._setBombChrome(hidden),
+      dockTopFromBottom: () => this._battle?.dockPadTopFromBottom() ?? 0,
     });
     this._playHud.hide();
 
@@ -1257,7 +1420,7 @@ export class GameBootstrap extends Component {
     this._fail = failN.getComponent(FailPanel) ?? failN.addComponent(FailPanel);
     this._fail.setup({
       onRetry: () => this._claimRetry(),
-      onDouble: () => this._claimFailDouble(),
+      onContinue: () => this._claimFailContinue(),
     });
     this._fail.hide();
 
@@ -1269,6 +1432,25 @@ export class GameBootstrap extends Component {
       onClaim: (reward) => this._claimChest(reward),
     });
     this._chest.hide();
+
+    const dailyN = new Node('DailyItemPanel');
+    canvasN.addChild(dailyN);
+    this._dailyItem = dailyN.addComponent(DailyItemPanel);
+    this._dailyItem.setup({
+      onWatch: () => void this._watchDailyItem(),
+      onClose: () => this._closeDailyItem(),
+    });
+    this._dailyItem.hide();
+
+    const linkN = new Node('LinkPlayPanel');
+    canvasN.addChild(linkN);
+    this._linkPlay = linkN.addComponent(LinkPlayPanel);
+    this._linkPlay.setup({
+      onHome: () => this._showHome(),
+      onWin: () => this._onLinkCleared(),
+      onSettings: () => this._showSettings(),
+    });
+    this._linkPlay.hide();
 
     const shopN = await this._spawnItemShop(canvasN);
     this._itemShop = shopN.getComponent(ItemShopPanel) ?? shopN.addComponent(ItemShopPanel);
@@ -1284,10 +1466,25 @@ export class GameBootstrap extends Component {
     canvasN.addChild(goldN);
     this._gold = goldN.addComponent(GoldHud);
     this._gold.setup({
-      onPlus: () => this._showGoldShop(),
+      onPlus: () => void this._watchGoldFromHud(),
+      side: 'right',
+      icon: 'goldIcon',
     });
     this._gold.setCoins(this._wallet.coins);
+
+    const energyN = new Node('EnergyHud');
+    canvasN.addChild(energyN);
+    this._energyHud = energyN.addComponent(GoldHud);
+    this._energyHud.setup({
+      onPlus: () => void this._watchEnergyFromHud(),
+      side: 'left',
+      icon: 'energyIcon',
+    });
+    this._energyHud.setValue(this._energy.value);
     this._setGoldVisible(false);
+    this._energy.watch((n, animate) => {
+      this._energyHud?.setValue(n, animate);
+    });
     this._wallet.watch((coins, animate) => {
       this._gold?.setCoins(coins, animate);
       if (!this._playHud?.node.active) return;
@@ -1367,6 +1564,27 @@ export class GameBootstrap extends Component {
     }
   }
 
+  private async _spawnRank(canvasN: Node): Promise<{ node: Node; item: Prefab | null }> {
+    let item: Prefab | null = null;
+    try {
+      item = await loadPrefab(PREFAB_UUID.RankingItem);
+    } catch (err) {
+      console.warn('[Suck] RankingItem prefab missing', err);
+    }
+    try {
+      const pf = await loadPrefab(PREFAB_UUID.RankingPanel);
+      const n = instantiate(pf);
+      n.name = 'RankingPanel';
+      canvasN.addChild(n);
+      return { node: n, item };
+    } catch (err) {
+      console.warn('[Suck] RankingPanel prefab missing, fallback node', err);
+      const n = new Node('RankingPanel');
+      canvasN.addChild(n);
+      return { node: n, item };
+    }
+  }
+
   private async _spawnItemShop(canvasN: Node): Promise<Node> {
     try {
       const pf = await loadPrefab(PREFAB_UUID.ItemShopPanel);
@@ -1433,9 +1651,142 @@ export class GameBootstrap extends Component {
     });
   }
 
+  private _setBombChrome(hidden: boolean): void {
+    this._hudChromeHidden = hidden;
+    if (hidden) {
+      if (this._gold?.node) this._gold.node.active = false;
+      if (this._energyHud?.node) this._energyHud.node.active = false;
+      return;
+    }
+    if (this._playHud?.node.active && !this._ugcPlay) this._setGoldVisible(true);
+  }
+
   private _setGoldVisible(on: boolean): void {
-    if (this._gold?.node) this._gold.node.active = on;
+    const show = on && !this._hudChromeHidden;
+    if (this._gold?.node) this._gold.node.active = show;
+    if (this._energyHud?.node) this._energyHud.node.active = show;
     this._gm?.layoutChrome();
+  }
+
+  private _raiseCurrencyHud(): void {
+    const canvas = this._canvas;
+    if (!canvas) return;
+    const top = canvas.children.length - 1;
+    if (this._gold?.node) this._gold.node.setSiblingIndex(top);
+    if (this._energyHud?.node) this._energyHud.node.setSiblingIndex(top);
+  }
+
+  private _energyApplies(): boolean {
+    return !this._ugcPlay && !this._inLink;
+  }
+
+  private _resumeBattleAfterHudAd(playing: boolean): void {
+    if (
+      playing
+      && this._playHud?.node.active
+      && !this._settings?.node.active
+      && !this._rank?.isOpen()
+      && !this._itemShop?.node.active
+      && !this._chest?.node.active
+      && !this._fail?.node.active
+      && !this._victory?.isOpen()
+    ) {
+      this._battle?.setPlaying(true);
+    }
+  }
+
+  private async _watchGoldFromHud(): Promise<void> {
+    if (this._hudAdBusy || this._itemShopBusy) return;
+    this._hudAdBusy = true;
+    const playing = !!this._playHud?.node.active;
+    if (playing) this._battle?.setPlaying(false);
+    const result = await showRewardedVideoAd();
+    this._hudAdBusy = false;
+    if (result === 'rewarded') {
+      const start = new Vec3();
+      this._gold?.adWorldPos(start);
+      this._flyShopGold(start, goldAdReward());
+    }
+    this._resumeBattleAfterHudAd(playing);
+  }
+
+  private async _watchEnergyFromHud(): Promise<void> {
+    if (this._hudAdBusy) return;
+    this._energy.refreshDay();
+    if (this._energy.full) {
+      this._energyHud?.deny();
+      return;
+    }
+    this._hudAdBusy = true;
+    const playing = !!this._playHud?.node.active;
+    if (playing) this._battle?.setPlaying(false);
+    const result = await showRewardedVideoAd();
+    this._hudAdBusy = false;
+    if (result === 'rewarded') this._energy.add(energyAdReward());
+    this._resumeBattleAfterHudAd(playing);
+  }
+
+  private _restartFromSettings(): void {
+    if (this._inLink) {
+      this._settings?.hide();
+      this._linkPlay?.setPaused(false);
+      this._linkPlay?.reload();
+      return;
+    }
+    void this._restartPlayWithEnergy();
+  }
+
+  private _startPlayWithEnergy(): Promise<void> {
+    return this._consumeEnergyThen(
+      () => this._enterPlay(),
+      () => {
+        if (this._home?.node.active) this._setGoldVisible(false);
+      },
+    );
+  }
+
+  private _restartPlayWithEnergy(): Promise<void> {
+    return this._consumeEnergyThen(
+      () => {
+        this._fail?.lock();
+        this._settings?.hide();
+        this._clearGold = 0;
+        this._retryPlay();
+      },
+      () => this._fail?.unlock(),
+    );
+  }
+
+  private async _consumeEnergyThen(onPaid: () => void, onCancel?: () => void): Promise<void> {
+    if (this._energyBusy || this._doubleBusy || this._hudAdBusy || this._enteringPlay) return;
+    if (!this._energyApplies()) {
+      onPaid();
+      return;
+    }
+    this._energy.refreshDay();
+    if (this._energy.spend(ENERGY.cost)) {
+      onPaid();
+      return;
+    }
+    this._energyBusy = true;
+    this._setGoldVisible(true);
+    this._raiseCurrencyHud();
+    this._energyHud?.deny();
+    if (this._fail?.node.active) this._fail.lock();
+    const playing = !!this._playHud?.node.active;
+    if (playing) this._battle?.setPlaying(false);
+    const result = await showRewardedVideoAd();
+    this._energyBusy = false;
+    if (!this.isValid) return;
+    if (result === 'rewarded') {
+      this._energy.add(energyAdReward());
+      if (this._energy.spend(ENERGY.cost)) {
+        onPaid();
+        return;
+      }
+    }
+    onCancel?.();
+    this._resumeBattleAfterHudAd(playing);
   }
 
   /** Home covers the 3D field; keep the world hidden until play. Sky stays on the main camera. */
@@ -1461,6 +1812,7 @@ export class GameBootstrap extends Component {
     this._disposeUgcEditor();
     this._clearUgcPlay();
     this._ugcHoldPlay = false;
+    this._inLink = false;
     this._home?.setLevel(this._level, LEVEL_COUNT);
     this._home?.show();
     this._ugcHud?.hide();
@@ -1469,6 +1821,9 @@ export class GameBootstrap extends Component {
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
+    this._linkPlay?.hide();
     this._itemShop?.hide();
     this._setGoldVisible(false);
     this._gm?.setLevel(this._level);
@@ -1486,18 +1841,90 @@ export class GameBootstrap extends Component {
     this._prefetchPlayWorld();
   }
 
+  private _maybeOfferDailyPlay(): void {
+    if (!this._dailyItem || this._ugcPlay || this._ugcEditor || this._inLink) return;
+    if (!this._playHud?.node.active || this._dailyItem.isOpen()) return;
+    if (this._rank?.isOpen() || this._settings?.node.active) return;
+    if (isDailyItemClaimedToday() || hasShownDailyPlayToday()) return;
+    markDailyPlayShown();
+    this._battle?.setPlaying(false);
+    this._dailyItem.show();
+  }
+
+  private async _watchDailyItem(): Promise<void> {
+    if (this._dailyBusy || isDailyItemClaimedToday()) return;
+    this._dailyBusy = true;
+    this._dailyItem?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._dailyBusy = false;
+    this._dailyItem?.setBusy(false);
+    if (result !== 'rewarded') return;
+    markDailyItemClaimed();
+    for (const id of DAILY_ITEM_REWARDS) this._wallet.addItem(id, 1);
+    this._closeDailyItem();
+    this._flyGrantedItems(DAILY_ITEM_REWARDS);
+  }
+
+  private _closeDailyItem(): void {
+    this._dailyBusy = false;
+    this._dailyItem?.hide();
+    if (this._chest?.node.active || this._settings?.node.active || this._itemShop?.node.active) return;
+    if (this._rank?.isOpen() || this._victory?.isOpen() || this._fail?.node.active) return;
+    if (this._playHud?.node.active) this._battle?.setPlaying(true);
+  }
+
   private _showSettings(): void {
     this._unlockAudio();
     this._itemShop?.hide();
-    this._settings?.show();
+    this._rank?.hide();
+    const inLink = !!this._linkPlay?.isOpen();
+    const inPlay = !!this._playHud?.node.active || inLink;
+    this._settings?.show({
+      inPlay,
+      canSkip: inPlay && !this._ugcPlay && !inLink && this._level < LEVEL_COUNT,
+      canLink: !inPlay && isLinkUnlocked(this._level),
+    });
     this._gm?.collapse();
     this._battle?.setPlaying(false);
+    if (inLink) this._linkPlay?.setPaused(true);
+  }
+
+  private async _skipLevelFromSettings(): Promise<void> {
+    if (this._settingsBusy || this._ugcPlay || this._level >= LEVEL_COUNT) return;
+    this._settingsBusy = true;
+    this._settings?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._settingsBusy = false;
+    this._settings?.setBusy(false);
+    if (result !== 'rewarded' || !this.isValid) return;
+    this._gmSkip(this._level + 1);
+  }
+
+  private async _resetLevelFromSettings(): Promise<void> {
+    if (this._inLink) {
+      this._settings?.hide();
+      this._linkPlay?.setPaused(false);
+      this._linkPlay?.reload();
+      return;
+    }
+    if (this._settingsBusy) return;
+    this._settingsBusy = true;
+    this._settings?.setBusy(true);
+    const result = await showRewardedVideoAd();
+    this._settingsBusy = false;
+    this._settings?.setBusy(false);
+    if (result !== 'rewarded' || !this.isValid) return;
+    this._retryPlay();
   }
 
   private _closeSettings(): void {
     this._settings?.hide();
-    if (this._chest?.node.active) return;
+    if (this._chest?.node.active || this._dailyItem?.isOpen() || this._rank?.isOpen()) return;
     if (this._itemShop?.node.active) return;
+    if (this._linkPlay?.isOpen()) {
+      this._linkPlay.setPaused(false);
+      return;
+    }
     if (this._playHud?.node.active) {
       this._battle?.setPlaying(true);
       return;
@@ -1506,8 +1933,62 @@ export class GameBootstrap extends Component {
     this._setWorldLive(false);
   }
 
+  private _showRank(): void {
+    if (this._ugcPlay || this._inLink) return;
+    this._unlockAudio();
+    this._itemShop?.hide();
+    this._settings?.hide();
+    this._rank?.applyPlayer(this._level);
+    this._rank?.show();
+    this._gm?.collapse();
+    this._battle?.setPlaying(false);
+  }
+
+  private _closeRank(): void {
+    this._rank?.hide();
+    if (this._chest?.node.active || this._dailyItem?.isOpen() || this._settings?.node.active) return;
+    if (this._itemShop?.node.active) return;
+    if (this._victory?.isOpen() || this._fail?.node.active) return;
+    if (this._playHud?.node.active) this._battle?.setPlaying(true);
+  }
+
+  private _enterLinkPlay(): void {
+    if (this._enteringPlay || this._dailyItem?.isOpen()) return;
+    if (!isLinkUnlocked(this._level)) return;
+    this._unlockAudio();
+    this._inLink = true;
+    this._home?.hide();
+    this._ugcHud?.hide();
+    this._settings?.hide();
+    this._playHud?.hide();
+    this._victory?.hide();
+    this._fail?.hide();
+    this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
+    this._itemShop?.hide();
+    this._gm?.collapse();
+    this._setWorldLive(false);
+    this._setGoldVisible(true);
+    this._linkPlay?.show(loadLinkLevel());
+  }
+
+  private _retryLink(): void {
+    this._settings?.hide();
+    this._inLink = true;
+    this._linkPlay?.setPaused(false);
+    this._linkPlay?.reload();
+  }
+
+  private _onLinkCleared(): void {
+    if (!this._inLink) return;
+    this._wallet.add(LINK_GOLD);
+    saveLinkLevel(loadLinkLevel() + 1);
+    this._linkPlay?.show(loadLinkLevel());
+  }
+
   private _enterPlay(): void {
-    if (this._enteringPlay) return;
+    if (this._enteringPlay || this._dailyItem?.isOpen()) return;
     void this._enterPlayAsync();
   }
 
@@ -1516,50 +1997,44 @@ export class GameBootstrap extends Component {
     try {
       this._settledBuilt = -1;
       this._unlockAudio();
-      if (this._playWorldReady()) {
-        this._revealPlay();
-        return;
-      }
       const fromHome = !this._ugcPlay && !!this._home?.node.active;
-      if (fromHome) {
-        await this._ensureWorld();
-      } else {
-        await this._runLevelLoad(async (set) => {
-          set(0.16);
-          await this._ensureWorld();
-          set(0.94);
-        });
-      }
-      if (!this.isValid || this._ugcEditor) return;
-      if (this._ugcHoldPlay && !this._ugcPlay) return;
-      if (!this._playWorldReady()) {
-        await this._runLevelLoad(async (set) => {
-          set(0.16);
-          await this._ensureWorld();
-          set(0.94);
-        });
+      if (this._ugcPlay || this._playWorldReady() || this._level <= 1) {
+        if (!this._playWorldReady()) await this._ensureWorld();
         if (!this.isValid || this._ugcEditor) return;
         if (this._ugcHoldPlay && !this._ugcPlay) return;
+        this._revealPlay(fromHome);
+        return;
       }
-      this._revealPlay();
+      await this._runLevelLoad(async (set) => {
+        set(0.16);
+        await this._ensureWorld();
+        set(0.94);
+      });
+      if (!this.isValid || this._ugcEditor) return;
+      if (this._ugcHoldPlay && !this._ugcPlay) return;
+      this._revealPlay(fromHome);
     } finally {
       this._enteringPlay = false;
     }
   }
 
-  private _revealPlay(): void {
+  private _revealPlay(fromHome = false): void {
     const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
     applyLevel(level);
     this._frameMainCamera();
     this._setWorldLive(true);
     this._bindBattle();
     this._battle?.reposeView();
+    this._inLink = false;
     this._home?.hide();
     this._ugcHud?.hide();
     this._settings?.hide();
     this._victory?.hide();
     this._fail?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
+    this._linkPlay?.hide();
     this._itemShop?.hide();
     this._gm?.collapse();
     this._playHud?.setUgc(this._ugcPlay);
@@ -1580,6 +2055,7 @@ export class GameBootstrap extends Component {
     this._battle?.setPlaying(true);
     this._clearChest = null;
     this._grantLeftoverChest();
+    const offerDaily = fromHome && !this._ugcPlay;
     if (gifted.length) {
       void this._flyChestItems(gifted).then(() => {
         if (!this.isValid || landGen !== this._guideLandGen) return;
@@ -1587,8 +2063,11 @@ export class GameBootstrap extends Component {
         this.scheduleOnce(() => {
           if (!this.isValid || landGen !== this._guideLandGen) return;
           this._battle?.setItemsReady(true);
+          if (offerDaily) this._maybeOfferDailyPlay();
         }, 0.22);
       });
+    } else if (offerDaily) {
+      this._maybeOfferDailyPlay();
     }
   }
 
@@ -1604,12 +2083,17 @@ export class GameBootstrap extends Component {
       this._returnToEditor();
       return;
     }
-    resetPlayFx();
-    this._worldKey = '';
-    this._builtLevel = 0;
-    this._disposeNamed('PlayWorld');
-    this._battle = null;
-    this._enterPlay();
+    await this._consumeEnergyThen(
+      () => {
+        resetPlayFx();
+        this._worldKey = '';
+        this._builtLevel = 0;
+        this._disposeNamed('PlayWorld');
+        this._battle = null;
+        this._enterPlay();
+      },
+      () => this._showHome(),
+    );
   }
 
   private _clearUgcPlay(): void {
@@ -1704,6 +2188,8 @@ export class GameBootstrap extends Component {
     this._fail?.hide();
     this._settings?.hide();
     this._chest?.hide();
+    this._dailyItem?.hide();
+    this._rank?.hide();
     this._itemShop?.hide();
     this._setGoldVisible(false);
     this._ugcMapId = map.id;

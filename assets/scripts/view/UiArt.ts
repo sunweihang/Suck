@@ -19,6 +19,8 @@ import { paintCapsuleBtn, paintLevelBadge, styleLevelBadge } from './QChrome';
 /** Native pixel size of the volcano button PNGs. Do not stretch. */
 export const VOLCANO_BTN_W = 374;
 export const VOLCANO_BTN_H = 145;
+/** Button ad-mark height. Width follows the sprite, never squash. */
+export const AD_MARK_H = 78;
 
 const KEYS = [
   'bg',
@@ -29,6 +31,10 @@ const KEYS = [
   'prefix',
   'settingsBg',
   'settingsGear',
+  'icHudHome',
+  'icHudClub',
+  'icHudGear',
+  'icHudRank',
   'settingsClose',
   'ugcBtn',
   'shareBtn',
@@ -37,6 +43,10 @@ const KEYS = [
   'settingsDim',
   'icMusic',
   'icSfx',
+  'icHaptic',
+  'icHomeRow',
+  'icSkip',
+  'icReset',
   'volumeTrack',
   'volumeFill',
   'sliderThumb',
@@ -63,10 +73,19 @@ const KEYS = [
   'icUgcRun',
   'icUgcExit',
   'goldIcon',
+  'energyIcon',
   'goldBg',
   'icAd',
+  'icAdCam',
+  'icAdPlay',
+  'icFreeSpin',
+  'icBoost',
+  'icLink',
+  'iceOverlay',
   'winAction',
   'winDouble',
+  'winHome',
+  'winSkip',
   'chest',
   'itemGetPanel',
   'itemGetBox',
@@ -99,6 +118,10 @@ function pathOf(key: ArtKey): string {
   if (key === 'prefix') return 'ui/lv-prefix/spriteFrame';
   if (key === 'settingsBg') return 'ui/btn-settings-bg/spriteFrame';
   if (key === 'settingsGear') return 'ui/ic-gear/spriteFrame';
+  if (key === 'icHudHome') return 'ui/ic-hud-home/spriteFrame';
+  if (key === 'icHudClub') return 'ui/ic-hud-club/spriteFrame';
+  if (key === 'icHudGear') return 'ui/ic-hud-gear/spriteFrame';
+  if (key === 'icHudRank') return 'ui/ic-hud-rank/spriteFrame';
   if (key === 'settingsClose') return 'ui/btn-close/spriteFrame';
   if (key === 'ugcBtn') return 'ui/btn-ugc/spriteFrame';
   if (key === 'shareBtn') return 'ui/btn-clear-next/spriteFrame';
@@ -107,6 +130,10 @@ function pathOf(key: ArtKey): string {
   if (key === 'settingsDim') return 'ui/dim-clear/spriteFrame';
   if (key === 'icMusic') return 'ui/ic-music/spriteFrame';
   if (key === 'icSfx') return 'ui/ic-sfx/spriteFrame';
+  if (key === 'icHaptic') return 'ui/ic-haptic/spriteFrame';
+  if (key === 'icHomeRow') return 'ui/ic-home-row/spriteFrame';
+  if (key === 'icSkip') return 'ui/ic-skip/spriteFrame';
+  if (key === 'icReset') return 'ui/ic-reset/spriteFrame';
   if (key === 'volumeTrack') return 'ui/volume-track/spriteFrame';
   if (key === 'volumeFill') return 'ui/volume-fill/spriteFrame';
   if (key === 'sliderThumb') return 'ui/slider-thumb/spriteFrame';
@@ -133,10 +160,19 @@ function pathOf(key: ArtKey): string {
   if (key === 'icUgcRun') return 'ui/ic-ugc-run/spriteFrame';
   if (key === 'icUgcExit') return 'ui/ic-ugc-exit/spriteFrame';
   if (key === 'goldIcon') return 'ui/ui-gold-icon/spriteFrame';
+  if (key === 'energyIcon') return 'ui/ui-energy-icon/spriteFrame';
   if (key === 'goldBg') return 'ui/ui-gold-bg/spriteFrame';
-  if (key === 'icAd') return 'ui/ic-ad-video/spriteFrame';
+  if (key === 'icAd') return 'ui/ic-ad-play/spriteFrame';
+  if (key === 'icAdCam') return 'ui/ic-ad-cam/spriteFrame';
+  if (key === 'icAdPlay') return 'ui/ic-ad-play/spriteFrame';
+  if (key === 'icFreeSpin') return 'ui/ic-free-spin/spriteFrame';
+  if (key === 'icBoost') return 'ui/ic-boost/spriteFrame';
+  if (key === 'icLink') return 'ui/ic-link/spriteFrame';
+  if (key === 'iceOverlay') return 'ui/ice-overlay/spriteFrame';
   if (key === 'winAction') return 'ui/btn-win-action/spriteFrame';
   if (key === 'winDouble') return 'ui/btn-win-double/spriteFrame';
+  if (key === 'winHome') return 'ui/btn-win-home/spriteFrame';
+  if (key === 'winSkip') return 'ui/btn-win-skip/spriteFrame';
   if (key === 'chest') return 'ui/chest/spriteFrame';
   if (key === 'itemGetPanel') return 'ui/panel-item-get/spriteFrame';
   if (key === 'panelMain') return 'ui/panel-main/spriteFrame';
@@ -339,10 +375,11 @@ function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number }
   if (key === 'panelMain') return { t: 280, b: 280, l: 280, r: 280 };
   if (key === 'itemTray') return { t: 72, b: 72, l: 120, r: 120 };
   if (key === 'goldBg') return { t: 0, b: 0, l: 20, r: 20 };
-  if (key === 'volumeFill') return { t: 0, b: 0, l: 14, r: 2 };
+  if (key === 'volumeTrack') return { t: 0, b: 0, l: 32, r: 32 };
+  if (key === 'volumeFill') return { t: 0, b: 0, l: 28, r: 28 };
   if (key === 'loadTrack') return { t: 0, b: 0, l: 32, r: 32 };
   if (key === 'loadFill') return { t: 0, b: 0, l: 20, r: 20 };
-  if (key === 'tipBase') return { t: 68, b: 68, l: 68, r: 68 };
+  if (key === 'tipBase') return { t: 8, b: 8, l: 60, r: 60 };
   return null;
 }
 
@@ -377,7 +414,7 @@ function paintSprite(node: Node, sf: SpriteFrame, w: number, h: number, sliced: 
   sp.spriteFrame = sf;
   sp.color = Color.WHITE;
   sp.enabled = true;
-  const rawBtn = key === 'winAction' || key === 'winDouble';
+  const rawBtn = key === 'settingsClose' || key === 'winAction' || key === 'winDouble' || key === 'winHome' || key === 'winSkip';
   if (rawBtn) {
     sp.sizeMode = Sprite.SizeMode.RAW;
     sp.type = Sprite.Type.SIMPLE;
@@ -431,7 +468,7 @@ export function ensureBtnChrome(
   h: number,
   fill: Color,
   stroke: Color,
-  artKey?: 'winDouble' | 'winAction' | 'clubBtn' | 'shareBtn',
+  artKey?: 'winDouble' | 'winAction' | 'winHome' | 'winSkip' | 'clubBtn' | 'shareBtn',
 ): void {
   if (!btn) return;
   const rootSp = btn.getComponent(Sprite);
@@ -440,7 +477,7 @@ export function ensureBtnChrome(
     rootSp.enabled = false;
   }
   clearClipMask(btn);
-  const rawBtn = artKey === 'winDouble' || artKey === 'winAction';
+  const rawBtn = artKey === 'winDouble' || artKey === 'winAction' || artKey === 'winHome' || artKey === 'winSkip';
   const bw = rawBtn ? VOLCANO_BTN_W : w;
   const bh = rawBtn ? VOLCANO_BTN_H : h;
   btn.getComponent(UITransform)?.setContentSize(bw, bh);
@@ -493,6 +530,22 @@ export function applyArtSprite(
   if (!sf || !frameOk(sf)) return false;
   paintSprite(node, sf, w, h, sliced, key);
   return true;
+}
+
+/** Paint the candy video-ad mark and size it to the sprite aspect. */
+export function applyAdIcon(node: Node | null, h = AD_MARK_H): number {
+  const fallback = Math.round(h * 1.41);
+  if (!node) return fallback;
+  const fit = (): number => {
+    const sf = node.getComponent(Sprite)?.spriteFrame;
+    const w = sf && sf.rect.height > 0 ? Math.round(h * sf.rect.width / sf.rect.height) : fallback;
+    node.getComponent(UITransform)?.setContentSize(w, h);
+    return w;
+  };
+  applyArtSpriteSoon(node, 'icAd', fallback, h, false, () => {
+    fit();
+  });
+  return fit();
 }
 
 /** Load on demand if preload missed the key (new settings chrome). */

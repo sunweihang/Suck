@@ -1,7 +1,7 @@
 /**
  * 游戏圈入口 — 对齐 Unravel / mg/gameClub.js：
  * 官方路径 createPageManager + openlink；无 PageManager 时回退 createGameClubButton。
- * 入口在设置面板「游戏圈」按钮，调用 openGameCircle()。
+ * 入口在对局 HUD / 设置面板「游戏圈」按钮，调用 openGameCircle()。
  */
 
 import { screen } from 'cc';
