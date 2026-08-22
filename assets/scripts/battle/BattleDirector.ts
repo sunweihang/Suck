@@ -99,6 +99,7 @@ const UI_MODALS = [
   'ChestPanel',
   'ItemShopPanel',
   'HomePanel',
+  'RankingPanel',
   'UgcHub',
   'UgcHud',
 ] as const;

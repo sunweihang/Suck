@@ -13,6 +13,8 @@ type PrefabKey =
   | 'FailPanel'
   | 'ItemShopPanel'
   | 'SettingsPanel'
+  | 'RankingPanel'
+  | 'RankingItem'
   | 'Chest'
   | 'Baozha'
   | 'Xingxing'
@@ -33,6 +35,8 @@ const PREFAB_ROWS: readonly (readonly [PrefabKey, string, string])[] = [
   ['FailPanel', '7e22bb20-0042-4b02-8002-000000000042', 'ui/FailPanel'],
   ['ItemShopPanel', '7e22bb20-0043-4b02-8002-000000000043', 'ui/ItemShopPanel'],
   ['SettingsPanel', '7e22bb20-0044-4b02-8002-000000000044', 'ui/SettingsPanel'],
+  ['RankingPanel', '7e22bb20-0045-4b02-8002-000000000045', 'ui/RankingPanel'],
+  ['RankingItem', '7e22bb20-0046-4b02-8002-000000000046', 'ui/RankingItem'],
   ['Chest', '84174c78-c604-437f-bfd2-f914ec17b899', 'board/Chest'],
   ['Baozha', '758f9311-08b5-4b56-928a-b6c60a832690', 'fx/Baozha'],
   ['Xingxing', 'd72d75b5-3b32-42c2-9eff-33153126dca6', 'fx/Xingxing'],
@@ -62,6 +66,8 @@ export const PREFAB_UUID = {
   FailPanel: UUID_BY_KEY['FailPanel'],
   ItemShopPanel: UUID_BY_KEY['ItemShopPanel'],
   SettingsPanel: UUID_BY_KEY['SettingsPanel'],
+  RankingPanel: UUID_BY_KEY['RankingPanel'],
+  RankingItem: UUID_BY_KEY['RankingItem'],
   Chest: UUID_BY_KEY['Chest'],
   Baozha: UUID_BY_KEY['Baozha'],
   Xingxing: UUID_BY_KEY['Xingxing'],

@@ -76,6 +76,14 @@ const KEYS = [
   'failPanel',
   'lockSeal',
   'tipBase',
+  'rankItemBg',
+  'rankNumBg',
+  'rankGold',
+  'rankSilver',
+  'rankBronze',
+  'rankAvatarPlate',
+  'rankAvatar',
+  'rankBg',
   ...Array.from({ length: 10 }, (_, i) => `d${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lv${i}`),
   ...Array.from({ length: 10 }, (_, i) => `lvh${i}`),
@@ -138,6 +146,14 @@ function pathOf(key: ArtKey): string {
   if (key === 'itemGetClose') return 'ui/btn-item-close/spriteFrame';
   if (key === 'lockSeal') return 'ui/lock-seal/spriteFrame';
   if (key === 'tipBase') return 'ui/tip-base/spriteFrame';
+  if (key === 'rankItemBg') return 'ui/rank-item-bg/spriteFrame';
+  if (key === 'rankNumBg') return 'ui/rank-num-bg/spriteFrame';
+  if (key === 'rankGold') return 'ui/rank-gold/spriteFrame';
+  if (key === 'rankSilver') return 'ui/rank-silver/spriteFrame';
+  if (key === 'rankBronze') return 'ui/rank-bronze/spriteFrame';
+  if (key === 'rankAvatarPlate') return 'ui/rank-avatar-plate/spriteFrame';
+  if (key === 'rankAvatar') return 'ui/rank-avatar/spriteFrame';
+  if (key === 'rankBg') return 'ui/rank-bg/spriteFrame';
   if (key.startsWith('lvh')) return `ui/lvh-${key.slice(3)}/spriteFrame`;
   if (key.startsWith('lv')) return `ui/lv-${key.slice(2)}/spriteFrame`;
   return `ui/digit-${key.slice(1)}/spriteFrame`;
@@ -320,6 +336,7 @@ export function artFrame(key: ArtKey | `d${number}`): SpriteFrame | null {
 
 function sliceInset(key: ArtKey): { t: number; b: number; l: number; r: number } | null {
   if (key === 'settingsCard') return { t: 128, b: 128, l: 128, r: 128 };
+  if (key === 'panelMain') return { t: 280, b: 280, l: 280, r: 280 };
   if (key === 'itemTray') return { t: 72, b: 72, l: 120, r: 120 };
   if (key === 'goldBg') return { t: 0, b: 0, l: 20, r: 20 };
   if (key === 'volumeFill') return { t: 0, b: 0, l: 14, r: 2 };
