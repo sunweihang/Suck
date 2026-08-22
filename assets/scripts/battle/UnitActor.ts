@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Vec3 } from 'cc';
+import { vibrateShort } from '../game/Haptic';
 import { benchColOf, benchRankOf, ColorId, PLAY, SPECIAL_SPAN, TOKEN_RGB, parseColorToken, tokenOfColorId } from '../game/GameConfig';
 import { nearestVoxelId } from '../game/VoxelPalette';
 import { applyGhostLook, hideQueueColors, paintUnitColor } from './BrickSpecials';
@@ -217,6 +218,7 @@ export class UnitActor extends Component {
     }
     this._wake();
     this._vanish = true;
+    vibrateShort('medium');
     this._shownPower = -1;
     this._syncPowerText();
     this.refreshPowerVisible();

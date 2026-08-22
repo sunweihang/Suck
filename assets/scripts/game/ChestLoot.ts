@@ -1,20 +1,12 @@
-import { itemUnlocked, type ItemId } from './LevelCatalog';
+import type { ItemId } from './LevelCatalog';
 
 export type ChestReward = {
   gold: number;
   items: ItemId[];
 };
 
-const ITEM_POOL: readonly ItemId[] = ['shuffle', 'hook', 'shovel', 'bomb'];
-
-export function rollChestReward(level: number): ChestReward {
-  const gold = 40 + ((Math.random() * 41) | 0);
-  const pool = ITEM_POOL.filter((id) => itemUnlocked(id, level));
-  if (!pool.length) return { gold: gold + 30, items: [] };
-  const n = Math.random() < 0.4 ? 2 : 1;
-  const items: ItemId[] = [];
-  for (let i = 0; i < n; i++) {
-    items.push(pool[(Math.random() * pool.length) | 0]);
-  }
-  return { gold, items };
+/** 通关 / 关内宝箱只给金币，不再掉道具。 */
+export function rollChestReward(_level: number): ChestReward {
+  const gold = 20 + ((Math.random() * 11) | 0);
+  return { gold, items: [] };
 }

@@ -63,7 +63,7 @@ export type PlayViewBand = {
   ceilFrac: number;
 };
 
-/** Per-level ortho height. Wide sculptures zoom the camera instead of shrinking into a speck. */
+/** Per-level ortho height. Oil-fill stages share one camera distance, then shrink cubes if needed. */
 export let PLAY_CAM_ORTHO_HEIGHT = GAME.worldCamOrthoHeight;
 
 export function playCamOrthoHeight(): number {
@@ -152,7 +152,7 @@ export const STAGE = {
   dockPinZ: 0.30,
 } as const;
 
-/** Shrink step/size, then sit the sculpture in the camera band above the pits. */
+/** Shared oil-fill camera, then shrink cubes if needed and sit the sculpture in the band. */
 export function fitPlayLayout(
   cols: number,
   rows: number,
@@ -206,13 +206,12 @@ export function fitPlayLayout(
     );
   };
 
-  let ortho = baseOrtho;
-  let step = stepAt(ortho);
-  if (step + 1e-4 < GAME.blockStep) {
-    ortho = Math.min(maxOrtho, baseOrtho * (GAME.blockStep / Math.max(0.05, step)));
-    step = stepAt(ortho);
-  }
-  let band = applyStep(step, ortho);
+  // Same camera for every oil-fill stage. Tiny maps (L1 is 10×9×5) used to
+  // stay on the close 5.45 default and look bigger than later stages, which
+  // already sit at maxOrtho.
+  const ortho = maxOrtho;
+  const step = stepAt(ortho);
+  const band = applyStep(step, ortho);
 
   const half = PLAY.blockSize * 0.5;
   const mid = (band.floorY + band.ceilY) * 0.5;

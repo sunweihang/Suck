@@ -4,17 +4,18 @@ import { notifyPlayerDirty } from '../net/PlayerCloud';
 
 const STORAGE_KEY = 'suck.wallet.v1';
 
+/** 50–70 关纯通关累计（含宝箱金、不含广告）≈ 1 个道具。 */
 export const GOLD = {
-  start: 200,
-  win: 25,
-  fail: 10,
+  start: 30,
+  win: 8,
+  fail: 3,
   ad: 50,
-  slot: 600,
+  slot: 2000,
   item: {
-    shuffle: 20,
-    hook: 40,
-    shovel: 40,
-    bomb: 30,
+    shuffle: 600,
+    hook: 1000,
+    shovel: 1000,
+    bomb: 800,
   } as Record<ItemId, number>,
 };
 
