@@ -9,7 +9,7 @@ import {
 } from 'cc';
 import { ColorId, tokenOfColorId } from '../game/GameConfig';
 import { paintQueueBlock, paintUnitColor, preloadHiddenPattern } from './BrickSpecials';
-import { applyToyCaster } from './ToyBlockMesh';
+import { applyToyCaster, applyDockRender } from './ToyBlockMesh';
 import { applyTurretPose } from './TurretPose';
 import { TURRET_PITCH_DEG, TURRET_SCALE, TURRET_YAW_DEG, turretFireLocal } from './ToyLook';
 import { applyBlobShadow, applyToyOutline, preloadToyOutline } from './ToyOutline';
@@ -140,11 +140,15 @@ export function applyTurretLook(host: Node, colorId: ColorId, outline = true): v
   if (_mesh) {
     apply(_mesh);
     applyToyCaster(host, false, false);
+    applyDockRender(host);
     return;
   }
   preloadTurretLooks().then(() => {
     if (_mesh) apply(_mesh);
-    if (host.isValid) applyToyCaster(host, false, false);
+    if (host.isValid) {
+      applyToyCaster(host, false, false);
+      applyDockRender(host);
+    }
   });
 }
 
@@ -189,6 +193,7 @@ export function applyQueueBlockLook(host: Node, colorId: ColorId = 0, hidden = f
   if (mesh) {
     apply(mesh);
     applyToyCaster(host, false, false);
+    applyDockRender(host);
     if (hidden) {
       void preloadHiddenPattern().then(() => {
         if (host.isValid) paintQueueBlock(host, tokenOfColorId(colorId), true);
@@ -199,6 +204,9 @@ export function applyQueueBlockLook(host: Node, colorId: ColorId = 0, hidden = f
   preloadTurretLooks().then(() => {
     const ready = _hidden ?? _cube;
     if (ready) apply(ready);
-    if (host.isValid) applyToyCaster(host, false, false);
+    if (host.isValid) {
+      applyToyCaster(host, false, false);
+      applyDockRender(host);
+    }
   });
 }

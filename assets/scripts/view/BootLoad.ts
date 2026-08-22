@@ -18,7 +18,7 @@ import {
 } from 'cc';
 import { openResourcesBundle } from '../boot/LoadBundles';
 import { vibrateShort } from '../game/Haptic';
-import { loadTipTag, type LoadTip } from '../game/LoadTip';
+import { type LoadTip } from '../game/LoadTip';
 import { coverBackgroundSize, portraitVisibleSize } from '../game/PortraitFit';
 import { applyArtSpriteSoon } from './UiArt';
 
@@ -35,8 +35,6 @@ const THUMB = 48;
 const FILL_INSET = 8;
 const CARD_W = 820;
 const CARD_H = 520;
-const RIBBON_W = 300;
-const RIBBON_H = 108;
 const TIP_W = 860;
 const TIP_H = 640;
 const TIP_ICON = 168;
@@ -44,8 +42,6 @@ const SPARK = 40;
 const GO_W = 420;
 const GO_H = 72;
 const DIM = new Color(6, 8, 14, 200);
-const TAG_INK = new Color(255, 252, 248, 255);
-const TAG_OUTLINE = new Color(196, 72, 110, 255);
 const TITLE_INK = new Color(255, 118, 86, 255);
 const TITLE_OUTLINE = new Color(132, 52, 40, 255);
 const BODY_INK = new Color(92, 58, 48, 255);
@@ -62,7 +58,6 @@ type BootArt = {
   fill: SpriteFrame;
   knob: SpriteFrame;
   card: SpriteFrame;
-  ribbon: SpriteFrame;
   spark: SpriteFrame;
 };
 
@@ -115,8 +110,6 @@ export async function attachBootLoad(host: Node): Promise<BootLoad> {
   tipW.updateAlignment();
   tip.active = false;
   paint(mk(tip, 'Plate', CARD_W, CARD_H), art.card, CARD_W, CARD_H, false);
-  paint(mk(tip, 'Ribbon', RIBBON_W, RIBBON_H), art.ribbon, RIBBON_W, RIBBON_H, false);
-  styleTag(mk(tip, 'Tag', 220, 48).addComponent(Label));
   mk(tip, 'Icon', TIP_ICON, TIP_ICON);
   styleTipTitle(mk(tip, 'Title', CARD_W - 160, 88).addComponent(Label), 56);
   styleTipBody(mk(tip, 'Body', CARD_W - 180, 140).addComponent(Label), 30);
@@ -289,17 +282,16 @@ export async function attachBootLoad(host: Node): Promise<BootLoad> {
 
 async function loadBootArt(): Promise<BootArt> {
   const bundle = await openResourcesBundle();
-  const [home, load, track, fill, knob, card, ribbon, spark] = await Promise.all([
+  const [home, load, track, fill, knob, card, spark] = await Promise.all([
     loadSprite(bundle, 'ui/bg-home/spriteFrame'),
     loadSprite(bundle, 'ui/bg-load/spriteFrame'),
     loadSprite(bundle, 'ui/load-track/spriteFrame'),
     loadSprite(bundle, 'ui/load-fill/spriteFrame'),
     loadSprite(bundle, 'ui/load-knob/spriteFrame'),
     loadSprite(bundle, 'ui/tip-card/spriteFrame'),
-    loadSprite(bundle, 'ui/tip-ribbon/spriteFrame'),
     loadSprite(bundle, 'ui/tip-spark/spriteFrame'),
   ]);
-  return { home, load, track, fill, knob, card, ribbon, spark };
+  return { home, load, track, fill, knob, card, spark };
 }
 
 function loadSprite(bundle: AssetManager.Bundle, path: string): Promise<SpriteFrame> {
@@ -369,15 +361,6 @@ function paintTip(root: Node, dim: Node, next: LoadTip | null): void {
   const plate = root.getChildByName('Plate');
   plate?.setPosition(0, -8, 0);
   if (plate) plate.active = true;
-  const ribbon = root.getChildByName('Ribbon');
-  const tag = root.getChildByName('Tag');
-  const tagText = loadTipTag(next);
-  ribbon?.setPosition(0, CARD_H * 0.5 - 10, 0);
-  tag?.setPosition(0, CARD_H * 0.5 - 6, 0);
-  if (ribbon) ribbon.active = !!tagText;
-  if (tag) tag.active = !!tagText;
-  const tagLab = tag?.getComponent(Label);
-  if (tagLab) tagLab.string = tagText;
   const icon = root.getChildByName('Icon');
   const hasIcon = !!next.icon;
   if (icon) icon.active = hasIcon;
@@ -393,22 +376,6 @@ function paintTip(root: Node, dim: Node, next: LoadTip | null): void {
   const bodyLab = body?.getComponent(Label);
   if (bodyLab) bodyLab.string = next.body;
   popTip(root);
-}
-
-function styleTag(lab: Label): Label {
-  lab.fontSize = 28;
-  lab.lineHeight = 36;
-  lab.isBold = true;
-  lab.color = TAG_INK;
-  lab.enableOutline = true;
-  lab.outlineWidth = 3;
-  lab.outlineColor = TAG_OUTLINE;
-  lab.horizontalAlign = Label.HorizontalAlign.CENTER;
-  lab.verticalAlign = Label.VerticalAlign.CENTER;
-  lab.overflow = Label.Overflow.SHRINK;
-  lab.useSystemFont = true;
-  lab.fontFamily = 'PingFang SC';
-  return lab;
 }
 
 function styleTipTitle(lab: Label, size: number): Label {

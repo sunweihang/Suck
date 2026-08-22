@@ -1,4 +1,5 @@
 import { Color, EffectAsset, Layers, Mesh, MeshRenderer, Material, Node, Sprite, Texture2D, Vec3, Vec4, assetManager, resources } from 'cc';
+import { DOCK_RENDER_PRI, FLY_BRICK_PRI } from './ToyLook';
 import { isFieldMat, registerFieldMat, releaseFieldNode } from './FieldSpin';
 
 const GRAY_DIM = 0.76;
@@ -230,10 +231,17 @@ export function cachedFieldLit(
 ): Material {
   const key = `${color.r}|${color.g}|${color.b}|${color.a}|${roughness}|${metallic}|${emit}`;
   const hit = _fieldLitCache.get(key);
-  if (hit?.passes?.length && hit.passes[0].descriptorSet) return hit;
+  if (hit?.passes?.length && hit.passes[0].descriptorSet) return registerFieldMat(hit);
   const mat = makeFieldLit(new Color(color.r, color.g, color.b, color.a), roughness, metallic, emit);
   _fieldLitCache.set(key, mat);
   return mat;
+}
+
+/** Put cached field materials back on the GPU spin list after resetFieldSpin. */
+export function rebindFieldLitCache(): void {
+  _fieldLitCache.forEach((mat) => {
+    if (mat?.passes?.length) registerFieldMat(mat);
+  });
 }
 
 const _freeOf = new WeakMap<Material, Material>();
@@ -457,5 +465,20 @@ export function applyToyCaster(node: Node, receive = false, cast = false): void 
     mr.shadowReceivingMode = receive
       ? MeshRenderer.ShadowReceivingMode.ON
       : MeshRenderer.ShadowReceivingMode.OFF;
+  }
+}
+
+/** Turret dock draws above falling brick chips and trails. */
+export function applyDockRender(node: Node, priority = DOCK_RENDER_PRI): void {
+  const mrs = node.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) mrs[i].priority = priority;
+}
+
+/** Loose flying bricks stay under the dock. */
+export function applyFlyBrickRender(node: Node, priority = FLY_BRICK_PRI): void {
+  const mrs = node.getComponentsInChildren(MeshRenderer);
+  for (let i = 0; i < mrs.length; i++) {
+    if (SKIP_CAST.test(mrs[i].node.name)) continue;
+    mrs[i].priority = priority;
   }
 }

@@ -138,6 +138,36 @@ export function playModelCeilFrac(viewH?: number, safeTop?: number): number {
 }
 
 /**
+ * PlayHud TipLab sits below ScoreBoard while a pick is armed.
+ * Keep in sync with `PlayHud.layoutChrome`.
+ */
+function playPickTopInset(safeTop: number): number {
+  const SCORE_H = 96;
+  const SCORE_PAD = 36;
+  const TIP_BADGE = 360;
+  const TIP_BELOW_SCORE = 68;
+  const TIP_H = 120;
+  const TIP_MODEL_GAP = 20;
+  return (
+    safeTop
+    + SCORE_PAD
+    + SCORE_H * 0.5
+    + TIP_BADGE * 0.5
+    + TIP_BELOW_SCORE
+    + TIP_H * 0.5
+    + TIP_MODEL_GAP
+  );
+}
+
+/** Camera-view fraction of the sculpture ceiling under the pick tip. */
+export function playPickCeilFrac(viewH?: number, safeTop?: number): number {
+  const vis = uiVisibleSize();
+  const h = Math.max(1, viewH ?? vis.h);
+  const top = safeTop ?? uiSafeInsetsRaw(vis.w, h).top;
+  return 1 - playPickTopInset(top) / h;
+}
+
+/**
  * Design-space lift so the UGC dock sits just above the 试玩 button
  * (home 开始游戏 art at 0.62, plus the 6px air in UgcHud).
  */
@@ -150,6 +180,17 @@ export function playViewBand(viewH?: number, pinExtra = 0): PlayViewBand {
   return {
     pinFrac: playDockPinFrac(h, safe.bottom) + pinExtra / h,
     ceilFrac: playModelCeilFrac(h, safe.top),
+  };
+}
+
+/** Same dock pin, but leave room for the pick tip above the wall. */
+export function playPickViewBand(viewH?: number): PlayViewBand {
+  const vis = uiVisibleSize();
+  const h = viewH ?? vis.h;
+  const safe = uiSafeInsetsRaw(vis.w, h);
+  return {
+    pinFrac: playDockPinFrac(h, safe.bottom),
+    ceilFrac: playPickCeilFrac(h, safe.top),
   };
 }
 

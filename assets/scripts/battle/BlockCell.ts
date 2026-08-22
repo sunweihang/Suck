@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Quat, Vec3 } from 'cc';
-import { ColorId, GAME, PLAY, isColorToken, parseColorToken } from '../game/GameConfig';
+import { ColorId, GAME, PLAY, isColorToken, parseColorToken, shooterStandZ, slotY } from '../game/GameConfig';
 import { coverBrickSkin, flyBrickSkin, markBrickSkin, popBrickSkin } from './BrickSkin';
 import { bindFieldNode, fieldWorldOf } from './FieldSpin';
 import { applyBrickGray, applyBrickPlastic, releaseFieldBrick, wakeBrickMesh } from './ToyBlockMesh';
@@ -20,6 +20,9 @@ const SHRINK_START = 0.9;
 const FLOOR_Y = 0.14;
 /** Original VoxelDestroy: cube keeps size, pops, then falls. */
 const BLOW_G = 17;
+/** Keep falling cubes behind the turret row once they enter the dock band. */
+const DOCK_BAND_PAD = 0.42;
+const BEHIND_DOCK_Z = 0.55;
 const _motion: BlockCell[] = [];
 
 @ccclass('BlockCell')
@@ -364,10 +367,15 @@ export class BlockCell extends Component {
     this._suckT += dt;
     const u = Math.min(1, this._suckT / this._suckDur);
     const t = this._suckT;
+    const y = this._from.y + this._vel.y * t - 0.5 * BLOW_G * t * t;
+    let z = this._from.z + this._vel.z * t;
+    if (y < slotY() + DOCK_BAND_PAD) {
+      z = Math.min(z, shooterStandZ() - BEHIND_DOCK_Z);
+    }
     this.node.setWorldPosition(
       this._from.x + this._vel.x * t,
-      this._from.y + this._vel.y * t - 0.5 * BLOW_G * t * t,
-      this._from.z + this._vel.z * t,
+      y,
+      z,
     );
     Quat.fromAxisAngle(_dq, this._axis, this._spin * dt * (Math.PI / 180));
     Quat.multiply(_qOut, _dq, this._q);

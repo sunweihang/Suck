@@ -5,7 +5,7 @@ import { nearestVoxelId } from '../game/VoxelPalette';
 import { applyGhostLook, hideQueueColors, paintUnitColor } from './BrickSpecials';
 import { TurretAnim } from './TurretAnim';
 import { bindPowerMark, paintPowerMark, posePowerMark, preloadPowerDigits } from './PowerMark';
-import { applyToyCaster } from './ToyBlockMesh';
+import { applyToyCaster, applyDockRender } from './ToyBlockMesh';
 import { TURRET_SCALE } from './ToyLook';
 import { applyQueueBlockLook, applyTurretLook } from './TurretLook';
 import { applyIceShell, clearIceShell, iceNeed } from './IceShell';
@@ -78,6 +78,7 @@ export class UnitActor extends Component {
 
   onLoad(): void {
     applyToyCaster(this.node, false, false);
+    applyDockRender(this.node);
     this.syncFromName();
   }
 
@@ -297,16 +298,17 @@ export class UnitActor extends Component {
   }
 
   /** Arc from the current pose to a world seat (bench → pit). */
-  flyToWorld(world: Vec3, delay = 0, keepScale = false): void {
+  flyToWorld(world: Vec3, delay = 0, keepScale = false, pace = 1): void {
     if (this.node.parent) this.node.parent.inverseTransformPoint(this.targetPos, world);
     else this.targetPos.set(world);
     const dx = this.targetPos.x - this.node.position.x;
     const dz = this.targetPos.z - this.node.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
+    const p = Math.max(1, pace);
     this._flyDone = null;
     this._beginFly(
       this.targetPos,
-      0.28 + Math.min(0.34, dist * 0.14),
+      (0.28 + Math.min(0.34, dist * 0.14)) / p,
       0.32 + Math.min(0.55, dist * 0.24),
       true,
       keepScale,

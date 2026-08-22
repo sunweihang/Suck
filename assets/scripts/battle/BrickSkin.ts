@@ -12,7 +12,9 @@ import {
 import type { BlockCell } from './BlockCell';
 import { attachBrickRenderer, brickCubeMesh, sandRgbOf } from './BrickSpecials';
 import { lookOfVoxel } from '../game/VoxelPalette';
-import { inflateFieldCull, makeBrickBatchMat, wakeBrickMesh } from './ToyBlockMesh';
+import { inflateFieldCull, makeBrickBatchMat, rebindFieldLitCache, wakeBrickMesh, applyFlyBrickRender } from './ToyBlockMesh';
+import { registerFieldMat } from './FieldSpin';
+import { FLY_BRICK_PRI } from './ToyLook';
 
 const SKIN_ROOT = 'BrickSkins';
 const SKIP_BODY = /^(HoldRim|Outline|Crease|BlobShadow|Pad|Power|Bank|Text|Lock|Chip_|Trail_|Hit_|Muzzle_|Paint|Magnet)/;
@@ -87,7 +89,7 @@ function displayRgb(block: BlockCell): readonly [number, number, number] {
 
 function sharedMat(fly = false): Material | null {
   const hit = fly ? _flyMat : _restMat;
-  if (hit?.passes?.length) return hit;
+  if (hit?.passes?.length) return fly ? hit : registerFieldMat(hit);
   const mat = makeBrickBatchMat(WHITE, !fly);
   if (!mat) return null;
   if (fly) _flyMat = mat;
@@ -238,6 +240,7 @@ function takeBatch(
   const mr = node.addComponent(MeshRenderer);
   mr.shadowCastingMode = MeshRenderer.ShadowCastingMode.OFF;
   mr.shadowReceivingMode = MeshRenderer.ShadowReceivingMode.OFF;
+  if (fly) mr.priority = FLY_BRICK_PRI;
   mr.setSharedMaterial(mat, 0);
   mr.mesh = cube;
   const cap = MIN_CAP;
@@ -386,6 +389,10 @@ export function bindBrickSkin(field: Node | null, actors: Node | null): void {
   }
   ensureHost(field, actors);
   probeBatch();
+  // resetFieldSpin() drops the GPU list; session-cached mats must go back on
+  // or the next level's wall looks frozen while combat still tracks spin.
+  if (_restMat?.passes?.length) registerFieldMat(_restMat);
+  rebindFieldLitCache();
 }
 
 export function clearBrickSkin(): void {
@@ -427,9 +434,13 @@ export function flyBrickSkin(block: BlockCell | null | undefined): void {
   if (!block || !keepFly(block)) return;
   if (!_useBatch || !_host?.isValid) {
     showBody(block);
+    applyFlyBrickRender(block.node);
     return;
   }
-  if (!addToStore(block, _host, true)) showBody(block);
+  if (!addToStore(block, _host, true)) {
+    showBody(block);
+    applyFlyBrickRender(block.node);
+  }
 }
 
 /** Resting shell cubes share one draw. Flying cubes share a second draw. */

@@ -18,7 +18,7 @@ import {
   Vec3,
 } from 'cc';
 import { gameAudio } from '../audio/AudioService';
-import { itemTrayTopFromBottom, playViewBand, screenYToUiFromBottom, uiFromBottomToScreenY, uiVisibleSize } from '../game/ViewFit';
+import { itemTrayTopFromBottom, playPickViewBand, playViewBand, screenYToUiFromBottom, uiFromBottomToScreenY, uiVisibleSize } from '../game/ViewFit';
 import { playBaozhaBurst, preloadBaozhaBurst } from './BaozhaBurst';
 import { playMergeBurst, preloadMergeBurst } from './MergeBurst';
 import { playShuaxinBurst, preloadShuaxinBurst } from './ShuaxinBurst';
@@ -49,8 +49,9 @@ import {
   slotY,
   slotZ,
   viewFracOfWorld,
+  voxelFrontZ,
 } from '../game/GameConfig';
-import { boostMul, grantBoost, tickBoost } from '../game/Boost';
+import { boostMul, grantAutoBoost, tickBoost } from '../game/Boost';
 import { freeSpinOn, tickFreeSpin } from '../game/FreeSpin';
 import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { attachBrickRenderer, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
@@ -68,7 +69,7 @@ import { ChestActor } from './ChestActor';
 import { applyLockNails, clearLockLook } from './LockNails';
 import { SlotPad } from './SlotPad';
 import { bindBrickSkin, brickSkinBatched, brickSkinNeedsFlush, clearBrickSkin, coverBrickSkin, flushBrickSkin, popBrickSkin, requestBrickSkinFlush, tickBrickSkin } from './BrickSkin';
-import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, setFieldSpin, worldToRest } from './FieldSpin';
+import { adoptNodeToActors, bindFieldActors, fieldWorldOf, mountOnFieldActors, restToWorld, resetFieldSpin, setFieldSpin, worldToRest } from './FieldSpin';
 import { layoutWorldBg } from './ToyBackdrop';
 import { setBrickMeshEnabled } from './ToyBlockMesh';
 import { applyIceShell, setIceNeed } from './IceShell';
@@ -366,6 +367,8 @@ export class BattleDirector extends Component {
   private _zoomRestOrtho = 0;
   private _zoomFocusOrtho = 0;
   private _zoomHold = false;
+  /** True after pick-zoom focus is locked for this gesture. */
+  private _zoomPick = false;
   private _afterZoom: (() => void) | null = null;
   private readonly _zoomRestLook = new Vec3();
   private readonly _zoomFocusLook = new Vec3();
@@ -441,6 +444,11 @@ export class BattleDirector extends Component {
     this._wallet = opts.wallet ?? null;
     this._won = false;
     this._lost = false;
+    this._zoomWant = 0;
+    this._zoomK = 0;
+    this._zoomHold = false;
+    this._zoomPick = false;
+    this._afterZoom = null;
     this._collect();
     this._bindUiHits();
     this._bindTouch();
@@ -510,11 +518,13 @@ export class BattleDirector extends Component {
     this._zoomWant = 0;
     this._zoomK = 0;
     this._zoomHold = false;
+    this._zoomPick = false;
     this._afterZoom = null;
     if (this._zoomRestReady) this._placePlayCam(this._zoomRestLook, this._zoomRestOrtho);
     this._resetDock();
     this._unbindTouch();
     bindFieldActors(null);
+    resetFieldSpin();
     clearBrickSkin();
     clearDestroyBurst();
   }
@@ -532,6 +542,34 @@ export class BattleDirector extends Component {
       this._refreshPickFocus();
       this._placePlayCamLerp(this._zoomK);
     }
+  }
+
+  /**
+   * Re-sync field parenting and visibility after PlayWorld was built or shown
+   * while inactive — stale world matrices hide bricks from turrets and break spin.
+   */
+  wakePlay(): void {
+    this._zoomWant = 0;
+    this._zoomK = 0;
+    this._zoomHold = false;
+    this._zoomPick = false;
+    this._afterZoom = null;
+    this._bindField();
+    for (let i = 0; i < this._blocks.length; i++) {
+      const brick = this._blocks[i].node;
+      const nails = brick.getChildByName('LockNails');
+      if (!nails) continue;
+      brick.getWorldPosition(_tmp);
+      mountOnFieldActors(nails, _tmp);
+    }
+    for (let i = 0; i < this._chests.length; i++) adoptNodeToActors(this._chests[i].node);
+    for (let i = 0; i < this._rescues.length; i++) adoptNodeToActors(this._rescues[i].node);
+    this._indexBlocks();
+    this._mountRaftCarry();
+    this._poseFieldSpin();
+    this._bumpVis();
+    this._captureCamRest();
+    if (this._zoomRestReady) this._placePlayCam(this._zoomRestLook, this._zoomRestOrtho);
   }
 
   update(dt: number): void {
@@ -957,7 +995,7 @@ export class BattleDirector extends Component {
 
   /** Plant the item on the visible face of the clicked turret. */
   private _unitItemLand(u: UnitActor, out: Vec3): Vec3 {
-    u.node.getWorldPosition(out);
+    u.mouthWorld(out);
     const cam = this._cam;
     if (!cam?.node?.isValid) return out;
     cam.node.getWorldPosition(_camP);
@@ -969,6 +1007,13 @@ export class BattleDirector extends Component {
     out.y += (dy / len) * 0.06;
     out.z += (dz / len) * 0.16;
     return out;
+  }
+
+  /** Xingxing burst on the turret body, not the pit. */
+  private _playUnitBurst(u: UnitActor): void {
+    if (!u.node?.isValid) return;
+    u.mouthWorld(_world);
+    playMergeBurst(this.node, _world);
   }
 
   private _hasRearBench(): boolean {
@@ -1033,11 +1078,21 @@ export class BattleDirector extends Component {
   private _setPickZoom(on: boolean): void {
     if (on) {
       if (!this._zoomRestReady || this._zoomK < 0.02) this._captureCamRest();
-      if (!this._zoomHold) this._refreshPickFocus();
+      // Lock the first good shot. Re-fitting every HUD sync can snap back to rest
+      // when world positions are stale or the target set briefly looks empty.
+      if (!this._zoomHold && !this._zoomPick) this._refreshPickFocus();
+      this._zoomPick = true;
       this._zoomWant = 1;
       return;
     }
+    this._zoomPick = false;
     this._zoomWant = 0;
+  }
+
+  /** Smaller = closer. Bomb looks at the wall; hook/shovel stay on the dock. */
+  private _pickZoomCap(rest: number): number {
+    const factor = this._bombPick ? 0.58 : 0.68;
+    return rest * factor;
   }
 
   private _captureCamRest(): void {
@@ -1060,6 +1115,7 @@ export class BattleDirector extends Component {
   private _refreshPickFocus(): void {
     if (!this._zoomRestReady) this._captureCamRest();
     const rest = this._zoomRestOrtho || playCamOrthoHeight();
+    const cap = this._pickZoomCap(rest);
     let n = 0;
     let xMin = 1e9;
     let xMax = -1e9;
@@ -1077,11 +1133,22 @@ export class BattleDirector extends Component {
       n += 1;
     };
     if (this._bombPick) {
-      this._zoomFocusLook.set(this._zoomRestLook);
-      this._zoomFocusOrtho = rest * 0.9;
-      return;
-    }
-    if (this._shovelPick) {
+      for (let i = 0; i < this._blocks.length; i++) {
+        const b = this._blocks[i];
+        if (!this._canBombBlock(b)) continue;
+        fieldWorldOf(b.node, _world);
+        add(_world.x, _world.y, _world.z);
+      }
+      if (n <= 0) {
+        const z = voxelFrontZ();
+        const half = PLAY.blockSize * 0.5;
+        const y0 = PLAY.wallBaseY - half;
+        const y1 = PLAY.wallBaseY + Math.max(1, PLAY.wallRows - 1) * PLAY.blockStep + half;
+        const x0 = -((Math.max(1, PLAY.wallCols) - 1) * PLAY.blockStep) * 0.5;
+        add(x0, y0, z);
+        add(-x0, y1, z);
+      }
+    } else if (this._shovelPick) {
       for (const s of this._slots) {
         if (!s.node?.isValid) continue;
         s.node.getWorldPosition(_world);
@@ -1095,28 +1162,37 @@ export class BattleDirector extends Component {
     } else {
       for (const u of this._units) {
         if (!this._canHookUnit(u)) continue;
-        u.node.getWorldPosition(_world);
-        add(_world.x, _world.y, _world.z);
+        add(benchSeatX(u.benchCol), benchSeatY() + 0.16, benchSeatZ(u.benchRank));
+      }
+      if (n <= 0) {
+        for (let rank = 1; rank < BENCH.rows; rank++) {
+          for (let col = 0; col < BENCH.cols; col++) {
+            add(benchSeatX(col), benchSeatY() + 0.16, benchSeatZ(rank));
+          }
+        }
       }
     }
     if (n <= 0) {
       this._zoomFocusLook.set(this._zoomRestLook);
-      this._zoomFocusOrtho = rest;
+      this._zoomFocusOrtho = cap;
       return;
     }
     hMin -= 0.34;
     hMax += 0.40;
     xMin -= 0.30;
     xMax += 0.30;
-    const band = playViewBand();
-    const pin = band.pinFrac + 0.04;
-    const ceil = Math.min(band.ceilFrac - 0.04, 0.84);
+    const band = this._bombPick ? playPickViewBand() : playViewBand();
+    const pin = band.pinFrac + (this._bombPick ? 0.02 : 0.04);
+    // Hook/shovel stay on the dock. Bomb has to sit under the pick tip.
+    const ceil = this._bombPick
+      ? Math.min(Math.max(pin + 0.34, band.ceilFrac - 0.02), 0.90)
+      : 0.82;
     const bandFrac = Math.max(0.34, ceil - pin);
     const aspect = Math.max(0.45, this._cam?.aspect || 0.56);
     const needH = (hMax - hMin) / (2 * bandFrac);
     const needW = ((xMax - xMin) * 0.5) / (aspect * 0.9);
     let ortho = Math.max(needH, needW);
-    if (ortho > rest) ortho = rest;
+    ortho = Math.min(rest, Math.max(ortho, cap));
     const midH = (hMin + hMax) * 0.5;
     const midFrac = (pin + ceil) * 0.5;
     const lookZ = this._zoomRestLook.z;
@@ -1124,12 +1200,11 @@ export class BattleDirector extends Component {
     const lookY = (hLook + lookZ * sp) / cp;
     this._zoomFocusLook.set((xMin + xMax) * 0.5, lookY, lookZ);
     this._zoomFocusOrtho = ortho;
-    this._fitPickFocus(pin, ceil, cp, sp);
+    this._fitPickFocus(pin, ceil, cp, sp, rest);
   }
 
   /** Grow the shot until every target sits in the open band above the item tray. */
-  private _fitPickFocus(pin: number, ceil: number, cp: number, sp: number): void {
-    const rest = this._zoomRestOrtho || playCamOrthoHeight();
+  private _fitPickFocus(pin: number, ceil: number, cp: number, sp: number, rest: number): void {
     const midFrac = (pin + ceil) * 0.5;
     for (let step = 0; step < 6; step++) {
       let lo = 1;
@@ -1144,7 +1219,14 @@ export class BattleDirector extends Component {
         if (h < hMin) hMin = h;
         if (h > hMax) hMax = h;
       };
-      if (this._shovelPick) {
+      if (this._bombPick) {
+        for (let i = 0; i < this._blocks.length; i++) {
+          const b = this._blocks[i];
+          if (!this._canBombBlock(b)) continue;
+          fieldWorldOf(b.node, _world);
+          sample(_world.x, _world.y, _world.z);
+        }
+      } else if (this._shovelPick) {
         let slots = 0;
         for (const s of this._slots) {
           if (!s.node?.isValid) continue;
@@ -1160,10 +1242,10 @@ export class BattleDirector extends Component {
       } else {
         for (const u of this._units) {
           if (!this._canHookUnit(u)) continue;
-          u.node.getWorldPosition(_world);
-          sample(_world.x, _world.y, _world.z);
+          sample(benchSeatX(u.benchCol), benchSeatY() + 0.16, benchSeatZ(u.benchRank));
         }
       }
+      if (lo > hi) return;
       if (lo >= pin && hi <= ceil) return;
       this._zoomFocusOrtho = Math.min(rest, this._zoomFocusOrtho * 1.14);
       const hLook = (hMin + hMax) * 0.5 - this._zoomFocusOrtho * (2 * midFrac - 1);
@@ -1997,7 +2079,7 @@ export class BattleDirector extends Component {
     return n;
   }
 
-  /** Last empty pits == leftover octopuses → seat them without a tap. */
+  /** Empty pits exactly fit leftover guns → seat them all and start the win-rush. */
   private _maybeAutoPlace(): void {
     if (this._autoPlacing || !this._playing || this._won || this._lost || this._remain === 0) return;
     if (!this._itemsReady || this._lastGuide || this._itemFxBusy) return;
@@ -2015,15 +2097,15 @@ export class BattleDirector extends Component {
         if (!u.usable || u.state !== 'bench' || !this._isColFront(u)) continue;
         const slot = this._hintSlot(u);
         if (!slot) continue;
+        if (!placed) grantAutoBoost();
         this._placeUnit(u, slot, delay);
-        delay += 0.07;
+        delay += 0.04;
         placed = true;
         step = true;
         break;
       }
       if (!step) break;
     }
-    if (placed) grantBoost();
     this._autoPlacing = false;
   }
 
@@ -2063,8 +2145,9 @@ export class BattleDirector extends Component {
     slot.node.getWorldPosition(_tmp);
     _tmp.y += SLOT_PAD_TOP + SLOT_UNIT_LIFT;
     _tmp.z += SLOT_UNIT_FWD;
-    unit.flyToWorld(_tmp, delay, keepScale);
-    unit.suckWait = Math.max(unit.suckWait, GAME.suckLandDelay);
+    const pace = boostMul();
+    unit.flyToWorld(_tmp, delay, keepScale, pace);
+    unit.suckWait = Math.max(unit.suckWait, GAME.suckLandDelay / pace);
     if (!keepScale) unit.refreshSeatLook();
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
@@ -2119,6 +2202,9 @@ export class BattleDirector extends Component {
     if (!units) return;
     let flying = this._flightBusy();
     let seated = false;
+    const mul = boostMul();
+    const maxFlight = mul <= 1 ? GAME.suckMaxFlight : Math.min(16, GAME.suckMaxFlight * 2);
+    const maxTotal = mul <= 1 ? GAME.suckMaxFlightTotal : Math.min(40, GAME.suckMaxFlightTotal * 2);
     for (let i = 0; i < units.length; i++) {
       const u = units[i];
       if (!u.node.activeInHierarchy || u.trapped || u.asBlock || u.power <= 0) continue;
@@ -2135,8 +2221,8 @@ export class BattleDirector extends Component {
         this._seatAimed = true;
         u.aimAt(block.worldPos(_world));
       } else u.clearAim();
-      if (u.suckWait > 0 || u.inflight >= GAME.suckMaxFlight || u.power <= u.inflight) continue;
-      if (flying >= GAME.suckMaxFlightTotal) continue;
+      if (u.suckWait > 0 || u.inflight >= maxFlight || u.power <= u.inflight) continue;
+      if (flying >= maxTotal) continue;
       if (!block) {
         if (this._nudgeCool <= 0) {
           this._nudgeLocked(u.colorId);
@@ -3647,6 +3733,7 @@ export class BattleDirector extends Component {
     this._setAdvanceUi(false);
     this._clearFxHold();
     this._zoomHold = false;
+    this._zoomPick = false;
     this._afterZoom = null;
     this._clearPicks();
     this._canShovelHud = this._canShovel();
@@ -4000,15 +4087,19 @@ export class BattleDirector extends Component {
     if (unit.traveling || !unit.onBench || this._isColFront(unit)) return false;
     const slot = this._hintSlot(unit);
     if (slot) {
+      this._playUnitBurst(unit);
       this._placeUnit(unit, slot, 0, true);
       return true;
     }
     const merge = this._bestMerge(unit);
     if (merge) {
+      this._playUnitBurst(unit);
       this._mergeUnit(unit, merge);
       return true;
     }
-    return this._promoteToFront(unit);
+    if (!this._promoteToFront(unit)) return false;
+    this._playUnitBurst(unit);
+    return true;
   }
 
   private _pickSlotUnit(e: PointerEvt): UnitActor | null {
@@ -4060,10 +4151,8 @@ export class BattleDirector extends Component {
       }
     }
     if (!owned && unit.lockedCol < 0 && unit.state !== 'walk' && unit.state !== 'attack') return false;
-    unit.node.getWorldPosition(_world);
-    _world.y += 0.18;
     if (fx) {
-      playMergeBurst(this.node, _world);
+      this._playUnitBurst(unit);
       gameAudio()?.playRemove();
     }
     const overflow = seat.rank >= BENCH.rows;

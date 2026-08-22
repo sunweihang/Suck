@@ -40,8 +40,10 @@ export const GAME = {
   wallSpinPeriod: 22,
   /** Rewarded-ad free-spin duration in seconds. */
   freeSpinSec: 90,
-  /** Rewarded-ad boost duration in seconds. Triples spin and fire rate. */
+  /** Rewarded-ad / auto win-rush duration in seconds. */
   boostSec: 90,
+  /** Fire, shot flight, swipe, and idle-spin multiplier while any boost is on. */
+  boostMul: 6,
   /** Swipe: degrees of field yaw/pitch per screen pixel. */
   wallSpinDragDeg: 0.38,
 

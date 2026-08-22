@@ -34,10 +34,11 @@ import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { resetPlayFx } from './battle/InkShot';
+import { resetFieldSpin } from './battle/FieldSpin';
 import { GAME, playCamLookAtY, playCamOrthoHeight } from './game/GameConfig';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
 import { applyLevel, ensureLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
-import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, reclaimTeachItem, resetGuideProgress } from './game/TutorialGuide';
+import { areItemGuidesDone, completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, reclaimTeachItem, resetGuideProgress } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -49,7 +50,7 @@ import {
 import { Theme } from './game/Theme';
 import { rollChestReward, type ChestReward } from './game/ChestLoot';
 import { consumePendingChest, markChestPending, peekPendingChest, resetChestProgress } from './game/ChestProgress';
-import { grantBoost } from './game/Boost';
+import { clearAutoBoost, grantBoost } from './game/Boost';
 import { grantFreeSpin } from './game/FreeSpin';
 import {
   DAILY_ITEM_REWARDS,
@@ -184,6 +185,8 @@ export class GameBootstrap extends Component {
   private _bootEpoch = 0;
   private _bootJobEpoch = -1;
   private _enteringPlay = false;
+  /** Bumped on every enter/skip so stale _enterPlayAsync runs bail out. */
+  private _enterGen = 0;
   private _loadShown = false;
   private _load: BootLoad | null = null;
   private _playHud: PlayHud | null = null;
@@ -343,12 +346,17 @@ export class GameBootstrap extends Component {
   private _onKeyDown(e: EventKeyboard): void {
     if (this._ugcPlay || this._ugcEditor) return;
     if (e.keyCode === KeyCode.KEY_N || e.keyCode === KeyCode.ARROW_RIGHT || e.keyCode === KeyCode.BRACKET_RIGHT) {
-      this._gmSkip(this._level + 1);
+      this._gmSkipBy(1);
       return;
     }
     if (e.keyCode === KeyCode.KEY_P || e.keyCode === KeyCode.ARROW_LEFT || e.keyCode === KeyCode.BRACKET_LEFT) {
-      this._gmSkip(this._level - 1);
+      this._gmSkipBy(-1);
     }
+  }
+
+  private _gmSkipBy(delta: number): void {
+    const cur = this._playHud?.node.active ? (this._builtLevel || this._level) : this._level;
+    this._gmSkip(cur + delta);
   }
 
   private _stripLeftovers(): void {
@@ -367,7 +375,10 @@ export class GameBootstrap extends Component {
     n.name = `${name}_disposed`;
     n.removeFromParent();
     this._disposeTree(n);
-    if (name === 'PlayWorld' || name === 'PlayWorldStandby') resetPlayFx();
+    if (name === 'PlayWorld' || name === 'PlayWorldStandby') {
+      resetPlayFx();
+      resetFieldSpin();
+    }
   }
 
   /** Drop renderers with a missing GPU descriptor set before engine destroyModel. */
@@ -492,7 +503,6 @@ export class GameBootstrap extends Component {
       this._worldKey = key;
       this._builtLevel = this._ugcPlay ? 1 : this._level;
       this._frameMainCamera();
-      this._bindBattle();
       this._home?.setLevel(this._level, LEVEL_COUNT);
       this._playHud?.setLevel(this._level);
       this._setWorldLive(false);
@@ -1093,7 +1103,15 @@ export class GameBootstrap extends Component {
   private _gmSkip(n: number): void {
     this._level = Math.max(1, Math.min(LEVEL_COUNT, n | 0));
     saveLevelIndex(this._level);
+    this._settledBuilt = -1;
+    this._invalidateWorldBoot();
+    resetPlayFx();
+    resetFieldSpin();
+    this._worldKey = '';
     this._builtLevel = 0;
+    this._guideLandGen += 1;
+    this._disposeNamed('PlayWorld');
+    this._battle = null;
     this._gm?.setLevel(this._level);
     this._inLink = false;
     this._home?.setLevel(this._level, LEVEL_COUNT);
@@ -1843,6 +1861,7 @@ export class GameBootstrap extends Component {
 
   private _maybeOfferDailyPlay(): void {
     if (!this._dailyItem || this._ugcPlay || this._ugcEditor || this._inLink) return;
+    if (!areItemGuidesDone()) return;
     if (!this._playHud?.node.active || this._dailyItem.isOpen()) return;
     if (this._rank?.isOpen() || this._settings?.node.active) return;
     if (isDailyItemClaimedToday() || hasShownDailyPlayToday()) return;
@@ -1988,11 +2007,11 @@ export class GameBootstrap extends Component {
   }
 
   private _enterPlay(): void {
-    if (this._enteringPlay || this._dailyItem?.isOpen()) return;
-    void this._enterPlayAsync();
+    if (this._dailyItem?.isOpen()) return;
+    void this._enterPlayAsync(++this._enterGen);
   }
 
-  private async _enterPlayAsync(): Promise<void> {
+  private async _enterPlayAsync(gen: number): Promise<void> {
     this._enteringPlay = true;
     try {
       this._settledBuilt = -1;
@@ -2000,7 +2019,7 @@ export class GameBootstrap extends Component {
       const fromHome = !this._ugcPlay && !!this._home?.node.active;
       if (this._ugcPlay || this._playWorldReady() || this._level <= 1) {
         if (!this._playWorldReady()) await this._ensureWorld();
-        if (!this.isValid || this._ugcEditor) return;
+        if (gen !== this._enterGen || !this.isValid || this._ugcEditor) return;
         if (this._ugcHoldPlay && !this._ugcPlay) return;
         this._revealPlay(fromHome);
         return;
@@ -2010,21 +2029,24 @@ export class GameBootstrap extends Component {
         await this._ensureWorld();
         set(0.94);
       });
-      if (!this.isValid || this._ugcEditor) return;
+      if (gen !== this._enterGen || !this.isValid || this._ugcEditor) return;
       if (this._ugcHoldPlay && !this._ugcPlay) return;
       this._revealPlay(fromHome);
     } finally {
-      this._enteringPlay = false;
+      if (gen === this._enterGen) this._enteringPlay = false;
     }
   }
 
   private _revealPlay(fromHome = false): void {
+    clearAutoBoost();
     const level = this._ugcPlay && this._ugcLevel ? this._ugcLevel : getLevel(this._level);
     applyLevel(level);
     this._frameMainCamera();
     this._setWorldLive(true);
     this._bindBattle();
-    this._battle?.reposeView();
+    if (!this._battle?.isValid) return;
+    this._battle.wakePlay();
+    this._battle.reposeView();
     this._inLink = false;
     this._home?.hide();
     this._ugcHud?.hide();
@@ -2053,6 +2075,10 @@ export class GameBootstrap extends Component {
     this._playHud?.setItems(this._battle?.itemState() ?? this._playItemState());
     this._worldTouched = true;
     this._battle?.setPlaying(true);
+    this.scheduleOnce(() => {
+      if (!this._battle?.isValid) return;
+      this._battle.wakePlay();
+    }, 0);
     this._clearChest = null;
     this._grantLeftoverChest();
     const offerDaily = fromHome && !this._ugcPlay;

@@ -1,8 +1,10 @@
+import { LINK_UNLOCK_AFTER } from './LinkPlay';
 import {
   FREEZE_TURRET_FROM,
   HIDDEN_QUEUE_AFTER_LEVEL,
   ITEM_UNLOCK_LEVEL,
   freezeDeployNeed,
+  itemUnlocked,
   type ItemId,
 } from './LevelCatalog';
 
@@ -59,6 +61,26 @@ const ITEM_COPY: Record<ItemId, Pick<LoadTip, 'title' | 'body' | 'icon'>> = {
   },
 };
 
+/** Extra item copy once the tool is unlocked — rotates with load tips. */
+const ITEM_TIPS: Record<ItemId, Pick<LoadTip, 'title' | 'body'>> = {
+  shuffle: {
+    title: '洗牌妙用',
+    body: '备战区顺序不对？洗牌换一换，常能凑出更顺的上阵组合。',
+  },
+  hook: {
+    title: '机械爪妙用',
+    body: '后方藏着能对上的炮？机械爪可以直接把它拉到场上。',
+  },
+  shovel: {
+    title: '铲子妙用',
+    body: '坑位满了或炮放错了？铲子先收回备战区，再重新安排。',
+  },
+  bomb: {
+    title: '炸弹妙用',
+    body: '墙面有大片同色砖？炸弹可以一次清掉整片连通区域。',
+  },
+};
+
 type Debut = {
   at: number;
   title: string;
@@ -111,14 +133,38 @@ const HINTS: readonly Pick<LoadTip, 'title' | 'body' | 'icon'>[] = [
     title: '先看墙',
     body: '先转一圈看大色块，再决定哪门炮上场。',
   },
+  {
+    title: '留后手',
+    body: '别急着把同色炮全打光，后面可能还有更大色块。',
+  },
+  {
+    title: '坑位规划',
+    body: '场上坑位有限，先上能立刻消块的炮，别占满。',
+  },
+  {
+    title: '后方储备',
+    body: '备战区里的炮按顺序出场，提前想好下一轮谁来。',
+  },
+  {
+    title: '连通爆炸',
+    body: '炸弹会炸掉连通的同色区域，专打大片砖块。',
+    icon: 'icBomb',
+  },
+  {
+    title: '隐藏颜色',
+    body: '颜色被遮住时，更要多转几圈墙面再决定上阵。',
+    icon: 'icShuffle',
+  },
 ];
 
-export function loadTipTag(tip: LoadTip): string {
-  if (tip.kind === 'hint') return '小提示';
-  return tip.debut ? '本关新玩法' : '新玩法预告';
-}
+const LINK_DEBUT: Debut = {
+  at: LINK_UNLOCK_AFTER + 1,
+  title: '连线',
+  body: '通关后可在设置里进入，消方块赚金币。',
+  icon: 'icLink',
+};
 
-/** Official load copy: debut mechanic if this level introduces one, otherwise a hint. */
+/** Official load copy: debut on introduce levels; otherwise preview / item / hint. */
 export function pickLoadTip(level: number): LoadTip {
   const n = Math.max(1, level | 0);
   return pickDebutTip(n) ?? flavorTip(n);
@@ -157,6 +203,49 @@ function pickDebutTip(n: number): LoadTip | null {
 }
 
 function flavorTip(n: number): LoadTip {
-  const hint = HINTS[(n - 1) % HINTS.length];
-  return { kind: 'hint', debut: false, ...hint };
+  const slot = (n - 1) % 6;
+  if (slot === 0 || slot === 3) {
+    const preview = previewTip(n);
+    if (preview) return preview;
+  }
+  if (slot === 1 || slot === 4) {
+    return itemTip(ITEMS[Math.floor((n - 1) / 6) % ITEMS.length], n);
+  }
+  return { kind: 'hint', debut: false, ...HINTS[(n - 1) % HINTS.length] };
+}
+
+function previewTip(n: number): LoadTip | null {
+  const next = DEBUTS.find((d) => d.at > n) ?? (n < LINK_DEBUT.at ? LINK_DEBUT : null);
+  if (!next) return null;
+  const remain = next.at - n;
+  return {
+    kind: 'play',
+    debut: false,
+    title: next.title,
+    body: previewBody(next.body, remain),
+    icon: next.icon,
+  };
+}
+
+function previewBody(body: string, remain: number): string {
+  if (remain <= 1) return `下一关开启：${body}`;
+  return `再过 ${remain} 关开启：${body}`;
+}
+
+function itemTip(id: ItemId, n: number): LoadTip {
+  if (itemUnlocked(id, n)) {
+    const deep = ITEM_TIPS[id];
+    if ((n + id.length) % 2 === 0) {
+      return { kind: 'item', debut: false, icon: ITEM_COPY[id].icon, ...deep };
+    }
+    return { kind: 'item', debut: false, ...ITEM_COPY[id] };
+  }
+  const at = ITEM_UNLOCK_LEVEL[id];
+  return {
+    kind: 'play',
+    debut: false,
+    title: ITEM_COPY[id].title,
+    body: `${ITEM_COPY[id].body} 第 ${at} 关解锁。`,
+    icon: ITEM_COPY[id].icon,
+  };
 }

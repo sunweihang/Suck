@@ -1,4 +1,5 @@
 import { Color, Layers, Material, Mesh, MeshRenderer, Node, Vec3, director, utils } from 'cc';
+import { shooterStandZ, slotY } from '../game/GameConfig';
 import { makeInstancedUnlit } from './ToyBlockMesh';
 
 /**
@@ -12,6 +13,8 @@ const PARTICLES_PER_HIT = 6;
 const MAX_CHIPS = 64;
 const GRAVITY = 14;
 const CHIP_PRI = 36;
+const DOCK_BAND_PAD = 0.42;
+const BEHIND_DOCK_Z = 0.55;
 
 type Chip = {
   node: Node;
@@ -218,6 +221,9 @@ export function tickDestroyBurst(dt: number): void {
     _pos.x += chip.vel.x * dt;
     _pos.y += chip.vel.y * dt;
     _pos.z += chip.vel.z * dt;
+    if (_pos.y < slotY() + DOCK_BAND_PAD) {
+      _pos.z = Math.min(_pos.z, shooterStandZ() - BEHIND_DOCK_Z);
+    }
     chip.node.setWorldPosition(_pos);
     const u = chip.life / chip.lifeMax;
     if (u <= 0.34) {

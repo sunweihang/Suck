@@ -12,7 +12,7 @@ import {
   utils,
 } from 'cc';
 import { GAME } from '../game/GameConfig';
-import { makeInstancedLit } from './ToyBlockMesh';
+import { applyDockRender, makeInstancedLit } from './ToyBlockMesh';
 
 let _ball: Mesh | null = null;
 let _floor: Mesh | null = null;
@@ -366,6 +366,7 @@ export function applyToySlot(root: Node, locked = false): void {
   } else if (mr) {
     mr.enabled = false;
   }
+  applyDockRender(root);
 }
 
 export function applyToyHand(root: Node): void {

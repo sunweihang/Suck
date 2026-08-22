@@ -99,6 +99,14 @@ export function isItemGuide(id: GuideId | null): id is ItemId {
   return id === 'shuffle' || id === 'hook' || id === 'shovel' || id === 'bomb';
 }
 
+const ITEM_GUIDE_IDS: readonly ItemId[] = ['shuffle', 'hook', 'shovel', 'bomb'];
+
+/** All four item tutorials (levels 3–6) must finish before daily item / shop promos. */
+export function areItemGuidesDone(): boolean {
+  const done = loadDone();
+  return ITEM_GUIDE_IDS.every((id) => done[id]);
+}
+
 export function shouldSkipItemShop(id: ItemId, level: number): boolean {
   return guideIdForLevel(level) === id && !isGuideDone(id);
 }

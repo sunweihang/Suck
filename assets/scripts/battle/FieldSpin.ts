@@ -21,6 +21,15 @@ export function bindFieldActors(node: Node | null): void {
   _actors = node;
 }
 
+/** Drop spin uniforms and actor root when PlayWorld is torn down. */
+export function resetFieldSpin(): void {
+  _actors = null;
+  _fieldMats.clear();
+  Quat.identity(_q);
+  _p.set(0, 0, 0);
+  Quat.identity(_inv);
+}
+
 type SpinHandle = { q: number; p: number };
 
 const _spinHandles = new WeakMap<Material, SpinHandle>();

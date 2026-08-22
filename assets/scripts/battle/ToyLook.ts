@@ -4,6 +4,10 @@ import { SPECIAL_SPAN } from '../game/GameConfig';
 export const OCTOPUS_STAND_Y = 0.018;
 /** Visual size vs the baked 0.4-wide shooter so slots match the original chunk. */
 export const TURRET_SCALE = 1.48;
+/** Above falling chips / trails (36–40), below ink shots (80). */
+export const DOCK_RENDER_PRI = 50;
+/** Flying brick cubes sit under the turret dock. */
+export const FLY_BRICK_PRI = 28;
 /** Raise the barrel around X by 45° (top tilts toward camera). */
 export const TURRET_PITCH_DEG = 45;
 export const TURRET_YAW_DEG = 0;
