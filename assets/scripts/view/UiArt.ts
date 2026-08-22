@@ -59,6 +59,7 @@ const KEYS = [
   'icHook',
   'icShovel',
   'icBomb',
+  'icHidden',
   'icUgcAdd',
   'icUgcDown',
   'icUgcUp',
@@ -146,6 +147,7 @@ function pathOf(key: ArtKey): string {
   if (key === 'icHook') return 'ui/ic-item-hook/spriteFrame';
   if (key === 'icShovel') return 'ui/ic-item-shovel/spriteFrame';
   if (key === 'icBomb') return 'ui/ic-item-bomb/spriteFrame';
+  if (key === 'icHidden') return 'ui/ic-hidden/spriteFrame';
   if (key === 'icUgcAdd') return 'ui/ic-ugc-layer-add/spriteFrame';
   if (key === 'icUgcDown') return 'ui/ic-ugc-layer-down/spriteFrame';
   if (key === 'icUgcUp') return 'ui/ic-ugc-layer-up/spriteFrame';

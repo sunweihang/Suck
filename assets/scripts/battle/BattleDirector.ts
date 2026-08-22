@@ -2457,12 +2457,13 @@ export class BattleDirector extends Component {
   }
 
   private _retireUnit(u: UnitActor): void {
-    for (const s of this._slots) {
-      if (s.occupant === u) s.occupant = null;
-    }
-    u.lockedCol = -1;
+    if (u.vanishing) return;
     u.inflight = 0;
     u.playVanish(() => {
+      for (const s of this._slots) {
+        if (s.occupant === u) s.occupant = null;
+      }
+      u.lockedCol = -1;
       if (u.node?.isValid) u.node.active = false;
     });
     this._refreshFrozenThaw();

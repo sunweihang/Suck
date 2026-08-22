@@ -17,6 +17,7 @@ export type LoadTipIcon =
   | 'icHook'
   | 'icShovel'
   | 'icBomb'
+  | 'icHidden'
   | 'iceOverlay'
   | 'iron';
 
@@ -103,7 +104,7 @@ const DEBUTS: readonly Debut[] = [
     at: HIDDEN_QUEUE_AFTER_LEVEL + 1,
     title: '隐藏颜色',
     body: '备战区炮塔不再显示真实颜色，需要靠观察墙面再上阵。',
-    icon: 'icShuffle',
+    icon: 'icHidden',
   },
   {
     at: FREEZE_TURRET_FROM,
@@ -153,7 +154,7 @@ const HINTS: readonly Pick<LoadTip, 'title' | 'body' | 'icon'>[] = [
   {
     title: '隐藏颜色',
     body: '颜色被遮住时，更要多转几圈墙面再决定上阵。',
-    icon: 'icShuffle',
+    icon: 'icHidden',
   },
 ];
 

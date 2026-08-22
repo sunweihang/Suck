@@ -30,7 +30,10 @@ export class SlotPad extends Component {
 
   get empty(): boolean {
     const u = this.occupant;
-    if (!u?.node?.isValid || !u.node.active || u.trapped) return true;
+    if (!u?.node?.isValid || u.trapped) return true;
+    // Die clip still owns the pit — auto-place must not sit on top of it.
+    if (u.vanishing) return false;
+    if (!u.node.active) return true;
     // Bench / drag have left the pit. Walk still owns it while flying in
     // (`usable` is false during that arc).
     return u.state === 'bench' || u.state === 'drag';
