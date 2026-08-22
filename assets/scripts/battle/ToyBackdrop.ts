@@ -111,13 +111,16 @@ function bgMat(tex: Texture2D): Material | null {
 function poseSkyArt(cam: Camera, art: Node): void {
   const vis = portraitVisibleSize();
   const cover = coverBackgroundSize(vis.width, vis.height);
-  const h = cam.orthoHeight * 2;
-  const aspect = vis.width / Math.max(vis.height, 1);
+  const h = Math.max(0.01, cam.orthoHeight) * 2;
+  const visAspect = vis.width / Math.max(vis.height, 1);
+  const camAspect = cam.aspect > 0.05 ? cam.aspect : visAspect;
+  const aspect = Math.max(visAspect, camAspect);
+  const pad = 1.08;
   art.setPosition(0, 0, -(cam.far - 1));
   art.setRotationFromEuler(0, 0, 0);
   art.setScale(
-    h * aspect * (cover.w / Math.max(vis.width, 1)),
-    h * (cover.h / Math.max(vis.height, 1)),
+    h * aspect * (cover.w / Math.max(vis.width, 1)) * pad,
+    h * (cover.h / Math.max(vis.height, 1)) * pad,
     1,
   );
 }

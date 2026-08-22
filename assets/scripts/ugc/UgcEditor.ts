@@ -40,7 +40,7 @@ import {
   parseColorToken,
 } from '../game/GameConfig';
 import { applyLevel } from '../game/LevelCatalog';
-import { UGC_PLAY_BTN_LIFT, playViewBand } from '../game/ViewFit';
+import { UGC_PLAY_BTN_LIFT, playViewBand, windowAspect } from '../game/ViewFit';
 import { gameAudio } from '../audio/AudioService';
 import {
   UGC_DEPTH,
@@ -559,7 +559,7 @@ export class UgcEditor {
     PLAY.wallDepth = UGC_LAYOUT_DEPTH;
     PLAY.tints = {};
     for (const t of UGC_PALETTE) PLAY.tints[t] = TOKEN_RGB[t];
-    fitPlayLayout(this._map.cols, this._map.rows, UGC_LAYOUT_DEPTH, 0, this._map.rows - 1, playViewBand(undefined, UGC_PLAY_BTN_LIFT));
+    fitPlayLayout(this._map.cols, this._map.rows, UGC_LAYOUT_DEPTH, 0, this._map.rows - 1, playViewBand(undefined, UGC_PLAY_BTN_LIFT), windowAspect());
 
     const tokens = [...UGC_PALETTE];
     const [groundPf, ...blockPfs] = await Promise.all([

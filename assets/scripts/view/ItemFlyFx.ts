@@ -88,6 +88,7 @@ function recycleItemFlyer(n: Node): void {
   if (!n.isValid) return;
   n.angle = 0;
   n.setScale(1, 1, 1);
+  n.getComponent(UITransform)?.setAnchorPoint(0.5, 0.5);
   n.active = false;
 }
 
@@ -295,6 +296,10 @@ function spawnItemUseFlyer(
   n.setScale(SCALE_USE_START);
   n.angle = 0;
   dressFlyer(n, artFrame(ITEM_ART[id]));
+  n.getComponent(UITransform)?.setAnchorPoint(
+    id === 'shovel' ? 0.22 : 0.5,
+    id === 'hook' || id === 'shovel' ? 0.1 : 0.5,
+  );
   let arrived = false;
   const arrive = (): void => {
     if (arrived) return;
@@ -364,22 +369,24 @@ function useImpactTween(n: Node, id: ItemId, x: number, y: number, onArrive: () 
   }
   if (id === 'hook') {
     const s = USE_START;
+    n.setPosition(x, y, 0);
     return tween(n)
-      .to(0.1, { scale: new Vec3(s * 1.16, s * 1.16, 1), position: new Vec3(x, y + 18, 0) }, { easing: 'sineOut' })
-      .to(0.12, { angle: -18, position: new Vec3(x, y - 26, 0), scale: new Vec3(s * 1.06, s * 1.2, 1) }, { easing: 'quadIn' })
+      .to(0.1, { scale: new Vec3(s * 1.16, s * 1.16, 1), angle: 6 }, { easing: 'sineOut' })
+      .to(0.12, { angle: -10, scale: new Vec3(s * 1.08, s * 1.22, 1) }, { easing: 'quadIn' })
       .call(onArrive)
-      .to(0.14, { scale: new Vec3(s * 0.45, s * 0.45, 1), angle: -8 }, {
+      .to(0.14, { scale: new Vec3(s * 0.45, s * 0.45, 1), angle: -4 }, {
         easing: 'quadIn',
         onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
       });
   }
   if (id === 'shovel') {
     const s = USE_START;
+    n.setPosition(x, y, 0);
     return tween(n)
-      .to(0.08, { angle: -42, position: new Vec3(x, y + 22, 0), scale: new Vec3(s * 1.12, s * 1.12, 1) }, { easing: 'sineOut' })
-      .to(0.12, { angle: 16, position: new Vec3(x, y - 30, 0), scale: new Vec3(s * 1.05, s * 1.18, 1) }, { easing: 'quadIn' })
+      .to(0.08, { angle: -28, scale: new Vec3(s * 1.12, s * 1.12, 1) }, { easing: 'sineOut' })
+      .to(0.12, { angle: 18, scale: new Vec3(s * 1.06, s * 1.2, 1) }, { easing: 'quadIn' })
       .call(onArrive)
-      .to(0.14, { scale: new Vec3(s * 0.42, s * 0.42, 1), angle: 8 }, {
+      .to(0.14, { scale: new Vec3(s * 0.42, s * 0.42, 1), angle: 6 }, {
         easing: 'quadIn',
         onUpdate: (_t, ratio) => fadeFlyer(n, 1 - (ratio ?? 0)),
       });

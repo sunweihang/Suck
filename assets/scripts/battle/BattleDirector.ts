@@ -50,7 +50,7 @@ import { nearestVoxelId, rgbOfVoxel, voxelsAlias } from '../game/VoxelPalette';
 import { attachBrickRenderer, paintUnitColor, readPaintRgb, tickHiddenPattern } from './BrickSpecials';
 import type { PlayerWallet } from '../game/PlayerWallet';
 import { itemUnlocked, UnitSpec, type ItemId } from '../game/LevelCatalog';
-import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, type GuideContext, type GuideView } from '../game/TutorialGuide';
+import { activeGuide, completeGuide, guideIdForLevel, isGuideDone, pickGuide, type GuideContext, type GuideView } from '../game/TutorialGuide';
 import { SLOT_PAD_TOP, SLOT_UNIT_FWD, SLOT_UNIT_LIFT } from './ToySlotMesh';
 import { BlockCell } from './BlockCell';
 import { clearDestroyBurst, destroyBurstBusy, playDestroyBurst, tickDestroyBurst } from './DestroyBurst';
@@ -77,6 +77,7 @@ export type ItemHudState = {
   hookPick: boolean;
   shovelPick: boolean;
   bombPick: boolean;
+  canShovel: boolean;
 };
 
 export type ItemUseFx = {
@@ -322,6 +323,7 @@ export class BattleDirector extends Component {
   private _hookPick = false;
   private _shovelPick = false;
   private _bombPick = false;
+  private _canShovelHud = false;
   private _hint: HintHand | null = null;
   private readonly _plates: IronPlate[] = [];
   private _ironRows: number[] = [];
@@ -713,6 +715,7 @@ export class BattleDirector extends Component {
       hookPick: this._hookPick,
       shovelPick: this._shovelPick,
       bombPick: this._bombPick,
+      canShovel: this._canShovel(),
     };
   }
 
@@ -755,6 +758,7 @@ export class BattleDirector extends Component {
       if (this._hookPick) {
         this._hookPick = false;
         this._emitItems();
+        this._kickGuide();
         return true;
       }
       if (!this._hasRearBench()) {
@@ -763,6 +767,7 @@ export class BattleDirector extends Component {
       }
       this._hookPick = true;
       this._emitItems();
+      this._kickGuide();
       return true;
     }
     if (id === 'shovel') {
@@ -773,6 +778,7 @@ export class BattleDirector extends Component {
       if (this._shovelPick) {
         this._shovelPick = false;
         this._emitItems();
+        this._kickGuide();
         return true;
       }
       if (!this._canShovel()) {
@@ -781,6 +787,7 @@ export class BattleDirector extends Component {
       }
       this._shovelPick = true;
       this._emitItems();
+      this._kickGuide();
       return true;
     }
     if (id === 'bomb') {
@@ -791,6 +798,7 @@ export class BattleDirector extends Component {
       if (this._bombPick) {
         this._bombPick = false;
         this._emitItems();
+        this._kickGuide();
         return true;
       }
       if (!this._canBomb()) {
@@ -799,6 +807,7 @@ export class BattleDirector extends Component {
       }
       this._bombPick = true;
       this._emitItems();
+      this._kickGuide();
       return true;
     }
     this._emitItems();
@@ -807,6 +816,22 @@ export class BattleDirector extends Component {
 
   private _canHookUnit(u: UnitActor): boolean {
     return u.onBench && !u.traveling && u !== this._fxHoldUnit && !this._isColFront(u);
+  }
+
+  /** Plant the item on the visible face of the clicked turret. */
+  private _unitItemLand(u: UnitActor, out: Vec3): Vec3 {
+    u.node.getWorldPosition(out);
+    const cam = this._cam;
+    if (!cam?.node?.isValid) return out;
+    cam.node.getWorldPosition(_camP);
+    const dx = _camP.x - out.x;
+    const dy = _camP.y - out.y;
+    const dz = _camP.z - out.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    out.x += (dx / len) * 0.16;
+    out.y += (dy / len) * 0.06;
+    out.z += (dz / len) * 0.16;
+    return out;
   }
 
   private _hasRearBench(): boolean {
@@ -823,6 +848,20 @@ export class BattleDirector extends Component {
       if (!s.empty && u?.node?.isValid && u.node.active) return true;
     }
     return false;
+  }
+
+  private _syncShovelHud(): void {
+    const can = this._canShovel();
+    if (this._shovelPick && !can) {
+      this._shovelPick = false;
+      this._canShovelHud = can;
+      this._emitItems();
+      this._kickGuide();
+      return;
+    }
+    if (can === this._canShovelHud) return;
+    this._canShovelHud = can;
+    this._emitItems();
   }
 
   /** Shortest column’s next seat. Rank may exceed the visible rows — overflow is data-only. */
@@ -864,7 +903,8 @@ export class BattleDirector extends Component {
       return;
     }
     const guideId = guideIdForLevel(PLAY.levelId);
-    if (!guideId || isGuideDone(guideId)) {
+    const teaching = !!guideId && !isGuideDone(guideId);
+    if (!teaching && !this._hookPick && !this._shovelPick && !this._bombPick) {
       this._emitGuide(null);
       this._hint?.hide();
       return;
@@ -886,10 +926,10 @@ export class BattleDirector extends Component {
     ctx.canShovel = this._canShovel();
     ctx.canBomb = this._canBomb();
     ctx.itemsReady = this._itemsReady;
-    const guide = activeGuide(PLAY.levelId, ctx);
+    const guide = activeGuide(PLAY.levelId, ctx) ?? pickGuide(ctx);
     this._emitGuide(guide);
     const hint = this._hint;
-    if (!hint || !guide || guide.phase === 'icon') {
+    if (!hint || !guide || guide.phase === 'icon' || !teaching) {
       hint?.hide();
       return;
     }
@@ -941,7 +981,8 @@ export class BattleDirector extends Component {
   }
 
   private _guideKeepPick(): boolean {
-    return this._lastGuide?.phase === 'target';
+    const id = guideIdForLevel(PLAY.levelId);
+    return !!id && !isGuideDone(id) && this._lastGuide?.phase === 'target';
   }
 
   private _placeTapHint(hint: HintHand, node: Node, liftY: number, liftZ: number): void {
@@ -1466,28 +1507,28 @@ export class BattleDirector extends Component {
     if (this._hookPick) {
       const rear = this._pickAnyBench(e);
       if (rear && this._canHookUnit(rear)) {
-        rear.node.getWorldPosition(_world);
-        _world.y += 0.22;
+        this._unitItemLand(rear, _world);
         this._commitItemFx('hook', _world, () => {
           this._deployHooked(rear);
         }, rear, this._hintSlot(rear));
       } else if (!this._guideKeepPick()) {
         this._hookPick = false;
         this._emitItems();
+        this._kickGuide();
       }
       return;
     }
     if (this._shovelPick) {
       const unit = this._pickSlotUnit(e);
       if (unit) {
-        unit.node.getWorldPosition(_world);
-        _world.y += 0.22;
+        this._unitItemLand(unit, _world);
         this._commitItemFx('shovel', _world, () => {
           this._shovelToBench(unit);
         }, unit, this._slotOf(unit));
       } else if (!this._guideKeepPick()) {
         this._shovelPick = false;
         this._emitItems();
+        this._kickGuide();
       }
       return;
     }
@@ -1500,6 +1541,7 @@ export class BattleDirector extends Component {
       } else if (!this._guideKeepPick()) {
         this._bombPick = false;
         this._emitItems();
+        this._kickGuide();
       }
       return;
     }
@@ -1603,6 +1645,7 @@ export class BattleDirector extends Component {
     this._refillBenchCol(unit.benchCol);
     this._hint?.hide();
     this._maybeAutoPlace();
+    this._syncShovelHud();
   }
 
   private _tickCombat(dt: number): void {
@@ -1630,6 +1673,7 @@ export class BattleDirector extends Component {
     if (this._stuckT >= 0.15) {
       this._stuckT = 0;
       this._checkStuckLose();
+      this._syncShovelHud();
     }
   }
 
@@ -1693,13 +1737,16 @@ export class BattleDirector extends Component {
     return false;
   }
 
-  /** All pits occupied and nobody can (or is) absorbing → fail. */
+  /** Open pits full, wall still has bricks, and nothing can progress → fail. */
   private _checkStuckLose(): void {
     if (this._won || this._lost || this._platesBreaking) return;
+    let openSlots = 0;
     let filled = 0;
     let absorbing = false;
     let canAbsorb = false;
     for (const s of this._slots) {
+      if (!s.open) continue;
+      openSlots += 1;
       if (s.empty) continue;
       filled += 1;
       const u = s.occupant;
@@ -1711,7 +1758,7 @@ export class BattleDirector extends Component {
       if (u.inflight > 0) absorbing = true;
       else if (u.power > 0 && this._canEventuallyAbsorb(u)) canAbsorb = true;
     }
-    if (filled < GAME.slotMax || absorbing || canAbsorb) return;
+    if (openSlots <= 0 || filled < openSlots || absorbing || canAbsorb) return;
     if (this._afford('bomb') && this._canBomb()) return;
     if (this._afford('shovel') && this._canShovel()) return;
     this._lost = true;
@@ -2039,7 +2086,7 @@ export class BattleDirector extends Component {
       if (!list) continue;
       for (let i = 0; i < list.length; i++) {
         const b = list[i];
-        if (!this._sameColor(b, u) || !b.suckable) continue;
+        if (!this._sameColor(b, u) || !b.suckable || b.buried) continue;
         if (this._plateBlocks(b.row, b.col)) continue;
         return true;
       }
@@ -2195,52 +2242,61 @@ export class BattleDirector extends Component {
     return this._hiddenBehind(block, _camLocal.x - p.x, _camLocal.y - p.y, _camLocal.z - p.z);
   }
 
-  private _camExposed(block: BlockCell, ghost: boolean): boolean {
+  private _camExposed(block: BlockCell, _ghost: boolean): boolean {
+    if (!this._hasOpenFace(block)) return false;
     const p = block.node.position;
-    const dx = _camLocal.x - p.x;
-    const dy = _camLocal.y - p.y;
-    const dz = _camLocal.z - p.z;
-    let open = false;
-    for (let i = 0; i < FACE.length; i++) {
-      const f = FACE[i];
-      const d = dx * f[3] + dy * f[4] + dz * f[5];
-      if (d <= 0.08) continue;
-      if (this._blockedAt(block.col + f[0], block.row + f[1], block.layer + f[2])) continue;
-      open = true;
-      break;
-    }
-    if (!open) return false;
-    return !this._hiddenBehind(block, dx, dy, dz);
+    return !this._hiddenBehind(block, _camLocal.x - p.x, _camLocal.y - p.y, _camLocal.z - p.z);
   }
 
+  private _hasOpenFace(block: BlockCell): boolean {
+    for (let i = 0; i < FACE.length; i++) {
+      const f = FACE[i];
+      if (!this._blockedAt(block.col + f[0], block.row + f[1], block.layer + f[2])) return true;
+    }
+    return false;
+  }
+
+  /** 3D DDA toward the camera so a hollow window counts as line of sight. */
   private _hiddenBehind(block: BlockCell, dx: number, dy: number, dz: number): boolean {
     const gx = dx;
     const gy = dy;
     const gz = -dz;
-    const ax = Math.abs(gx);
-    const ay = Math.abs(gy);
-    const az = Math.abs(gz);
-    let dc = 0;
-    let dr = 0;
-    let dl = 0;
-    if (ax >= ay && ax >= az) dc = gx > 0 ? 1 : -1;
-    else if (ay >= az) dr = gy > 0 ? 1 : -1;
-    else dl = gz > 0 ? 1 : -1;
-    let c = block.col + dc;
-    let r = block.row + dr;
-    let l = block.layer + dl;
+    const len = Math.hypot(gx, gy, gz);
+    if (len < 1e-8) return false;
+    const sx = gx / len;
+    const sy = gy / len;
+    const sz = gz / len;
+    const stepC = sx > 1e-8 ? 1 : sx < -1e-8 ? -1 : 0;
+    const stepR = sy > 1e-8 ? 1 : sy < -1e-8 ? -1 : 0;
+    const stepL = sz > 1e-8 ? 1 : sz < -1e-8 ? -1 : 0;
+    const tDeltaC = stepC === 0 ? 1e9 : Math.abs(1 / sx);
+    const tDeltaR = stepR === 0 ? 1e9 : Math.abs(1 / sy);
+    const tDeltaL = stepL === 0 ? 1e9 : Math.abs(1 / sz);
+    let tMaxC = stepC === 0 ? 1e9 : 0.5 / Math.abs(sx);
+    let tMaxR = stepR === 0 ? 1e9 : 0.5 / Math.abs(sy);
+    let tMaxL = stepL === 0 ? 1e9 : 0.5 / Math.abs(sz);
+    let c = block.col;
+    let r = block.row;
+    let l = block.layer;
     const maxC = this._gCols;
     const maxR = this._gRows;
     const maxL = this._gLayers;
     const grid = this._grid;
     const rowStride = this._gRowStride;
     const layerStride = this._gLayerStride;
-    for (let s = 0; s < 32; s++) {
+    for (let s = 0; s < 48; s++) {
+      if (tMaxC <= tMaxR && tMaxC <= tMaxL) {
+        c += stepC;
+        tMaxC += tDeltaC;
+      } else if (tMaxR <= tMaxL) {
+        r += stepR;
+        tMaxR += tDeltaR;
+      } else {
+        l += stepL;
+        tMaxL += tDeltaL;
+      }
       if (c < 0 || r < 0 || l < 0 || c >= maxC || r >= maxR || l >= maxL) return false;
       if (grid[l * layerStride + r * rowStride + c]) return true;
-      c += dc;
-      r += dr;
-      l += dl;
     }
     return false;
   }
@@ -3109,6 +3165,7 @@ export class BattleDirector extends Component {
     this._itemFxBusy = false;
     this._clearFxHold();
     this._clearPicks();
+    this._canShovelHud = this._canShovel();
     this._emitItems();
   }
 
@@ -3121,6 +3178,12 @@ export class BattleDirector extends Component {
     this._hookPick = false;
     this._shovelPick = false;
     this._bombPick = false;
+  }
+
+  private _kickGuide(): void {
+    this._guideKey = '*';
+    this._hintT = 1;
+    this._syncHint(0);
   }
 
   private _spend(id: ItemId, autoPlace = true): void {

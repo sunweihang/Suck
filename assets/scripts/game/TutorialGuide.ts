@@ -41,7 +41,7 @@ const TIPS: Record<string, string> = {
   shovelWait: '先点击炮塔上场',
   shovelTarget: '点击场上的炮塔',
   bomb: '点击炸弹，炸掉同色砖块',
-  bombTarget: '点击一块砖',
+  bombTarget: '点击墙上的砖块，炸掉同色',
 };
 
 let _done: Partial<Record<GuideId, boolean>> | null = null;
@@ -140,4 +140,12 @@ export function activeGuide(level: number, ctx: GuideContext): GuideView | null 
   if (ctx.bombPick) return { id, phase: 'target', tip: TIPS.bombTarget, item: id };
   if (!ctx.canBomb) return null;
   return { id, phase: 'icon', tip: TIPS.bomb, item: id };
+}
+
+/** Non-tutorial pick mode — same tips / target hand as the item lesson. */
+export function pickGuide(ctx: GuideContext): GuideView | null {
+  if (ctx.hookPick) return { id: 'hook', phase: 'target', tip: TIPS.hookTarget, item: 'hook' };
+  if (ctx.shovelPick) return { id: 'shovel', phase: 'target', tip: TIPS.shovelTarget, item: 'shovel' };
+  if (ctx.bombPick) return { id: 'bomb', phase: 'target', tip: TIPS.bombTarget, item: 'bomb' };
+  return null;
 }

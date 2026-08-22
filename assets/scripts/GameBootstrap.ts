@@ -34,10 +34,10 @@ import { AudioService, setGameAudio } from './audio/AudioService';
 import { buildPlayWorld } from './battle/BuildPlayWorld';
 import { BattleDirector } from './battle/BattleDirector';
 import { resetPlayFx } from './battle/InkShot';
-import { GAME, playCamLookAtY } from './game/GameConfig';
+import { GAME, playCamLookAtY, playCamOrthoHeight } from './game/GameConfig';
 import { UGC_PLAY_BTN_LIFT, playViewBand } from './game/ViewFit';
 import { applyLevel, ensureLevel, ensureLevels, getLevel, itemUnlocked, LEVEL_COUNT, loadLevelIndex, saveLevelIndex, WIN_DOUBLE_ONLY_FROM, type ItemId } from './game/LevelCatalog';
-import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, resetGuideProgress, shouldSkipItemShop } from './game/TutorialGuide';
+import { completeGuide, grantGuideItem, guideIdForLevel, isGuideDone, resetGuideProgress } from './game/TutorialGuide';
 import {
   LETTERBOX_CLEAR,
   applyDesignResolution,
@@ -730,7 +730,7 @@ export class GameBootstrap extends Component {
     if (gid && !isGuideDone(gid)) {
       if (gid === 'tap' || gid === 'spin' || id !== gid) return;
     }
-    if (shouldSkipItemShop(id, level) && this._wallet.itemCount(id) > 0) {
+    if (this._wallet.itemCount(id) > 0) {
       this._battle?.useItem(id);
       return;
     }
@@ -887,6 +887,7 @@ export class GameBootstrap extends Component {
       hookPick: false,
       shovelPick: false,
       bombPick: false,
+      canShovel: false,
     };
   }
 
@@ -993,7 +994,7 @@ export class GameBootstrap extends Component {
     if (!cam || !camNode) return;
     this._mainCam = cam;
     cam.projection = Camera.ProjectionType.ORTHO;
-    cam.orthoHeight = GAME.worldCamOrthoHeight;
+    cam.orthoHeight = playCamOrthoHeight();
     cam.fov = GAME.worldCamFovDeg;
     cam.near = GAME.worldCamNear;
     cam.far = GAME.worldCamFar;
@@ -1010,6 +1011,7 @@ export class GameBootstrap extends Component {
     const cam = this._mainCam;
     const camNode = cam?.node;
     if (!cam || !camNode) return;
+    cam.orthoHeight = playCamOrthoHeight();
     const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
     const yaw = (GAME.worldCamYawDeg * Math.PI) / 180;
     const dist = GAME.worldCamDist;
@@ -1030,6 +1032,7 @@ export class GameBootstrap extends Component {
     );
     camNode.lookAt(look, Vec3.UNIT_Y);
     applyPortraitCameraRect(cam);
+    layoutWorldBg(camNode.scene);
   }
 
   private _tuneLighting(): void {
@@ -1296,6 +1299,7 @@ export class GameBootstrap extends Component {
         hookPick: false,
         shovelPick: false,
         bombPick: false,
+        canShovel: false,
       });
     });
 

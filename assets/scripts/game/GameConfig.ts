@@ -63,30 +63,37 @@ export type PlayViewBand = {
   ceilFrac: number;
 };
 
+/** Per-level ortho height. Wide sculptures zoom the camera instead of shrinking into a speck. */
+export let PLAY_CAM_ORTHO_HEIGHT = GAME.worldCamOrthoHeight;
+
+export function playCamOrthoHeight(): number {
+  return PLAY_CAM_ORTHO_HEIGHT;
+}
+
 /**
  * Look-at Y that puts the turret dock bottom on `pinFrac` of the camera view
  * (0 = bottom). Extra phone height stays above as the sculpture field.
  */
-export function playCamLookAtY(pinFrac: number): number {
+export function playCamLookAtY(pinFrac: number, orthoH = PLAY_CAM_ORTHO_HEIGHT): number {
   const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
   const py = benchSeatY() + STAGE.dockPinY;
   const pz = benchSeatZ(BENCH.rows - 1) + STAGE.dockPinZ;
   const t = Math.min(0.42, Math.max(0.05, pinFrac));
-  const targetCamY = GAME.worldCamOrthoHeight * (2 * t - 1);
+  const targetCamY = orthoH * (2 * t - 1);
   return py - (targetCamY + (pz - GAME.worldCamLookAtZ) * Math.sin(pitch)) / Math.cos(pitch);
 }
 
 /** Camera-view fraction (0 = bottom) of a world point under the play ortho camera. */
-export function viewFracOfWorld(py: number, pz: number, lookY: number): number {
+export function viewFracOfWorld(py: number, pz: number, lookY: number, orthoH = PLAY_CAM_ORTHO_HEIGHT): number {
   const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
   const camY = (py - lookY) * Math.cos(pitch) - (pz - GAME.worldCamLookAtZ) * Math.sin(pitch);
-  return (camY / GAME.worldCamOrthoHeight + 1) * 0.5;
+  return (camY / orthoH + 1) * 0.5;
 }
 
 /** World Y at `pz` that lands on camera-view fraction `frac`. */
-export function worldYAtViewFrac(frac: number, pz: number, lookY: number): number {
+export function worldYAtViewFrac(frac: number, pz: number, lookY: number, orthoH = PLAY_CAM_ORTHO_HEIGHT): number {
   const pitch = (GAME.worldCamPitchDeg * Math.PI) / 180;
-  const camY = GAME.worldCamOrthoHeight * (2 * frac - 1);
+  const camY = orthoH * (2 * frac - 1);
   return lookY + (camY + (pz - GAME.worldCamLookAtZ) * Math.sin(pitch)) / Math.cos(pitch);
 }
 
@@ -118,12 +125,12 @@ export const PLAY = {
   fieldYawDeg: 0,
 };
 
-/** World box that stays inside the fixed play camera (28x20 @ ~0.19). */
-const WALL_SAFE_HALF_W = 2.85;
 /** World Y the play camera can still see; a peeking brick still counts. */
 export let VIEW_Y_MIN = 0.95;
 export let VIEW_Y_MAX = 8.6;
 const BLOCK_SIZE_RATIO = GAME.blockSize / GAME.blockStep;
+const CAM_WIDTH_KEEP = 0.90;
+const CAM_ORTHO_MAX_MUL = 1.42;
 
 /**
  * One play-stage. `liftY` moves sculpture, pits, and bench together.
@@ -153,6 +160,7 @@ export function fitPlayLayout(
   occMin = 0,
   occMax = -1,
   view: PlayViewBand = { pinFrac: 0.14, ceilFrac: 0.92 },
+  aspect = GAME.designWidth / GAME.designHeight,
 ): void {
   const spanX = Math.max(1, cols - 1 + BLOCK_SIZE_RATIO);
   const spanZ = Math.max(1, depth - 1 + BLOCK_SIZE_RATIO);
@@ -162,30 +170,49 @@ export function fitPlayLayout(
   const y0 = Math.max(0, Math.min(Math.max(0, rows - 1), occMin));
   const y1 = occMax >= y0 ? Math.min(Math.max(0, rows - 1), occMax) : Math.max(0, rows - 1);
   const occSpan = Math.max(1, y1 - y0 + BLOCK_SIZE_RATIO);
+  const baseOrtho = GAME.worldCamOrthoHeight;
+  const maxOrtho = baseOrtho * CAM_ORTHO_MAX_MUL;
+  const viewAspect = Math.max(0.28, aspect);
+  const halfW = (orthoH: number): number => orthoH * viewAspect * CAM_WIDTH_KEEP;
 
-  let step = Math.min(GAME.blockStep, (2 * WALL_SAFE_HALF_W) / spanX, 3.2 / spanZ);
-  const applyStep = (s: number): { floorY: number; ceilY: number } => {
+  const applyStep = (s: number, orthoH: number): { floorY: number; ceilY: number } => {
+    PLAY_CAM_ORTHO_HEIGHT = orthoH;
     PLAY.blockStep = s;
     PLAY.blockSize = s * BLOCK_SIZE_RATIO;
-    const lookY = playCamLookAtY(view.pinFrac);
+    const lookY = playCamLookAtY(view.pinFrac, orthoH);
     const frontZ = voxelFrontZ();
     const backZ = frontZ - Math.max(0, depth - 1) * s;
     const slotTop = viewFracOfWorld(
       PLAY.slotStandY + STAGE.slotClearance,
       shooterStandZ(),
       lookY,
+      orthoH,
     );
     const floorY = Math.max(
       PLAY.slotStandY + STAGE.sculptureGap,
-      worldYAtViewFrac(slotTop + STAGE.modelFloorPad, frontZ, lookY),
+      worldYAtViewFrac(slotTop + STAGE.modelFloorPad, frontZ, lookY, orthoH),
     );
-    const ceilY = Math.max(floorY + 0.8, worldYAtViewFrac(view.ceilFrac, backZ, lookY));
+    const ceilY = Math.max(floorY + 0.8, worldYAtViewFrac(view.ceilFrac, backZ, lookY, orthoH));
     return { floorY, ceilY };
   };
 
-  let band = applyStep(step);
-  step = Math.min(step, (band.ceilY - band.floorY) / occSpan);
-  band = applyStep(step);
+  const stepAt = (orthoH: number): number => {
+    const probe = applyStep(GAME.blockStep, orthoH);
+    return Math.min(
+      GAME.blockStep,
+      (2 * halfW(orthoH)) / spanX,
+      (3.2 * (orthoH / baseOrtho)) / spanZ,
+      (probe.ceilY - probe.floorY) / occSpan,
+    );
+  };
+
+  let ortho = baseOrtho;
+  let step = stepAt(ortho);
+  if (step + 1e-4 < GAME.blockStep) {
+    ortho = Math.min(maxOrtho, baseOrtho * (GAME.blockStep / Math.max(0.05, step)));
+    step = stepAt(ortho);
+  }
+  let band = applyStep(step, ortho);
 
   const half = PLAY.blockSize * 0.5;
   const mid = (band.floorY + band.ceilY) * 0.5;

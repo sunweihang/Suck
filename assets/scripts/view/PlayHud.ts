@@ -79,9 +79,11 @@ export class PlayHud extends Component {
     hookPick: false,
     shovelPick: false,
     bombPick: false,
+    canShovel: false,
   };
   private _guide: GuideView | null = null;
   private _ugc = false;
+  private _armedId: ItemId | null = null;
   private readonly _heldUnlock = new Set<ItemId>();
 
   setup(opts: {
@@ -340,6 +342,7 @@ export class PlayHud extends Component {
   setItems(state: ItemHudState): void {
     this._items = { ...state };
     this._paintItems();
+    this._syncTip();
   }
 
   holdUnlock(id: ItemId): void {
@@ -494,6 +497,11 @@ export class PlayHud extends Component {
     applyArtSpriteSoon(this._ensureTray(root, tray.w, tray.h), 'itemTray', tray.w, tray.h, true);
     this._ensureItemBtns(root);
     this._raiseItems(root);
+    const nextArmed: ItemId | null =
+      this._items.hookPick ? 'hook'
+        : this._items.shovelPick ? 'shovel'
+          : this._items.bombPick ? 'bomb'
+            : null;
     for (const id of ITEM_IDS) {
       const n = root.getChildByName(`Item_${id}`);
       if (!n) continue;
@@ -506,32 +514,33 @@ export class PlayHud extends Component {
       const unlocked = this._itemOpen(id);
       const charges = this._items[id] ?? 0;
       const on = unlocked && charges > 0;
-      const armed = unlocked && (
-        (id === 'hook' && this._items.hookPick)
-        || (id === 'shovel' && this._items.shovelPick)
-        || (id === 'bomb' && this._items.bombPick)
-      );
-      n.setScale(armed ? 1.08 : 1, armed ? 1.08 : 1, 1);
-      this._paintItemRing(n.getChildByName('Ring'), armed);
+      const armed = unlocked && id === nextArmed;
+      const leftover = n.getChildByName('Ring');
+      if (leftover) leftover.active = false;
+      if (armed !== (this._armedId === id)) this._pulseArmed(n, armed);
       const icon = iconNode?.getComponent(Sprite);
       if (icon) {
         icon.color = Color.WHITE;
-        icon.grayscale = !unlocked;
+        icon.grayscale = !unlocked || (id === 'shovel' && !this._items.canShovel);
       }
       this._paintItemBadge(n.getChildByName('Badge'), unlocked, on, charges);
     }
+    this._armedId = nextArmed && this._itemOpen(nextArmed) ? nextArmed : null;
   }
 
-  private _paintItemRing(ring: Node | null, on: boolean): void {
-    if (!ring) return;
-    ring.active = on;
-    const g = ring.getComponent(Graphics);
-    if (!g || !on) return;
-    g.clear();
-    g.strokeColor = new Color(255, 232, 120, 230);
-    g.lineWidth = 7;
-    g.circle(0, 0, ITEM_ICON * 0.58);
-    g.stroke();
+  private _pulseArmed(n: Node, on: boolean): void {
+    Tween.stopAllByTarget(n);
+    if (!on) {
+      n.setScale(1, 1, 1);
+      return;
+    }
+    n.setScale(1.1, 1.1, 1);
+    tween(n)
+      .to(0.36, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'sineInOut' })
+      .to(0.36, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'sineInOut' })
+      .union()
+      .repeatForever()
+      .start();
   }
 
   private _paintItemBadge(badge: Node | null, unlocked: boolean, on: boolean, charges = 0): void {

@@ -13,7 +13,7 @@ import {
   rgbLooksSame,
   rgbOfVoxel,
 } from './VoxelPalette';
-import { playViewBand } from './ViewFit';
+import { playViewBand, windowAspect } from './ViewFit';
 import { notifyPlayerDirty } from '../net/PlayerCloud';
 
 export let LEVEL_COUNT = 100;
@@ -146,7 +146,7 @@ export function applyLevel(def: LevelDef, opts?: { minDepth?: number }): void {
   PLAY.raftTravel = def.raftTravel ?? 0;
   PLAY.raftPeriod = def.raftPeriod ?? 2.5;
   const occ = occupiedVoxelRows(def);
-  fitPlayLayout(def.cols, def.rows, depth, occ.min, occ.max, playViewBand());
+  fitPlayLayout(def.cols, def.rows, depth, occ.min, occ.max, playViewBand(), windowAspect());
 }
 
 /** Lowest / highest occupied brick row — used to drop short sculptures onto the pits. */
