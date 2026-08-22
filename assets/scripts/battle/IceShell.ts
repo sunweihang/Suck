@@ -19,8 +19,8 @@ import { freezeDeployNeed } from '../game/LevelCatalog';
 import { getShooterMesh } from './TurretLook';
 
 const ICE_FX = 'fx/ice-shell';
-const NEED_SCALE = 0.0036;
-const NEED_FONT = 34;
+const NEED_SCALE = 0.0042;
+const NEED_FONT = 38;
 const _host = new WeakMap<Node, Node>();
 const _fading = new WeakSet<Node>();
 
@@ -47,7 +47,7 @@ function iceMat(): Material | null {
     states: {
       depthStencilState: {
         depthTest: true,
-        depthWrite: true,
+        depthWrite: false,
         depthFunc: gfx.ComparisonFunc.LESS_EQUAL,
       },
       rasterizerState: {
@@ -96,10 +96,10 @@ function bindNeed(node: Node, need: number): void {
   lab.fontSize = NEED_FONT;
   lab.lineHeight = NEED_FONT + 10;
   lab.isBold = true;
-  lab.color = Color.WHITE;
+  lab.color = new Color(210, 245, 255, 255);
   lab.enableOutline = true;
-  lab.outlineWidth = 6;
-  lab.outlineColor = Color.BLACK;
+  lab.outlineWidth = 5;
+  lab.outlineColor = new Color(18, 58, 108, 255);
   lab.horizontalAlign = Label.HorizontalAlign.CENTER;
   lab.verticalAlign = Label.VerticalAlign.CENTER;
   lab.useSystemFont = true;
@@ -123,7 +123,7 @@ function bindCoat(node: Node, host: Node): void {
   node.layer = body.layer;
   node.setPosition(0, 0, 0);
   node.setRotationFromEuler(0, 0, 0);
-  node.setScale(1.035, 1.035, 1.035);
+  node.setScale(1.06, 1.06, 1.06);
   node.removeComponent('Sprite');
   node.removeComponent(UITransform);
   const mr = node.getComponent(MeshRenderer) ?? node.addComponent(MeshRenderer);

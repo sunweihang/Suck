@@ -1,13 +1,20 @@
 CCEffect %{
   techniques:
-  - name: opaque
+  - name: transparent
     passes:
     - vert: ice-vs:vert
       frag: ice-fs:frag
       depthStencilState:
         depthTest: true
-        depthWrite: true
+        depthWrite: false
         depthFunc: less_equal
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
       rasterizerState:
         cullMode: back
 }%
@@ -29,7 +36,7 @@ CCProgram ice-vs %{
     CCGetWorldMatrixFull(matWorld, matWorldIT);
     vec3 nrm = normalize(In.normal.xyz);
     vec4 lp = In.position;
-    lp.xyz += nrm * 0.016;
+    lp.xyz += nrm * 0.026;
     vec4 wp = matWorld * lp;
     v_worldN = normalize((matWorldIT * vec4(nrm, 0.0)).xyz);
     v_worldP = wp.xyz;
@@ -130,42 +137,44 @@ CCProgram ice-fs %{
     vec3 L = normalize(-cc_mainLitDir.xyz);
     vec3 cellP = v_objP * 11.0 + v_worldP * 0.35;
     vec4 cell = voronoi(cellP);
-    vec3 facetN = normalize(N + (cell.xyz - 0.5) * 0.85);
+    vec3 facetN = normalize(N + (cell.xyz - 0.5) * 1.05);
     float NV = max(abs(dot(facetN, V)), 0.001);
     float NL = max(dot(facetN, L), 0.0);
     vec3 H = normalize(L + V);
     float NH = max(dot(facetN, H), 0.0);
 
-    float fres = pow(1.0 - NV, 3.2);
-    float spec = pow(NH, 72.0);
-    float spec2 = pow(NH, 18.0);
-    float frost = noise(v_objP * 28.0) * 0.22 + noise(v_objP * 64.0) * 0.08;
+    float fres = pow(1.0 - NV, 2.4);
+    float spec = pow(NH, 56.0);
+    float spec2 = pow(NH, 14.0);
+    float frost = noise(v_objP * 28.0) * 0.24 + noise(v_objP * 64.0) * 0.1;
     float crack = cracks(v_objP * 1.15);
     float cavity = smoothstep(0.0, 0.12, cell.w);
 
-    vec3 deep = vec3(0.18, 0.52, 0.82);
-    vec3 mid = vec3(0.48, 0.82, 0.98);
-    vec3 lite = vec3(0.86, 0.96, 1.0);
+    vec3 deep = vec3(0.08, 0.32, 0.62);
+    vec3 mid = vec3(0.22, 0.52, 0.82);
+    vec3 lite = vec3(0.48, 0.76, 0.95);
     vec3 ice = mix(deep, mid, cavity);
-    ice = mix(ice, lite, frost * 0.55);
-    ice = mix(ice, vec3(0.95, 0.99, 1.0), crack * 0.75);
+    ice = mix(ice, lite, frost * 0.48);
+    ice = mix(ice, vec3(0.62, 0.86, 0.98), crack * 0.55);
 
     vec3 lit = cc_mainLitColor.rgb * cc_mainLitColor.w;
-    vec3 col = ice * (0.22 + NL * 0.78) * (0.35 + lit * 0.75);
-    col += lit * spec * 1.35;
-    col += vec3(0.75, 0.9, 1.0) * spec2 * 0.28;
-    col += vec3(0.65, 0.88, 1.0) * fres * 0.55;
-    col += ice * crack * 0.25;
+    vec3 col = ice * (0.2 + NL * 0.72) * (0.46 + lit * 0.58);
+    col += lit * spec * 0.95;
+    col += vec3(0.55, 0.82, 1.0) * spec2 * 0.26;
+    col += vec3(0.42, 0.72, 0.95) * fres * 0.48;
+    col += ice * crack * 0.22;
 
     vec3 R = normalize(reflect(-V, facetN));
     float fEnv = clamp(0.5 - R.y * 0.5, 0.0, 1.0);
     vec3 env = mix(cc_ambientSky.rgb, cc_ambientGround.rgb, fEnv);
-    col += env * cc_ambientSky.w * (0.12 + fres * 0.35);
+    col += env * cc_ambientSky.w * (0.1 + fres * 0.28);
 
     float tw = 0.5 + 0.5 * sin(cc_time.x * 7.0 + hash13(floor(v_objP * 40.0)) * 6.2831);
-    col += vec3(1.0) * crack * tw * 0.2 * step(0.82, hash13(floor(v_objP * 18.0)));
+    col += vec3(0.68, 0.9, 1.0) * crack * tw * 0.14 * step(0.82, hash13(floor(v_objP * 18.0)));
 
-    col = clamp(col, 0.0, 1.6);
-    return CCFragOutput(vec4(col, 1.0));
+    col = clamp(col, 0.0, 1.25);
+    float alpha = 0.58 + fres * 0.24 + crack * 0.12 + frost * 0.08;
+    alpha = clamp(alpha, 0.52, 0.9);
+    return CCFragOutput(vec4(col, alpha));
   }
 }%
